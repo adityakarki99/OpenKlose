@@ -63,6 +63,9 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 
 ## The Canvas UI
 
+- **`/`** — a landing/home page (`pages/LandingPage.tsx`) that explains the sketch → preview →
+  comment → build loop, with a decorative mini-canvas hero and CTAs into the app. Its "New project"
+  button creates a project and opens its canvas.
 - **`/projects`** — a grid of local projects (create, rename, delete), backed by the local server's
   REST API instead of a cloud database.
 - **`/canvas/:projectId`** — an infinite pannable/zoomable board of `SketchNode`s: a name, description,

@@ -45,6 +45,10 @@ npx klose project create "<name>"
 
 Note the returned project `id` — every subsequent command needs it.
 
+Once you have it, check for pending feedback: `npx klose project get <id>` and look at each node's
+`comments`. If any sketch has comments, that's often *why* the user opened `/klose` — lead with
+addressing that feedback rather than waiting to be asked.
+
 ## 3. Ground yourself in the REAL design system
 
 Before ideating, read the *host repository's* actual design system — do not invent generic tokens.
@@ -124,6 +128,21 @@ Then mark the sketch as built so the canvas reflects reality:
 ```
 npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
 ```
+
+If this build was in response to comments, clear the ones you addressed (or all of them, once
+confirmed) so the canvas doesn't keep showing stale feedback — comments are just another field:
+
+```
+npx klose project update-node <projectId> <nodeId> '{"comments":[]}'
+```
+
+## Comments: the user's other way of talking to you
+
+The inspector panel's "Copy for agent" button formats a sketch's `comments` (plus its name and the
+project/node ids) as text for the user to paste into this chat — so a pasted block that starts with
+"Feedback on the ... sketch" is a comment dump, not a fresh request. Treat it as feedback on that
+specific sketch: read the sketch's current `code`/`notes` first, apply the feedback, update it
+(step 5's `update-node`, or step 6 if it's ready to build), and clear the addressed comments as above.
 
 ## Notes
 

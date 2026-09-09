@@ -21,6 +21,14 @@ export interface ComponentNode {
    * in the project's actual source tree at builtFilePath.
    */
   code?: string;
+  /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
+  comments?: Comment[];
+}
+
+export interface Comment {
+  id: string;
+  text: string;
+  createdAt: number;
 }
 
 export interface CanvasState {

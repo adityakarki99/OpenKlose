@@ -56,6 +56,12 @@ const CanvasPage: React.FC = () => {
   const isSaving = saveStatus === 'saving';
 
   const dragStartNodesRef = useRef<ComponentNode[]>([]);
+  // Distinguishes a real drag/resize from a plain click, and remembers whether the
+  // node was already selected before this mousedown — see the comment above the
+  // window-listener effect below for why this matters.
+  const interactionMovedRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const wasSelectedBeforeInteractionRef = useRef(false);
   const [dragState, setDragState] = useState<DragState>({ isDragging: false, nodeId: null, startX: 0, startY: 0, initialNodeX: 0, initialNodeY: 0 });
   const [resizeState, setResizeState] = useState<ResizeState>({ isResizing: false, nodeId: null, handle: null, startX: 0, startY: 0, initialX: 0, initialY: 0, initialWidth: 0, initialHeight: 0 });
   const [canvasDrag, setCanvasDrag] = useState<{ active: boolean; startX: number; startY: number; scrollLeft: number; scrollTop: number }>({ active: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
@@ -212,7 +218,7 @@ const CanvasPage: React.FC = () => {
     });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: { clientX: number; clientY: number }) => {
     if (canvasDrag.active && canvasRef.current) {
       const dx = e.clientX - canvasDrag.startX;
       const dy = e.clientY - canvasDrag.startY;
@@ -221,6 +227,7 @@ const CanvasPage: React.FC = () => {
     }
 
     if (dragState.isDragging && dragState.nodeId) {
+      interactionMovedRef.current = true;
       const dx = (e.clientX - dragState.startX) / zoom;
       const dy = (e.clientY - dragState.startY) / zoom;
 
@@ -234,6 +241,7 @@ const CanvasPage: React.FC = () => {
     }
 
     if (resizeState.isResizing && resizeState.nodeId) {
+      interactionMovedRef.current = true;
       const dx = (e.clientX - resizeState.startX) / zoom;
       const dy = (e.clientY - resizeState.startY) / zoom;
 
@@ -263,16 +271,53 @@ const CanvasPage: React.FC = () => {
       commitToHistory(dragStartNodesRef.current);
       dragStartNodesRef.current = [];
     }
+    // A real drag/resize just happened — the native "click" event that follows
+    // this mouseup (browsers fire one whenever mousedown and mouseup land on the
+    // same element, which a drag's own mouseup usually does since the node moves
+    // with the cursor) must not be allowed to toggle selection off.
+    if (interactionMovedRef.current) {
+      suppressClickRef.current = true;
+    }
+    interactionMovedRef.current = false;
     setCanvasDrag((prev) => ({ ...prev, active: false }));
     setDragState((prev) => ({ ...prev, isDragging: false, nodeId: null }));
     setResizeState((prev) => ({ ...prev, isResizing: false, nodeId: null }));
   };
+
+  // Track drag/resize/pan at the window level, not just over the canvas div.
+  //
+  // Binding mousemove/mouseup only on the canvas div means releasing the mouse
+  // over a sibling overlay (the toolbar, the inspector panel) or anywhere
+  // outside the div's bounds never fires handleMouseUp — isDragging stays
+  // true forever, so the node keeps "sticking" to the cursor on the next
+  // move anywhere in the canvas. Window-level listeners, active only while a
+  // gesture is actually in progress, always see the release.
+  useEffect(() => {
+    if (!dragState.isDragging && !resizeState.isResizing && !canvasDrag.active) return;
+
+    const onMove = (e: MouseEvent) => handleMouseMove(e);
+    const onUp = () => handleMouseUp();
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    // Safety net: alt-tabbing or otherwise losing focus mid-drag should also end it.
+    window.addEventListener('blur', onUp);
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragState.isDragging, resizeState.isResizing, canvasDrag.active]);
 
   const handleDragStart = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const node = nodes.find((n) => n.id === id);
     if (node) {
       dragStartNodesRef.current = nodes;
+      interactionMovedRef.current = false;
+      wasSelectedBeforeInteractionRef.current = selectedNodeId === id;
       setDragState({ isDragging: true, nodeId: id, startX: e.clientX, startY: e.clientY, initialNodeX: node.x, initialNodeY: node.y });
       setSelectedNodeId(id);
     }
@@ -283,6 +328,8 @@ const CanvasPage: React.FC = () => {
     const node = nodes.find((n) => n.id === id);
     if (node) {
       dragStartNodesRef.current = nodes;
+      interactionMovedRef.current = false;
+      wasSelectedBeforeInteractionRef.current = selectedNodeId === id;
       setResizeState({
         isResizing: true,
         nodeId: id,
@@ -387,9 +434,6 @@ const CanvasPage: React.FC = () => {
           ref={canvasRef}
           className={`w-full h-full overflow-auto canvas-scroll relative ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'}`}
           onMouseDown={handleCanvasMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
         >
           <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }} className="relative">
             <div
@@ -431,7 +475,18 @@ const CanvasPage: React.FC = () => {
                   isSelected={selectedNodeId === node.id}
                   onSelect={(id, e) => {
                     e.stopPropagation();
-                    setSelectedNodeId((prev) => (prev === id ? null : id));
+                    // The preceding mousedown already selected this node (see
+                    // handleDragStart). This click only needs to act when it was
+                    // NOT the result of a drag/resize (suppressClickRef) and the
+                    // node was already selected before that mousedown — i.e. a
+                    // plain click on an already-selected node toggles it off.
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false;
+                      return;
+                    }
+                    if (wasSelectedBeforeInteractionRef.current) {
+                      setSelectedNodeId(null);
+                    }
                   }}
                   onDelete={handleDeleteNode}
                   onDuplicate={handleDuplicateNode}
@@ -450,8 +505,14 @@ const CanvasPage: React.FC = () => {
         </div>
       </div>
 
-      {selectedNode && (
-        <SketchInspector node={selectedNode} onClose={() => setSelectedNodeId(null)} onUpdate={handleUpdateNode} />
+      {selectedNode && projectId && (
+        <SketchInspector
+          node={selectedNode}
+          projectId={projectId}
+          projectName={projectName}
+          onClose={() => setSelectedNodeId(null)}
+          onUpdate={handleUpdateNode}
+        />
       )}
     </div>
   );

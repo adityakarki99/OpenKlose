@@ -20,7 +20,9 @@ grounded in your actual repo.
 3. **Ideate** with the agent in chat. Once a component's shape is settled, the agent writes a live
    preview onto the canvas — a real, rendered mockup (not just a labeled box), grounded in your
    design system and styled to match your existing components.
-4. **Build**, when you're ready — say so, and the agent writes the real component file into your
+4. **Leave feedback**, right on the sketch — click it, add a comment, and hit "Copy for agent" to
+   copy a formatted summary of your feedback to paste back into the chat.
+5. **Build**, when you're ready — say so, and the agent writes the real component file into your
    project, following the design system it read, then marks the sketch built on the canvas.
 
 Everything is stored as plain JSON files under `.klose/` in your repo — no account, no server to
@@ -88,8 +90,11 @@ The canvas UI itself has no AI dependency — it's a projects list and an infini
 draggable/resizable sketch nodes, persisted through the local server's REST API. A sketch can carry
 `code` (self-contained React/TSX written by the agent), which the canvas renders live in a sandboxed
 iframe (`components/Runtime/Preview.tsx`) — no code from Klose ever executes outside that sandbox.
-All the "smart" behavior (reading your design system, asking clarifying questions, writing the
-preview and the real component) happens in the coding agent via the `/klose` skill, not inside Klose.
+A sketch can also carry `comments` — freeform feedback you leave in the inspector panel, with a
+"Copy for agent" button that formats them (plus the sketch's name/id and the project id) as text
+ready to paste into the chat. All the "smart" behavior (reading your design system, asking
+clarifying questions, writing the preview and the real component, acting on feedback) happens in the
+coding agent via the `/klose` skill, not inside Klose.
 
 ---
 

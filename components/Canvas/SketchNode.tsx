@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Copy, FileCode2 } from 'lucide-react';
+import { Trash2, Copy, FileCode2, MessageSquare } from 'lucide-react';
 import { ComponentNode } from '../../types';
 import Preview from '../Runtime/Preview';
 
@@ -26,6 +26,7 @@ const HANDLES: { key: string; className: string; cursor: string }[] = [
 
 const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onDelete, onDuplicate, onDragStart, onResizeStart }) => {
   const isBuilt = node.status === 'built';
+  const commentCount = node.comments?.length || 0;
 
   return (
     <div
@@ -42,24 +43,34 @@ const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onD
           <span className={`h-2 w-2 flex-shrink-0 rounded-full ${isBuilt ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isBuilt ? 'Built' : 'Sketch'} />
           <span className="truncate text-sm font-semibold text-app-primary">{node.name || 'Untitled sketch'}</span>
         </div>
-        {isSelected && (
-          <div className="flex flex-shrink-0 items-center gap-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); onDuplicate(node.id); }}
-              className="rounded-md p-1 text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary"
-              aria-label="Duplicate sketch"
+        <div className="flex flex-shrink-0 items-center gap-1">
+          {commentCount > 0 && (
+            <span
+              className="flex items-center gap-1 rounded-full bg-app-surfaceMuted/10 px-1.5 py-0.5 text-[10px] font-medium text-app-subtle"
+              title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
             >
-              <Copy size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
-              className="rounded-md p-1 text-app-subtle hover:bg-red-500/10 hover:text-red-400"
-              aria-label="Delete sketch"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        )}
+              <MessageSquare size={11} /> {commentCount}
+            </span>
+          )}
+          {isSelected && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDuplicate(node.id); }}
+                className="rounded-md p-1 text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary"
+                aria-label="Duplicate sketch"
+              >
+                <Copy size={14} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
+                className="rounded-md p-1 text-app-subtle hover:bg-red-500/10 hover:text-red-400"
+                aria-label="Delete sketch"
+              >
+                <Trash2 size={14} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {node.code ? (
         <div className="relative flex-1 overflow-hidden rounded-b-2xl">

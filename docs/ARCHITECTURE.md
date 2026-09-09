@@ -58,6 +58,8 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 6. On confirmation, write the real component file into the project using the agent's normal
    Read/Write/Edit tools — following real repo conventions, not the sandbox's simplified contract —
    then mark the sketch `built` with the resulting file path (`klose project update-node`).
+7. Check sketches for `comments` at the start of a session (or when handed a "Copy for agent" text
+   block) and address them, clearing the ones handled.
 
 ## The Canvas UI
 
@@ -74,6 +76,9 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
   `sandbox="allow-scripts"` (no `allow-same-origin`) and a `connect-src 'none'` CSP, so agent-written
   code can't reach the parent page's storage or the network. A node with no `code` just shows its
   description text — a sketch doesn't require a preview to be useful.
+- A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel, shown as a
+  small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
+  project/node ids) as text meant to be pasted straight into the coding agent's chat.
 
 ## Local Server
 

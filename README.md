@@ -130,4 +130,8 @@ Please keep PRs focused. One feature or fix per PR makes review faster.
 
 ## License
 
-[MIT](./LICENSE)
+[GNU AGPL-3.0-or-later](./LICENSE). Klose is free software: you can use, study, share, and modify it
+under the terms of the GNU Affero General Public License. Because the AGPL's network clause (section
+13) applies, anyone who runs a modified version as a network service must offer that version's source
+to its users. Klose runs as a local server on your own machine, so ordinary local use carries no
+extra obligation — the clause matters if you host a modified Klose for others.

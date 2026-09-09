@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A local design-ideation canvas that installs as a /klose skill in Claude Code — sketch component ideas against your project's real design system, then have the agent build them.",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/adityakarki99/OpenKlose.git"

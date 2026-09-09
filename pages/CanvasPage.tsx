@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ComponentNode, DragState, ResizeState, ProjectContext } from '../types';
+import { ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT, GRID_SIZE, DEFAULT_PROJECT_CONTEXT } from '../constants';
 import SketchNode from '../components/Canvas/SketchNode';
@@ -39,6 +39,11 @@ const CanvasPage: React.FC = () => {
   const [designSystemPrompt, setDesignSystemPrompt] = useState<string>('');
   const [projectContext, setProjectContext] = useState<ProjectContext>(DEFAULT_PROJECT_CONTEXT);
   const [isContextPopUpOpen, setIsContextPopUpOpen] = useState(false);
+
+  // Element inspection: when active, clicking an element in the selected node's
+  // live preview captures it as a pending target for the next comment.
+  const [inspectingNodeId, setInspectingNodeId] = useState<string | null>(null);
+  const [pendingElement, setPendingElement] = useState<SelectedElementInfo | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -150,6 +155,17 @@ const CanvasPage: React.FC = () => {
   const handleUpdateNode = (id: string, updates: Partial<ComponentNode>) => {
     setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n)));
   };
+
+  const handleInspectElement = (info: SelectedElementInfo) => {
+    setPendingElement(info);
+    setInspectingNodeId(null);
+  };
+
+  // Reset inspection/pending-element state whenever the selected sketch changes.
+  useEffect(() => {
+    setInspectingNodeId(null);
+    setPendingElement(null);
+  }, [selectedNodeId]);
 
   const handleDeleteNode = (id: string) => {
     setNodes((prev) => prev.filter((n) => n.id !== id));
@@ -473,6 +489,8 @@ const CanvasPage: React.FC = () => {
                   key={node.id}
                   node={node}
                   isSelected={selectedNodeId === node.id}
+                  isInspecting={inspectingNodeId === node.id}
+                  onInspectElement={handleInspectElement}
                   onSelect={(id, e) => {
                     e.stopPropagation();
                     // The preceding mousedown already selected this node (see
@@ -510,6 +528,13 @@ const CanvasPage: React.FC = () => {
           node={selectedNode}
           projectId={projectId}
           projectName={projectName}
+          isInspecting={inspectingNodeId === selectedNode.id}
+          pendingElement={pendingElement}
+          onToggleInspect={() =>
+            setInspectingNodeId((prev) => (prev === selectedNode.id ? null : selectedNode.id))
+          }
+          onClearPendingElement={() => setPendingElement(null)}
+          onConsumePendingElement={() => setPendingElement(null)}
           onClose={() => setSelectedNodeId(null)}
           onUpdate={handleUpdateNode}
         />

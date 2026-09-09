@@ -53,10 +53,32 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
         font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
         text-align: center;
       }
+      body.sb-inspecting, body.sb-inspecting * { cursor: crosshair !important; }
+      #sb-highlight {
+        position: fixed;
+        z-index: 2147483647;
+        pointer-events: none;
+        border: 2px solid #3b82f6;
+        background: rgba(59, 130, 246, 0.12);
+        border-radius: 2px;
+        display: none;
+      }
+      #sb-highlight > span {
+        position: absolute;
+        top: -18px;
+        left: 0;
+        background: #3b82f6;
+        color: #fff;
+        font: 9px/1.2 ui-monospace, monospace;
+        padding: 1px 4px;
+        border-radius: 2px 2px 0 0;
+        white-space: nowrap;
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="sb-highlight"><span id="sb-highlight-label">Target</span></div>
     <script type="module">
       import React from 'https://esm.sh/react@19.2.4';
       import { createRoot } from 'https://esm.sh/react-dom@19.2.4/client?deps=react@19.2.4';
@@ -65,10 +87,46 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
       import * as Babel from 'https://esm.sh/@babel/standalone@7.28.2';
 
       var root = createRoot(document.getElementById('root'));
+      var inspecting = false;
+      var hl = document.getElementById('sb-highlight');
+      var hlLabel = document.getElementById('sb-highlight-label');
 
       function post(msg) {
         msg.source = 'klose-sandbox';
         parent.postMessage(msg, '*');
+      }
+
+      function showHighlight(rect, label) {
+        hlLabel.textContent = label;
+        hl.style.left = rect.left + 'px';
+        hl.style.top = rect.top + 'px';
+        hl.style.width = rect.width + 'px';
+        hl.style.height = rect.height + 'px';
+        hl.style.display = 'block';
+      }
+      function hideHighlight() { hl.style.display = 'none'; }
+
+      // Build a short, readable ancestor breadcrumb of tag names so the agent
+      // can locate the element (e.g. "div > div > button").
+      function describePath(el) {
+        var parts = [];
+        var cur = el;
+        var hops = 0;
+        while (cur && cur.tagName && cur.id !== 'root' && hops < 5) {
+          parts.unshift(cur.tagName.toLowerCase());
+          cur = cur.parentElement;
+          hops++;
+        }
+        return parts.join(' > ');
+      }
+
+      function elementInfo(el) {
+        return {
+          tagName: (el.tagName || '').toLowerCase(),
+          text: (el.innerText || el.textContent || '').trim().slice(0, 100),
+          classes: (typeof el.className === 'string' ? el.className : '').trim().slice(0, 200),
+          path: describePath(el),
+        };
       }
 
       function renderError(message) {
@@ -121,6 +179,24 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
         }
       }
 
+      document.addEventListener('mousemove', function (e) {
+        if (!inspecting) return;
+        var t = e.target;
+        if (!t || t === hl || t.id === 'sb-highlight' || t.parentNode === hl) return;
+        showHighlight(t.getBoundingClientRect(), (t.tagName || '').toLowerCase());
+      });
+
+      // Capture on the way DOWN so the sketch's own click handlers never fire
+      // while we're picking an element to comment on.
+      document.addEventListener('click', function (e) {
+        if (!inspecting) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var t = e.target;
+        if (!t || t === hl || t.parentNode === hl) return;
+        post({ type: 'select', info: elementInfo(t) });
+      }, true);
+
       window.addEventListener('message', function (e) {
         var d = e.data || {};
         if (d.type === 'render') {
@@ -130,6 +206,10 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
             document.documentElement.style.backgroundColor = d.color;
             document.body.style.backgroundColor = d.color;
           }
+        } else if (d.type === 'setInspecting') {
+          inspecting = !!d.value;
+          document.body.classList.toggle('sb-inspecting', inspecting);
+          if (!inspecting) hideHighlight();
         }
       });
 

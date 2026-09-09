@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as LucideReact from 'lucide-react';
 import { SANDBOX_BOOTSTRAP_HTML } from './sandboxBootstrap';
+import type { SelectedElementInfo } from '../../types';
 
 interface PreviewProps {
   code: string;
@@ -10,6 +11,10 @@ interface PreviewProps {
    * to select or drag the node).
    */
   interactive?: boolean;
+  /** When true, hovering highlights elements and a click reports the element instead of interacting with it. */
+  isInspecting?: boolean;
+  /** Called with the clicked element's info while inspecting. */
+  onElementSelect?: (info: SelectedElementInfo) => void;
 }
 
 /**
@@ -21,10 +26,12 @@ interface PreviewProps {
  * parent app's cookies, localStorage, or DOM, and its CSP blocks network
  * access. All communication is mediated through postMessage.
  */
-const Preview: React.FC<PreviewProps> = ({ code, interactive = true }) => {
+const Preview: React.FC<PreviewProps> = ({ code, interactive = true, isInspecting = false, onElementSelect }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onElementSelectRef = useRef(onElementSelect);
+  onElementSelectRef.current = onElementSelect;
 
   const postToFrame = useCallback((message: Record<string, unknown>) => {
     const frame = iframeRef.current;
@@ -66,6 +73,9 @@ const Preview: React.FC<PreviewProps> = ({ code, interactive = true }) => {
         case 'error':
           setError(typeof data.message === 'string' ? data.message : 'Failed to render component');
           break;
+        case 'select':
+          if (data.info) onElementSelectRef.current?.(data.info as SelectedElementInfo);
+          break;
         default:
           break;
       }
@@ -80,6 +90,11 @@ const Preview: React.FC<PreviewProps> = ({ code, interactive = true }) => {
     postToFrame({ type: 'render', code });
   }, [ready, code, postToFrame]);
 
+  useEffect(() => {
+    if (!ready) return;
+    postToFrame({ type: 'setInspecting', value: isInspecting });
+  }, [ready, isInspecting, postToFrame]);
+
   return (
     <div className="w-full h-full min-w-full min-h-full relative">
       <iframe
@@ -89,7 +104,7 @@ const Preview: React.FC<PreviewProps> = ({ code, interactive = true }) => {
         srcDoc={SANDBOX_BOOTSTRAP_HTML}
         allowTransparency
         className="w-full h-full block border-0"
-        style={{ background: 'transparent', pointerEvents: interactive ? 'auto' : 'none' }}
+        style={{ background: 'transparent', pointerEvents: interactive || isInspecting ? 'auto' : 'none' }}
       />
 
       {error && (

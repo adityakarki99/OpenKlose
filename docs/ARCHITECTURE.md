@@ -78,7 +78,11 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
   description text — a sketch doesn't require a preview to be useful.
 - A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel, shown as a
   small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
-  project/node ids) as text meant to be pasted straight into the coding agent's chat.
+  project/node ids) as text meant to be pasted straight into the coding agent's chat. A comment can
+  optionally carry an `element` (`SelectedElementInfo`): the user enters inspection mode ("Point to
+  an element"), the sandbox reports the clicked element's tag/text/classes/DOM-path via postMessage,
+  and the next comment is scoped to it — so the agent knows exactly which part of the preview the
+  feedback targets.
 
 ## Local Server
 
@@ -103,7 +107,8 @@ AI-generated code live in the browser. Auth, the cloud database, and the Gemini 
 (blueprint generation, planning-mode chat, component editing, image generation, smart-parts
 classification) have been removed, along with the asset/pattern library — those depended on a
 server-side model call Klose no longer makes. The live-preview sandbox survived in simplified form
-(no element inspection, no hover-highlight, no animation tracking — see `components/Runtime/`), now
-fed by code the coding agent writes instead of a Gemini response. What else remains is the parts that
+(no animation tracking, no AI-driven part classification — see `components/Runtime/`), now fed by
+code the coding agent writes instead of a Gemini response; its element inspection was later revived
+to power element-scoped comments. What else remains is the parts that
 were never AI-dependent: the canvas's drag/resize/pan/undo mechanics, the project browser, and the
 settings/theme system — now serving a much smaller, local-first tool.

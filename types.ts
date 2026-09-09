@@ -29,6 +29,19 @@ export interface Comment {
   id: string;
   text: string;
   createdAt: number;
+  /** When set, this comment targets a specific element inside the sketch's live preview. */
+  element?: SelectedElementInfo;
+}
+
+/** A DOM element picked from a sketch's live preview, used to scope a comment to it. */
+export interface SelectedElementInfo {
+  tagName: string;
+  /** Trimmed visible text of the element (truncated). */
+  text: string;
+  /** The element's class attribute (its Tailwind classes) — helps the agent locate it. */
+  classes: string;
+  /** Short ancestor breadcrumb of tag names, e.g. "div > div > button". */
+  path: string;
 }
 
 export interface CanvasState {

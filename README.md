@@ -20,8 +20,9 @@ grounded in your actual repo.
 3. **Ideate** with the agent in chat. Once a component's shape is settled, the agent writes a live
    preview onto the canvas — a real, rendered mockup (not just a labeled box), grounded in your
    design system and styled to match your existing components.
-4. **Leave feedback**, right on the sketch — click it, add a comment, and hit "Copy for agent" to
-   copy a formatted summary of your feedback to paste back into the chat.
+4. **Leave feedback**, right on the sketch — add a comment, or hit "Point to an element" and click a
+   specific button/heading in the live preview to scope your comment to it. "Copy for agent" copies a
+   formatted summary (including any targeted element) to paste back into the chat.
 5. **Build**, when you're ready — say so, and the agent writes the real component file into your
    project, following the design system it read, then marks the sketch built on the canvas.
 

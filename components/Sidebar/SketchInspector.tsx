@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { X, Trash2, Copy, Check, Send } from 'lucide-react';
-import { ComponentNode } from '../../types';
+import { X, Trash2, Copy, Check, Send, MousePointerSquareDashed, Crosshair } from 'lucide-react';
+import { ComponentNode, SelectedElementInfo } from '../../types';
 
 interface SketchInspectorProps {
   node: ComponentNode;
   projectId: string;
   projectName: string;
+  isInspecting: boolean;
+  pendingElement: SelectedElementInfo | null;
+  onToggleInspect: () => void;
+  onClearPendingElement: () => void;
+  onConsumePendingElement: () => void;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<ComponentNode>) => void;
 }
@@ -20,6 +25,19 @@ function timeAgo(ts: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function describeElement(el: SelectedElementInfo): string {
+  const label = el.text ? `"${el.text.slice(0, 40)}"` : el.path || el.tagName;
+  return `<${el.tagName}> ${label}`;
+}
+
+function elementDetailLine(el: SelectedElementInfo): string {
+  const bits = [`<${el.tagName}>`];
+  if (el.text) bits.push(`text "${el.text}"`);
+  if (el.path) bits.push(`path ${el.path}`);
+  if (el.classes) bits.push(`classes "${el.classes}"`);
+  return bits.join(', ');
+}
+
 function buildAgentText(node: ComponentNode, projectId: string, projectName: string): string {
   const lines: string[] = [];
   lines.push(`Feedback on the "${node.name || 'Untitled sketch'}" sketch (project "${projectName}", id ${projectId}, node ${node.id}):`);
@@ -28,14 +46,28 @@ function buildAgentText(node: ComponentNode, projectId: string, projectName: str
   if (comments.length === 0) {
     lines.push('(no comments left yet)');
   } else {
-    comments.forEach((c, i) => lines.push(`${i + 1}. ${c.text}`));
+    comments.forEach((c, i) => {
+      lines.push(`${i + 1}. ${c.text}`);
+      if (c.element) lines.push(`   ↳ targets element: ${elementDetailLine(c.element)}`);
+    });
   }
   lines.push('');
   lines.push('Please address this feedback — use `npx klose project get <id>` to read the current sketch, and `npx klose project update-node` to update it.');
   return lines.join('\n');
 }
 
-export const SketchInspector: React.FC<SketchInspectorProps> = ({ node, projectId, projectName, onClose, onUpdate }) => {
+export const SketchInspector: React.FC<SketchInspectorProps> = ({
+  node,
+  projectId,
+  projectName,
+  isInspecting,
+  pendingElement,
+  onToggleInspect,
+  onClearPendingElement,
+  onConsumePendingElement,
+  onClose,
+  onUpdate,
+}) => {
   const [name, setName] = useState(node.name);
   const [description, setDescription] = useState(node.description);
   const [notes, setNotes] = useState(node.notes || '');
@@ -51,13 +83,20 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({ node, projectI
   }, [node.id]);
 
   const comments = node.comments || [];
+  const hasPreview = !!node.code;
 
   const handleAddComment = () => {
     const text = newComment.trim();
     if (!text) return;
-    const comment = { id: Math.random().toString(36).substring(7), text, createdAt: Date.now() };
+    const comment = {
+      id: Math.random().toString(36).substring(7),
+      text,
+      createdAt: Date.now(),
+      ...(pendingElement ? { element: pendingElement } : {}),
+    };
     onUpdate(node.id, { comments: [...comments, comment] });
     setNewComment('');
+    if (pendingElement) onConsumePendingElement();
   };
 
   const handleDeleteComment = (commentId: string) => {
@@ -134,7 +173,15 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({ node, projectI
             <div className="space-y-2">
               {comments.map((c) => (
                 <div key={c.id} className="group flex items-start gap-2 rounded-lg border border-app-border bg-app-surface p-2.5">
-                  <p className="flex-1 whitespace-pre-wrap text-xs leading-relaxed text-app-secondary">{c.text}</p>
+                  <div className="min-w-0 flex-1">
+                    {c.element && (
+                      <div className="mb-1 inline-flex max-w-full items-center gap-1 rounded border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
+                        <Crosshair size={10} className="flex-shrink-0" />
+                        <span className="truncate">{describeElement(c.element)}</span>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-app-secondary">{c.text}</p>
+                  </div>
                   <div className="flex flex-shrink-0 flex-col items-end gap-1">
                     <span className="text-[10px] text-app-subtle">{timeAgo(c.createdAt)}</span>
                     <button
@@ -150,6 +197,32 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({ node, projectI
             </div>
           )}
 
+          {/* Pending element chip — the next comment will be scoped to this element. */}
+          {pendingElement && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 px-2.5 py-1.5 text-[11px] text-blue-200">
+              <Crosshair size={12} className="flex-shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Commenting on {describeElement(pendingElement)}</span>
+              <button onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-white" aria-label="Clear targeted element">
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {hasPreview && (
+            <button
+              onClick={onToggleInspect}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                isInspecting
+                  ? 'border-blue-500 bg-blue-500/15 text-blue-200'
+                  : 'border-app-border bg-app-surfaceSoft text-app-secondary hover:bg-app-surface'
+              }`}
+              title="Pick an element in the preview to attach your comment to"
+            >
+              <MousePointerSquareDashed size={13} />
+              {isInspecting ? 'Click an element in the preview… (cancel)' : 'Point to an element'}
+            </button>
+          )}
+
           <div className="flex items-start gap-2">
             <textarea
               value={newComment}
@@ -160,7 +233,7 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({ node, projectI
                   handleAddComment();
                 }
               }}
-              placeholder="Leave feedback on this design..."
+              placeholder={pendingElement ? 'Feedback on the targeted element…' : 'Leave feedback on this design...'}
               className="h-16 flex-1 resize-none rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs leading-relaxed text-app-secondary outline-none focus:border-blue-500"
             />
             <button

@@ -144,6 +144,12 @@ project/node ids) as text for the user to paste into this chat — so a pasted b
 specific sketch: read the sketch's current `code`/`notes` first, apply the feedback, update it
 (step 5's `update-node`, or step 6 if it's ready to build), and clear the addressed comments as above.
 
+A comment can be **scoped to a specific element** the user clicked in the live preview. In that case
+the pasted block carries a `↳ targets element:` line naming the element's tag, visible text, DOM
+path, and Tailwind classes — use it to locate exactly which part of the preview `code` the feedback
+is about, rather than guessing. On the stored node, such a comment has an `element` field with the
+same info.
+
 ## Notes
 
 - Never invent a design system when the repo already has one — read before you generate, for both

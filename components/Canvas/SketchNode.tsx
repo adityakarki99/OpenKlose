@@ -1,16 +1,18 @@
 import React from 'react';
 import { Trash2, Copy, FileCode2, MessageSquare } from 'lucide-react';
-import { ComponentNode } from '../../types';
+import { ComponentNode, SelectedElementInfo } from '../../types';
 import Preview from '../Runtime/Preview';
 
 interface SketchNodeProps {
   node: ComponentNode;
   isSelected: boolean;
+  isInspecting?: boolean;
   onSelect: (id: string, e: React.MouseEvent) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDragStart: (id: string, e: React.MouseEvent) => void;
   onResizeStart: (id: string, handle: string, e: React.MouseEvent) => void;
+  onInspectElement?: (info: SelectedElementInfo) => void;
 }
 
 const HANDLES: { key: string; className: string; cursor: string }[] = [
@@ -24,7 +26,7 @@ const HANDLES: { key: string; className: string; cursor: string }[] = [
   { key: 'w', className: 'top-1/2 left-0 -translate-x-1/2 -translate-y-1/2', cursor: 'ew-resize' },
 ];
 
-const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onDelete, onDuplicate, onDragStart, onResizeStart }) => {
+const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, isInspecting = false, onSelect, onDelete, onDuplicate, onDragStart, onResizeStart, onInspectElement }) => {
   const isBuilt = node.status === 'built';
   const commentCount = node.comments?.length || 0;
 
@@ -32,7 +34,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onD
     <div
       data-node-id={node.id}
       className={`absolute flex flex-col rounded-2xl border bg-app-surfaceElevated shadow-lg transition-colors ${
-        isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-borderStrong'
+        isInspecting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-borderStrong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(node.id, e); }}
@@ -74,7 +76,12 @@ const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onD
       </div>
       {node.code ? (
         <div className="relative flex-1 overflow-hidden rounded-b-2xl">
-          <Preview code={node.code} interactive={isSelected} />
+          <Preview code={node.code} interactive={isSelected} isInspecting={isInspecting} onElementSelect={onInspectElement} />
+          {isInspecting && (
+            <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-blue-500/40 bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-blue-300 shadow">
+              Click an element to comment on it
+            </div>
+          )}
           {isBuilt && node.builtFilePath && (
             <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surfaceElevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
               <FileCode2 size={12} /> {node.builtFilePath}

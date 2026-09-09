@@ -17,8 +17,9 @@ grounded in your actual repo.
    `.claude/skills/klose/` and creates local project storage at `.klose/`.
 2. **Run `/klose`** in Claude Code. It starts a local server, opens the canvas in your browser, and
    reads your repo's actual design tokens and components before talking to you about what to build.
-3. **Ideate** with the agent in chat. Once a component's shape is settled, it's placed on the canvas
-   as a sketch — a labeled, resizable box you can see and rearrange.
+3. **Ideate** with the agent in chat. Once a component's shape is settled, the agent writes a live
+   preview onto the canvas — a real, rendered mockup (not just a labeled box), grounded in your
+   design system and styled to match your existing components.
 4. **Build**, when you're ready — say so, and the agent writes the real component file into your
    project, following the design system it read, then marks the sketch built on the canvas.
 
@@ -51,19 +52,20 @@ npx klose serve --open
 ## CLI reference
 
 ```
-klose init                                   Install the /klose skill and local storage in this repo
-klose serve [--port=N] [--open]              Start the local server (default port 5171)
-klose project list                           List projects
-klose project create <name>                  Create a project
-klose project get <id>                       Read a project
-klose project update <id> <json>             Merge fields into a project
-klose project delete <id>                    Delete a project
-klose project add-node <id> <json>           Add a sketch node to a project's canvas
-klose project update-node <id> <nodeId> <json>   Update a sketch node (e.g. mark it built)
+klose init                                        Install the /klose skill and local storage in this repo
+klose serve [--port=N] [--open]                   Start the local server (default port 5171)
+klose project list                                List projects
+klose project create <name>                       Create a project
+klose project get <id>                             Read a project
+klose project update <id> <json|@file.json>       Merge fields into a project
+klose project delete <id>                          Delete a project
+klose project add-node <id> <json|@file.json>     Add a sketch node to a project's canvas
+klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (e.g. its code, or mark it built)
 ```
 
 These are the same primitives the `/klose` skill uses — everything the agent does is a plain CLI
-call you can run yourself.
+call you can run yourself. Any `<json>` argument can instead be `@path/to/file.json` — handy for the
+`code` field, since a multi-line component snippet is painful to pass as a shell argument.
 
 ---
 
@@ -83,9 +85,11 @@ klose package
 ```
 
 The canvas UI itself has no AI dependency — it's a projects list and an infinite board of
-draggable/resizable sketch nodes, persisted through the local server's REST API. All the "smart"
-behavior (reading your design system, asking clarifying questions, writing code) happens in the
-coding agent via the `/klose` skill, not inside Klose.
+draggable/resizable sketch nodes, persisted through the local server's REST API. A sketch can carry
+`code` (self-contained React/TSX written by the agent), which the canvas renders live in a sandboxed
+iframe (`components/Runtime/Preview.tsx`) — no code from Klose ever executes outside that sandbox.
+All the "smart" behavior (reading your design system, asking clarifying questions, writing the
+preview and the real component) happens in the coding agent via the `/klose` skill, not inside Klose.
 
 ---
 

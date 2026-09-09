@@ -20,6 +20,19 @@ function fail(message) {
   process.exit(1);
 }
 
+// Accepts either inline JSON or, prefixed with '@', a path to a JSON file to
+// read instead (e.g. `@/tmp/node.json`). Multi-line fields like `code` are
+// painful and easy to mis-escape as a shell argument — write them to a file
+// and pass `@path` instead.
+async function parseJsonArg(value) {
+  if (value.startsWith('@')) {
+    const filePath = path.resolve(cwd, value.slice(1));
+    const raw = await readFile(filePath, 'utf-8');
+    return JSON.parse(raw);
+  }
+  return JSON.parse(value);
+}
+
 function openBrowser(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   try {
@@ -66,8 +79,8 @@ async function cmdProject(args) {
       return printJson(await store.getProject(cwd, rest[0]));
     case 'update': {
       const [id, json] = rest;
-      if (!id || !json) fail('usage: klose project update <id> <json>');
-      return printJson(await store.updateProject(cwd, id, JSON.parse(json)));
+      if (!id || !json) fail('usage: klose project update <id> <json|@file.json>');
+      return printJson(await store.updateProject(cwd, id, await parseJsonArg(json)));
     }
     case 'delete':
       if (!rest[0]) fail('usage: klose project delete <id>');
@@ -75,13 +88,13 @@ async function cmdProject(args) {
       return printJson({ ok: true });
     case 'add-node': {
       const [id, json] = rest;
-      if (!id || !json) fail('usage: klose project add-node <id> <json>');
-      return printJson(await store.addNode(cwd, id, JSON.parse(json)));
+      if (!id || !json) fail('usage: klose project add-node <id> <json|@file.json>');
+      return printJson(await store.addNode(cwd, id, await parseJsonArg(json)));
     }
     case 'update-node': {
       const [id, nodeId, json] = rest;
-      if (!id || !nodeId || !json) fail('usage: klose project update-node <id> <nodeId> <json>');
-      return printJson(await store.updateNode(cwd, id, nodeId, JSON.parse(json)));
+      if (!id || !nodeId || !json) fail('usage: klose project update-node <id> <nodeId> <json|@file.json>');
+      return printJson(await store.updateNode(cwd, id, nodeId, await parseJsonArg(json)));
     }
     default:
       fail(`unknown project subcommand "${sub}"`);

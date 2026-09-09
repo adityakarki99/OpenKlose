@@ -1,6 +1,7 @@
 import React from 'react';
 import { Trash2, Copy, FileCode2 } from 'lucide-react';
 import { ComponentNode } from '../../types';
+import Preview from '../Runtime/Preview';
 
 interface SketchNodeProps {
   node: ComponentNode;
@@ -60,16 +61,27 @@ const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, onSelect, onD
           </div>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        <p className="whitespace-pre-wrap text-xs leading-relaxed text-app-secondary">
-          {node.description || 'No description yet — select this sketch to add one.'}
-        </p>
-        {isBuilt && node.builtFilePath && (
-          <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
-            <FileCode2 size={12} /> {node.builtFilePath}
-          </div>
-        )}
-      </div>
+      {node.code ? (
+        <div className="relative flex-1 overflow-hidden rounded-b-2xl">
+          <Preview code={node.code} interactive={isSelected} />
+          {isBuilt && node.builtFilePath && (
+            <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surfaceElevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
+              <FileCode2 size={12} /> {node.builtFilePath}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-app-secondary">
+            {node.description || 'No description yet — select this sketch to add one.'}
+          </p>
+          {isBuilt && node.builtFilePath && (
+            <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+              <FileCode2 size={12} /> {node.builtFilePath}
+            </div>
+          )}
+        </div>
+      )}
       {isSelected &&
         HANDLES.map((h) => (
           <div

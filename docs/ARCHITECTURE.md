@@ -3,13 +3,16 @@
 ## What Is This?
 
 Klose is an npm package that installs a `/klose` skill into Claude Code (or any repo that wants it).
-It gives you a local, no-login canvas for sketching component ideas — placed as labeled boxes on an
-infinite board — and grounds the coding agent's ideation in your project's *actual* design system
-before it builds the real component into your repo.
+It gives you a local, no-login canvas for sketching component ideas — rendered live on an infinite
+board, not just as labeled boxes — and grounds the coding agent's ideation in your project's *actual*
+design system before it builds the real component into your repo.
 
 Klose has no AI model of its own. It used to (an earlier version generated and live-rendered code via
-Google Gemini behind a hosted Supabase-backed SaaS), but that entire pipeline — auth, cloud database,
-Gemini codegen, sandboxed live preview — has been removed in favor of this local, agent-driven model.
+Google Gemini behind a hosted Supabase-backed SaaS), and that hosted pipeline — auth, cloud database,
+Gemini codegen — has been removed in favor of this local, agent-driven model. The live-preview
+sandbox itself survived the rewrite in simplified form: it still renders component code in an
+isolated iframe, but the code now comes from the coding agent (grounded in the real repo's design
+system) instead of a server-proxied Gemini call.
 
 ---
 
@@ -49,23 +52,28 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 3. **Read the host repo's real design system** — Tailwind config, CSS custom properties, existing
    component conventions — rather than inventing generic tokens.
 4. Have the actual ideation conversation with the user, using that context.
-5. Write the settled design to the canvas as a sketch node (`klose project add-node`), so the user
-   sees it and can reposition it.
+5. Write the settled design to the canvas as a sketch node with live preview `code`
+   (`klose project add-node`), grounded in the design system read in step 3, so the user sees a real
+   rendered mockup and can reposition it.
 6. On confirmation, write the real component file into the project using the agent's normal
-   Read/Write/Edit tools, then mark the sketch `built` with the resulting file path
-   (`klose project update-node`).
+   Read/Write/Edit tools — following real repo conventions, not the sandbox's simplified contract —
+   then mark the sketch `built` with the resulting file path (`klose project update-node`).
 
 ## The Canvas UI
 
 - **`/projects`** — a grid of local projects (create, rename, delete), backed by the local server's
   REST API instead of a cloud database.
-- **`/canvas/:projectId`** — an infinite pannable/zoomable board of `SketchNode`s: labeled boxes with
-  a name, description, and freeform notes, plus a status (`sketch` or `built`) and, once built, the
-  path of the real file the agent wrote. Drag, resize, undo/redo, and a project-context panel (brand
-  notes + design-system notes the agent reads) all work exactly as before — none of that logic
-  depended on AI.
-- Nodes have **no code and no live preview**. There is nothing to sandbox or execute — a sketch is a
-  plan, not a running component. Real code lives in the actual project, written by the agent.
+- **`/canvas/:projectId`** — an infinite pannable/zoomable board of `SketchNode`s: a name, description,
+  and freeform notes, plus a status (`sketch` or `built`) and, once built, the path of the real file
+  the agent wrote. Drag, resize, undo/redo, and a project-context panel (brand notes + design-system
+  notes the agent reads) all work exactly as before — none of that logic depended on AI.
+- A node can optionally carry `code`: self-contained React/TSX written by the agent, rendered live in
+  a sandboxed iframe (`components/Runtime/Preview.tsx` + `sandboxBootstrap.ts`) via Babel-in-browser
+  transpilation, with only `react`, `lucide-react`, and `recharts` available inside the sandbox (all
+  loaded from esm.sh inside the iframe — no dependency on Klose's own bundle). The sandbox runs with
+  `sandbox="allow-scripts"` (no `allow-same-origin`) and a `connect-src 'none'` CSP, so agent-written
+  code can't reach the parent page's storage or the network. A node with no `code` just shows its
+  description text — a sketch doesn't require a preview to be useful.
 
 ## Local Server
 
@@ -86,8 +94,11 @@ directory watch means changes made either way show up live in the browser.
 
 The previous version of this codebase was a hosted SaaS: Supabase auth and Postgres storage, a
 Vercel Edge Function proxying Google Gemini, and a sandboxed iframe that transpiled and ran
-AI-generated code live in the browser. All of that — auth, the cloud database, the Gemini codegen
-pipeline (blueprint generation, planning-mode chat, component editing, image generation, smart-parts
-classification), the asset/pattern library, and the live code sandbox — has been removed. What
-remains is the parts that were never AI-dependent: the canvas's drag/resize/pan/undo mechanics, the
-project browser, and the settings/theme system — now serving a much smaller, local-first tool.
+AI-generated code live in the browser. Auth, the cloud database, and the Gemini codegen pipeline
+(blueprint generation, planning-mode chat, component editing, image generation, smart-parts
+classification) have been removed, along with the asset/pattern library — those depended on a
+server-side model call Klose no longer makes. The live-preview sandbox survived in simplified form
+(no element inspection, no hover-highlight, no animation tracking — see `components/Runtime/`), now
+fed by code the coding agent writes instead of a Gemini response. What else remains is the parts that
+were never AI-dependent: the canvas's drag/resize/pan/undo mechanics, the project browser, and the
+settings/theme system — now serving a much smaller, local-first tool.

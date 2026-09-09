@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Klose — Design ideation canvas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+              logo: ['"Space Grotesk"', "sans-serif"],
+            },
+            colors: {
+              ceko: {
+                bg: "rgb(var(--ceko-bg) / <alpha-value>)",
+                surface: "rgb(var(--ceko-surface) / <alpha-value>)",
+                accent: "rgb(var(--app-accent) / <alpha-value>)",
+              },
+              app: {
+                bg: "rgb(var(--app-bg) / <alpha-value>)",
+                surface: "rgb(var(--app-surface) / <alpha-value>)",
+                surfaceSoft: "rgb(var(--app-surface-soft) / <alpha-value>)",
+                surfaceElevated: "rgb(var(--app-surface-elevated) / <alpha-value>)",
+                surfaceMuted: "rgb(var(--app-surface-muted) / <alpha-value>)",
+                border: "rgb(var(--app-border) / <alpha-value>)",
+                borderStrong: "rgb(var(--app-border-strong) / <alpha-value>)",
+                primary: "rgb(var(--app-text-primary) / <alpha-value>)",
+                secondary: "rgb(var(--app-text-secondary) / <alpha-value>)",
+                muted: "rgb(var(--app-text-muted) / <alpha-value>)",
+                subtle: "rgb(var(--app-text-subtle) / <alpha-value>)",
+                accent: "rgb(var(--app-accent) / <alpha-value>)",
+                grid: "rgb(var(--app-grid-dot) / <alpha-value>)",
+                canvasEmpty: "rgb(var(--app-canvas-empty) / <alpha-value>)",
+              },
+            },
+            animation: {
+              "spin-slow": "spin 120s linear infinite",
+              "pulse-slow": "pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+              float: "float 6s ease-in-out infinite",
+              glow: "glow 2s ease-in-out infinite",
+            },
+            keyframes: {
+              glow: {
+                "0%, 100%": {
+                  boxShadow:
+                    "0 0 5px rgba(96, 165, 250, 0.2), 0 0 10px rgba(96, 165, 250, 0.1)",
+                },
+                "50%": {
+                  boxShadow:
+                    "0 0 15px rgba(96, 165, 250, 0.5), 0 0 25px rgba(96, 165, 250, 0.3)",
+                },
+              },
+              float: {
+                "0%, 100%": { transform: "translateY(0)" },
+                "50%": { transform: "translateY(-20px)" },
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ceko-bg: 2 6 23;
+        --ceko-surface: 15 23 42;
+        --app-bg: 3 7 18;
+        --app-surface: 15 23 42;
+        --app-surface-soft: 30 41 59;
+        --app-surface-elevated: 9 9 11;
+        --app-surface-muted: 255 255 255;
+        --app-border: 55 65 81;
+        --app-border-strong: 71 85 105;
+        --app-text-primary: 248 250 252;
+        --app-text-secondary: 203 213 225;
+        --app-text-muted: 148 163 184;
+        --app-text-subtle: 100 116 139;
+        --app-grid-dot: 55 65 81;
+        --app-canvas-empty: 9 9 11;
+        --app-accent: 59 130 246;
+        color-scheme: dark;
+      }
+
+      :root[data-theme="light"] {
+        --ceko-bg: 241 245 249;
+        --ceko-surface: 255 255 255;
+        --app-bg: 248 250 252;
+        --app-surface: 255 255 255;
+        --app-surface-soft: 241 245 249;
+        --app-surface-elevated: 255 255 255;
+        --app-surface-muted: 15 23 42;
+        --app-border: 203 213 225;
+        --app-border-strong: 148 163 184;
+        --app-text-primary: 15 23 42;
+        --app-text-secondary: 51 65 85;
+        --app-text-muted: 100 116 139;
+        --app-text-subtle: 148 163 184;
+        --app-grid-dot: 148 163 184;
+        --app-canvas-empty: 255 255 255;
+        --app-accent: 37 99 235;
+        color-scheme: light;
+      }
+
+      /* Custom scrollbar for the canvas */
+      .canvas-scroll::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      .canvas-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .canvas-scroll::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.5);
+        border-radius: 3px;
+      }
+
+      .canvas-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(107, 114, 128, 0.8);
+      }
+
+      body {
+        overscroll-behavior: none;
+        background: rgb(var(--app-bg));
+        color: rgb(var(--app-text-primary));
+        transition: background-color 180ms ease, color 180ms ease;
+      }
+
+      /* ── Global slim modern scrollbar ── */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(113, 113, 122, 0.3) transparent;
+      }
+      *::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      *::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      *::-webkit-scrollbar-thumb {
+        background: rgba(113, 113, 122, 0.25);
+        border-radius: 9999px;
+      }
+      *::-webkit-scrollbar-thumb:hover {
+        background: rgba(113, 113, 122, 0.5);
+      }
+      /* Hide scrollbar until hover for a cleaner look */
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: transparent;
+      }
+      .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+        background: rgba(113, 113, 122, 0.3);
+      }
+      .custom-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+        background: rgba(113, 113, 122, 0.55);
+      }
+
+      /* Pencil Writing Animation */
+      @keyframes pencilWriting {
+        0%, 100% { transform: rotate(0deg) translate(0, 0); }
+        20% { transform: rotate(-3deg) translate(-1px, 1px); }
+        40% { transform: rotate(4deg) translate(1px, -1px); }
+        60% { transform: rotate(-2deg) translate(-1px, -1px); }
+        80% { transform: rotate(3deg) translate(2px, 1px); }
+      }
+      .animate-writing {
+        animation: pencilWriting 0.6s ease-in-out infinite;
+      }
+
+      :root[data-theme="light"] .text-white,
+      :root[data-theme="light"] .text-zinc-100,
+      :root[data-theme="light"] .text-slate-100,
+      :root[data-theme="light"] .text-\[\#F4F4F5\] {
+        color: rgb(var(--app-text-primary)) !important;
+      }
+
+      :root[data-theme="light"] .text-slate-200,
+      :root[data-theme="light"] .text-slate-300,
+      :root[data-theme="light"] .text-gray-300,
+      :root[data-theme="light"] .text-zinc-300,
+      :root[data-theme="light"] .text-neutral-300 {
+        color: rgb(var(--app-text-secondary)) !important;
+      }
+
+      :root[data-theme="light"] .text-slate-400,
+      :root[data-theme="light"] .text-gray-400,
+      :root[data-theme="light"] .text-zinc-400,
+      :root[data-theme="light"] .text-neutral-400,
+      :root[data-theme="light"] .text-\[\#58606e\],
+      :root[data-theme="light"] .text-\[\#71717A\] {
+        color: rgb(var(--app-text-muted)) !important;
+      }
+
+      :root[data-theme="light"] .text-slate-500,
+      :root[data-theme="light"] .text-zinc-500,
+      :root[data-theme="light"] .text-neutral-500,
+      :root[data-theme="light"] .text-zinc-600,
+      :root[data-theme="light"] .text-neutral-600,
+      :root[data-theme="light"] .text-slate-600 {
+        color: rgb(var(--app-text-subtle)) !important;
+      }
+
+      :root[data-theme="light"] .border-white\/5,
+      :root[data-theme="light"] .border-white\/10,
+      :root[data-theme="light"] .border-white\/20 {
+        border-color: rgb(var(--app-border) / 1) !important;
+      }
+
+      :root[data-theme="light"] .bg-white\/5 {
+        background-color: rgb(var(--app-surface-muted) / 0.06) !important;
+      }
+
+      :root[data-theme="light"] .bg-white\/10 {
+        background-color: rgb(var(--app-surface-muted) / 0.1) !important;
+      }
+
+      :root[data-theme="light"] .hover\:bg-white\/5:hover {
+        background-color: rgb(var(--app-surface-muted) / 0.06) !important;
+      }
+
+      :root[data-theme="light"] .hover\:bg-white\/10:hover {
+        background-color: rgb(var(--app-surface-muted) / 0.1) !important;
+      }
+    </style>
+  </head>
+
+  <body class="overflow-hidden font-sans">
+    <div id="root"></div>
+    <script>
+      // Render an error banner safely. Error text (which can contain
+      // attacker-influenced content from generated code) is inserted via
+      // textContent, never as HTML, to avoid DOM-based XSS.
+      function showErrorBanner(title, message) {
+        var box = document.createElement("div");
+        box.setAttribute(
+          "style",
+          "padding: 20px; color: red; background: white; border: 1px solid red; margin: 10px; z-index: 9999; position: relative;",
+        );
+        var heading = document.createElement("h1");
+        heading.textContent = title;
+        var pre = document.createElement("pre");
+        pre.textContent = message;
+        box.appendChild(heading);
+        box.appendChild(pre);
+        document.body.appendChild(box);
+      }
+      window.addEventListener(
+        "error",
+        (event) => {
+          // Skip resource load errors (script/img/link failing) — these have no event.error or message
+          if (!event.error && !event.message) return;
+          console.error("Global Error Caught:", event.error || event.message);
+          const msg =
+            event.error?.stack ||
+            event.error?.message ||
+            event.message ||
+            "Unknown error";
+          showErrorBanner("Global Error", msg);
+        },
+        true,
+      );
+      window.addEventListener("unhandledrejection", (event) => {
+        console.error("Unhandled Rejection:", event.reason);
+        const msg =
+          event.reason?.stack ||
+          event.reason?.message ||
+          String(event.reason) ||
+          "Unknown rejection";
+        showErrorBanner("Unhandled Rejection", msg);
+      });
+    </script>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

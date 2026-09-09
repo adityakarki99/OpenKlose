@@ -1,0 +1,110 @@
+---
+name: klose
+description: Open the local Klose design-ideation canvas for this repo, ideate a new UI component against the project's real design system, sketch it on the canvas, and build it as a real file once the user confirms. Use when the user says "/klose", asks to sketch/ideate a component visually, or wants to design something before building it.
+---
+
+# Klose: ideate on the canvas, build in the repo
+
+Klose is a local, no-login canvas for placing and naming component ideas ("sketches") on an
+infinite board — not an AI codegen tool. It has no model of its own. You (the coding agent) do the
+ideation and the building; Klose only gives the user a visual place to see and arrange sketches, and
+a place to store per-project design notes.
+
+## 1. Make sure the local server is running
+
+Check whether `.klose/` exists in the current repo. If not, this is the first run:
+
+```
+npx klose init
+```
+
+This copies this skill file into `.claude/skills/klose/` (already done if you're reading this from
+there) and creates `.klose/projects/`.
+
+Then ensure the server is up. Try listing projects first — if it fails to connect, start the server
+in the background and retry:
+
+```
+npx klose project list
+# if that fails to connect:
+npx klose serve --open &
+```
+
+`klose serve` prints the URL it's listening on (default `http://localhost:5171`). Tell the user that
+URL so they can watch the canvas while you work, unless you already opened it with `--open`.
+
+## 2. Pick or create a project
+
+List existing projects (`npx klose project list`) and ask the user which one this work belongs to,
+or default to a project named after the current repo/feature if this is clearly new work. Create one
+if needed:
+
+```
+npx klose project create "<name>"
+```
+
+Note the returned project `id` — every subsequent command needs it.
+
+## 3. Ground yourself in the REAL design system
+
+Before ideating, read the *host repository's* actual design system — do not invent generic tokens.
+Look for, in this order of likely relevance:
+
+- A Tailwind config (`tailwind.config.*`) — colors, spacing scale, font families, custom utilities.
+- CSS custom properties (`:root { --... }` in global stylesheets) or a dedicated tokens file.
+- An existing component library (`src/components/ui`, `components/`, a design-system package) —
+  read a few representative components to learn naming conventions, prop patterns, and styling
+  approach (CSS modules vs Tailwind vs styled-components, etc).
+- The project's `.klose` project record itself: `npx klose project get <id>` returns
+  `designSystemPrompt` (freeform notes the user pinned) and `projectContext` (brand/audience notes)
+  — read and honor both.
+
+If you find nothing (a brand-new project with no conventions yet), say so and ask the user for
+direction rather than guessing.
+
+## 4. Ideate with the user
+
+Have the actual design conversation here, in chat — ask about purpose, states, data it displays,
+interactions, edge cases. Keep it tight (a couple of focused questions, not an interrogation). This
+replaces what used to be an AI "planning mode" inside the tool; now it's just you talking to the user
+with real repo context loaded.
+
+## 5. Put the sketch on the canvas
+
+Once the shape of the component is settled, write it to the canvas so the user can see and
+reposition it, instead of only describing it in chat:
+
+```
+npx klose project add-node <projectId> '{"name":"Pricing card","description":"...","notes":"...","x":100,"y":100,"width":400,"height":300}'
+```
+
+- `name` — short, human label.
+- `description` — what it is / what it shows, for the canvas card.
+- `notes` — the details from step 4 (states, interactions, data) that you'll need when you build it.
+- `x`/`y`/`width`/`height` — optional; omit and let the user drag it into place, or place it
+  sensibly near existing nodes if you know the layout.
+
+The node is created with `status: "sketch"`. If the open canvas tab doesn't visually update within a
+second or two, the server may not have picked up the file change — that's fine, a page refresh will
+show it.
+
+## 6. Build it for real, on confirmation
+
+When the user says to build it (or confirms your proposed plan), write the actual component file(s)
+into the real project source tree using your normal file tools — following the design system from
+step 3, not a generic default. This is real application code, not a Klose artifact.
+
+Then mark the sketch as built so the canvas reflects reality:
+
+```
+npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
+```
+
+## Notes
+
+- Never invent a design system when the repo already has one — read before you generate.
+- A sketch with no code is a completely normal, finished state — not everything needs to be built
+  immediately. Don't push to build unless asked.
+- If the user is iterating on an existing sketch rather than starting fresh, read it first
+  (`npx klose project get <projectId>` and find the node) so your edits build on their notes instead
+  of overwriting them.

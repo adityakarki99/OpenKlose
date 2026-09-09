@@ -1,0 +1,45 @@
+{
+  "name": "klose",
+  "version": "0.1.0",
+  "description": "A local design-ideation canvas that installs as a /klose skill in Claude Code — sketch component ideas against your project's real design system, then have the agent build them.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adityakarki99/OpenKlose.git"
+  },
+  "homepage": "https://github.com/adityakarki99/OpenKlose#readme",
+  "bugs": {
+    "url": "https://github.com/adityakarki99/OpenKlose/issues"
+  },
+  "bin": {
+    "klose": "./bin/klose.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "skills",
+    "web/dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "@vitejs/plugin-react": "^5.2.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

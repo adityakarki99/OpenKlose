@@ -4,6 +4,18 @@
   "description": "A local design-ideation canvas that installs as a /klose skill in Claude Code — sketch component ideas against your project's real design system, then have the agent build them.",
   "type": "module",
   "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "design",
+    "design-system",
+    "canvas",
+    "ui",
+    "tailwind",
+    "skill",
+    "local-first",
+    "ai-agent"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/adityakarki99/OpenKlose.git"
@@ -13,7 +25,7 @@
     "url": "https://github.com/adityakarki99/OpenKlose/issues"
   },
   "bin": {
-    "klose": "./bin/klose.js"
+    "klose": "bin/klose.js"
   },
   "files": [
     "bin",
@@ -21,21 +33,22 @@
     "skills",
     "web/dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
-    "lucide-react": "^0.563.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.2"
-  },
   "devDependencies": {
     "@types/node": "^22.19.15",
     "@vitejs/plugin-react": "^5.2.0",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   },

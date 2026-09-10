@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import * as store from './store.js';
+import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +69,19 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
         sseClients.add(res);
         req.on('close', () => sseClients.delete(res));
         return;
+      }
+
+      // Repo component index — search & view the host repo's real components.
+      if (parts[0] === 'api' && parts[1] === 'components' && !parts[2] && req.method === 'GET') {
+        const data = await scanComponents(cwd, { force: url.searchParams.get('refresh') === '1' });
+        const q = url.searchParams.get('q');
+        const components = q ? filterComponents(data.components, q) : data.components;
+        return sendJson(res, 200, { ...data, count: components.length, components });
+      }
+      if (parts[0] === 'api' && parts[1] === 'component-source' && req.method === 'GET') {
+        const file = url.searchParams.get('file');
+        if (!file) return sendJson(res, 400, { error: 'file query param required' });
+        return sendJson(res, 200, await readComponentSource(cwd, file));
       }
 
       if (parts[0] === 'api' && parts[1] === 'projects') {

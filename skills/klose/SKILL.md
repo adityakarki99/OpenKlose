@@ -66,6 +66,26 @@ Look for, in this order of likely relevance:
 If you find nothing (a brand-new project with no conventions yet), say so and ask the user for
 direction rather than guessing.
 
+## 3b. Reuse before you sketch — search the repo's real components
+
+Klose indexes the *host repo's* actual components so you can reuse what already exists instead of
+re-building it. Before ideating a new component, search for one that already does the job:
+
+```
+npx klose components <query>        # e.g. `npx klose components button`, `npx klose components pricing`
+npx klose components --json         # full machine-readable index (name, file, line, props, description)
+```
+
+Each result gives the component's name, file path and line, its props, and a short doc comment. The
+user can also browse this visually at the canvas server's **Components** tab (`/components`) and hit
+"Copy for agent" to hand you a reuse note.
+
+- If a suitable component already exists, prefer **reusing/extending it** — read its file, then build
+  on it (compose it, add a variant/prop) rather than sketching a duplicate. Tell the user you found
+  an existing `<Name>` and are reusing it.
+- Only sketch a genuinely new component when nothing fitting exists. When you do, still match the
+  conventions of the components you found here.
+
 ## 4. Ideate with the user
 
 Have the actual design conversation here, in chat — ask about purpose, states, data it displays,

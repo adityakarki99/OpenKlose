@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as store from '../server/store.js';
 import { createKloseServer } from '../server/http.js';
+import { scanComponents, filterComponents } from '../server/scanner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.join(__dirname, '..');
@@ -101,6 +102,32 @@ async function cmdProject(args) {
   }
 }
 
+// Search the host repo's real components — so the agent can reuse what already
+// exists instead of re-sketching it. `--json` for machine output; default is a
+// short human-readable list.
+async function cmdComponents(args) {
+  const flags = args.filter((a) => a.startsWith('--'));
+  const query = args.filter((a) => !a.startsWith('--')).join(' ');
+  const data = await scanComponents(cwd, { force: true });
+  const components = filterComponents(data.components, query);
+
+  if (flags.includes('--json')) {
+    return printJson({ ...data, count: components.length, components });
+  }
+
+  if (components.length === 0) {
+    console.log(query ? `No components match "${query}".` : 'No components found in this repo.');
+    return;
+  }
+  console.log(`${components.length} component${components.length === 1 ? '' : 's'}${query ? ` matching "${query}"` : ''}:\n`);
+  for (const c of components) {
+    const props = c.props.length ? `  props: ${c.props.map((p) => p.name + (p.optional ? '?' : '')).join(', ')}` : '';
+    console.log(`  ${c.name}  —  ${c.file}:${c.line}`);
+    if (c.description) console.log(`    ${c.description}`);
+    if (props) console.log(props);
+  }
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   switch (command) {
@@ -110,13 +137,15 @@ async function main() {
       return cmdServe(args);
     case 'project':
       return cmdProject(args);
+    case 'components':
+      return cmdComponents(args);
     case '--version':
     case '-v': {
       const pkg = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf-8'));
       return console.log(pkg.version);
     }
     default:
-      console.log('Usage: klose <init|serve|project> [...args]');
+      console.log('Usage: klose <init|serve|project|components> [...args]');
       if (command) process.exit(1);
   }
 }

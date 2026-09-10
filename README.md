@@ -231,6 +231,21 @@ Each project keeps free-text **design-system notes** and a **project brief**. Co
 files the agent reads (Tailwind config, token files, existing components), every preview and every
 build speaks your design language.
 
+### Find & reuse existing components
+
+<div align="center">
+<img src="docs/images/components.png" alt="The Components tab — searchable index of the repo's real components with props and source" width="900">
+</div>
+
+The **Components** tab indexes your repo's *real* components — every exported `.tsx`/`.jsx` component,
+with its props, file path, and doc comment — so you can search what already exists before building
+something new. Click one to see its props, a copy-paste import, and its full source. The whole point:
+stop rebuilding the button you already have.
+
+The agent uses the same index. Before it sketches anything, `/klose` runs `npx klose components <query>`
+to check for a component it can reuse or extend — and the detail view's **"Copy for agent"** hands it a
+ready-made reuse note.
+
 ### Local, private, multi-project
 
 No login, no cloud, no keys. Projects are plain JSON under `.klose/projects/` in your repo — commit
@@ -245,6 +260,7 @@ Everything the `/klose` skill does is a plain CLI call you can run yourself:
 ```
 klose init                                        Install the /klose skill and local storage in this repo
 klose serve [--port=N] [--open]                   Start the local server (default port 5171)
+klose components [query] [--json]                 Search the repo's real components (name, file, props)
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)

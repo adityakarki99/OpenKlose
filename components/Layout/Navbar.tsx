@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { User, FolderOpen, Settings, Moon, Sun } from 'lucide-react';
+import { User, FolderOpen, Settings, Moon, Sun, Blocks } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 
 const Navbar: React.FC = () => {
@@ -12,6 +12,7 @@ const Navbar: React.FC = () => {
 
   const navItems = [
     { label: 'Projects', path: '/projects', icon: FolderOpen },
+    { label: 'Components', path: '/components', icon: Blocks },
   ];
 
   return (

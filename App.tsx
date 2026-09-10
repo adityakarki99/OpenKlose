@@ -5,6 +5,7 @@ import AppLayout from './components/Layout/AppLayout';
 import MinimalLayout from './components/Layout/MinimalLayout';
 import LandingPage from './pages/LandingPage';
 import ProjectsPage from './pages/ProjectsPage';
+import ComponentsPage from './pages/ComponentsPage';
 import CanvasPage from './pages/CanvasPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -22,6 +23,7 @@ const App: React.FC = () => {
           {/* With navbar */}
           <Route element={<AppLayout />}>
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/components" element={<ComponentsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>

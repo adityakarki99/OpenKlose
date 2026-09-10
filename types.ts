@@ -44,6 +44,40 @@ export interface SelectedElementInfo {
   path: string;
 }
 
+/** A prop pulled from a component's `NameProps` interface/type by the scanner. */
+export interface ComponentProp {
+  name: string;
+  type: string;
+  optional: boolean;
+}
+
+/** A real component discovered in the host repo by the server-side scanner. */
+export interface RepoComponent {
+  /** Stable id: `<file>#<name>`. */
+  id: string;
+  name: string;
+  /** Repo-relative path of the file it's declared in. */
+  file: string;
+  /** Repo-relative path without extension — what a consumer would import. */
+  importPath: string;
+  line: number;
+  isDefaultExport: boolean;
+  description: string;
+  props: ComponentProp[];
+  /** Grouping label derived from the file's folder (e.g. "ui", "Layout"). */
+  category: string;
+  loc?: number;
+}
+
+export interface ComponentIndex {
+  root: string;
+  scannedAt: string;
+  filesScanned: number;
+  truncated: boolean;
+  count: number;
+  components: RepoComponent[];
+}
+
 export interface CanvasState {
   width: number;
   height: number;

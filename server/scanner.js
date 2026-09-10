@@ -36,6 +36,35 @@ function looksLikeComponentFile(source) {
   return /<[A-Za-z][\s\S]*?>/.test(source) || /from\s+['"]react['"]/.test(source) || /React\./.test(source);
 }
 
+// A component is "previewable" in Klose's isolated sandbox only if it doesn't
+// import repo-local modules (relative imports won't resolve outside the app).
+function hasRelativeImports(source) {
+  return /(?:import|require)\s*\(?\s*['"]\.\.?\//.test(source) || /from\s+['"]\.\.?\//.test(source);
+}
+
+/** Best-effort git identity for the scanned repo — dependency-free, from .git/. */
+async function repoInfo(root) {
+  const folder = path.basename(root);
+  let branch = null;
+  let remote = null;
+  try {
+    const head = await readFile(path.join(root, '.git', 'HEAD'), 'utf-8');
+    const m = head.match(/ref:\s*refs\/heads\/(.+)/);
+    branch = m ? m[1].trim() : head.trim().slice(0, 12);
+  } catch { /* not a git repo */ }
+  try {
+    const cfg = await readFile(path.join(root, '.git', 'config'), 'utf-8');
+    const m = cfg.match(/url\s*=\s*(.+)/);
+    if (m) remote = m[1].trim();
+  } catch { /* no remote */ }
+  let name = folder;
+  if (remote) {
+    const rm = remote.match(/[/:]([^/\s]+\/[^/\s]+?)(?:\.git)?$/);
+    if (rm) name = rm[1];
+  }
+  return { name, folder, root, branch, remote, isGit: branch !== null };
+}
+
 /** Collect a JSDoc block or run of // comments immediately above line index `i`. */
 function commentAbove(lines, i) {
   let j = i - 1;
@@ -103,6 +132,7 @@ function parseFile(relPath, source) {
   const lines = source.split('\n');
   const found = new Map(); // name -> component
   const importPath = relPath.replace(/\.(tsx|jsx)$/, '');
+  const previewable = !hasRelativeImports(source);
 
   lines.forEach((line, i) => {
     let name = null;
@@ -131,6 +161,7 @@ function parseFile(relPath, source) {
       description,
       props: extractProps(source, name),
       category: categoryFor(relPath),
+      previewable,
     });
   });
 
@@ -186,10 +217,11 @@ export async function scanComponents(cwd = process.cwd(), { force = false } = {}
     return cache.data;
   }
   const out = { count: 0, components: [] };
-  await walk(cwd, cwd, out);
+  const [, repo] = await Promise.all([walk(cwd, cwd, out), repoInfo(cwd)]);
   out.components.sort((a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file));
   const data = {
     root: cwd,
+    repo,
     scannedAt: new Date().toISOString(),
     filesScanned: out.count,
     truncated: out.count >= MAX_FILES,

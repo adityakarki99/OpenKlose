@@ -32,3 +32,6 @@ export const saveProject = (
 
 export const deleteProject = (id: string): Promise<void> =>
   request(`/projects/${id}`, { method: 'DELETE' });
+
+export const addNode = (projectId: string, node: Partial<ComponentNode>): Promise<ComponentNode> =>
+  request(`/projects/${projectId}/nodes`, { method: 'POST', body: JSON.stringify(node) });

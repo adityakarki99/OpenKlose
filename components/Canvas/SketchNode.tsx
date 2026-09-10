@@ -76,7 +76,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({ node, isSelected, isInspecting 
       </div>
       {node.code ? (
         <div className="relative flex-1 overflow-hidden rounded-b-2xl">
-          <Preview code={node.code} interactive={isSelected} isInspecting={isInspecting} onElementSelect={onInspectElement} />
+          <Preview code={node.code} exportName={node.exportName} interactive={isSelected} isInspecting={isInspecting} onElementSelect={onInspectElement} />
           {isInspecting && (
             <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-blue-500/40 bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-blue-300 shadow">
               Click an element to comment on it

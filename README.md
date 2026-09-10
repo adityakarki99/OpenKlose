@@ -239,8 +239,15 @@ build speaks your design language.
 
 The **Components** tab indexes your repo's *real* components — every exported `.tsx`/`.jsx` component,
 with its props, file path, and doc comment — so you can search what already exists before building
-something new. Click one to see its props, a copy-paste import, and its full source. The whole point:
-stop rebuilding the button you already have.
+something new. A repo badge (name, branch, path) shows exactly *which* project you're looking at, so a
+global install stays unambiguous. Click a component to see its props, a copy-paste import, its full
+source, and a **live preview** rendered in an isolated sandbox (best-effort — self-contained components
+render; ones that import repo-local modules are flagged instead). **Add to canvas** drops it onto any
+project's board as a *built* node linking the real file, so found components sit alongside your sketches.
+
+<div align="center">
+<img src="docs/images/components-detail.png" alt="A component's detail view — repo badge, live preview, props, import, and Add to canvas" width="900">
+</div>
 
 The agent uses the same index. Before it sketches anything, `/klose` runs `npx klose components <query>`
 to check for a component it can reuse or extend — and the detail view's **"Copy for agent"** hands it a

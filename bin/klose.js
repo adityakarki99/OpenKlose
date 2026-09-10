@@ -115,10 +115,13 @@ async function cmdComponents(args) {
     return printJson({ ...data, count: components.length, components });
   }
 
+  const where = `${data.repo.name}${data.repo.branch ? ` (${data.repo.branch})` : ''} — ${data.repo.root}`;
   if (components.length === 0) {
+    console.log(`Repo: ${where}`);
     console.log(query ? `No components match "${query}".` : 'No components found in this repo.');
     return;
   }
+  console.log(`Repo: ${where}`);
   console.log(`${components.length} component${components.length === 1 ? '' : 's'}${query ? ` matching "${query}"` : ''}:\n`);
   for (const c of components) {
     const props = c.props.length ? `  props: ${c.props.map((p) => p.name + (p.optional ? '?' : '')).join(', ')}` : '';

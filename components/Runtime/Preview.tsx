@@ -6,6 +6,13 @@ import type { SelectedElementInfo } from '../../types';
 interface PreviewProps {
   code: string;
   /**
+   * Optional name of the export to render. Used when previewing a real repo
+   * component whose file may export several things (or use a named
+   * forwardRef/memo export rather than a default). Sketches omit this and get
+   * the default / first renderable export.
+   */
+  exportName?: string;
+  /**
    * Whether the live component should receive pointer events. When false, the
    * iframe ignores pointer events so clicks fall through to the canvas (e.g.
    * to select or drag the node).
@@ -26,7 +33,7 @@ interface PreviewProps {
  * parent app's cookies, localStorage, or DOM, and its CSP blocks network
  * access. All communication is mediated through postMessage.
  */
-const Preview: React.FC<PreviewProps> = ({ code, interactive = true, isInspecting = false, onElementSelect }) => {
+const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true, isInspecting = false, onElementSelect }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,8 +94,8 @@ const Preview: React.FC<PreviewProps> = ({ code, interactive = true, isInspectin
   useEffect(() => {
     if (!ready) return;
     setError(null);
-    postToFrame({ type: 'render', code });
-  }, [ready, code, postToFrame]);
+    postToFrame({ type: 'render', code, name: exportName });
+  }, [ready, code, exportName, postToFrame]);
 
   useEffect(() => {
     if (!ready) return;

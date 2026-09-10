@@ -139,7 +139,13 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
         post({ type: 'error', message: message });
       }
 
-      function renderCode(code) {
+      // A value is renderable if it's a plain function component OR a React
+      // object component (forwardRef / memo carry a $$typeof marker).
+      function isComponent(v) {
+        return typeof v === 'function' || (v && typeof v === 'object' && v.$$typeof);
+      }
+
+      function renderCode(code, name) {
         if (!code) return;
         try {
           var result = Babel.transform(code, {
@@ -158,18 +164,23 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
           factory(require, module, exports, React);
 
           var Comp = null;
-          if (module.exports && module.exports.default) {
+          // Prefer the specific named export the caller asked for (used when
+          // previewing a real repo component), then a default export, then the
+          // first renderable export in the file.
+          if (name && module.exports && isComponent(module.exports[name])) {
+            Comp = module.exports[name];
+          } else if (module.exports && isComponent(module.exports.default)) {
             Comp = module.exports.default;
-          } else if (typeof module.exports === 'function') {
+          } else if (isComponent(module.exports)) {
             Comp = module.exports;
           } else if (module.exports && typeof module.exports === 'object') {
             var vals = Object.keys(module.exports)
               .map(function (k) { return module.exports[k]; })
-              .filter(function (v) { return typeof v === 'function'; });
+              .filter(isComponent);
             if (vals.length) Comp = vals[0];
           }
 
-          if (typeof Comp !== 'function') {
+          if (!isComponent(Comp)) {
             throw new Error('Component does not export a default function or valid React component.');
           }
           root.render(React.createElement(Comp));
@@ -200,7 +211,7 @@ export const SANDBOX_BOOTSTRAP_HTML = `<!doctype html>
       window.addEventListener('message', function (e) {
         var d = e.data || {};
         if (d.type === 'render') {
-          renderCode(d.code || '');
+          renderCode(d.code || '', d.name);
         } else if (d.type === 'surface') {
           if (d.color) {
             document.documentElement.style.backgroundColor = d.color;

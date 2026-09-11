@@ -97,6 +97,21 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
     postToFrame({ type: 'render', code, name: exportName });
   }, [ready, code, exportName, postToFrame]);
 
+  // The sandbox loads React/Babel/Tailwind from a CDN on every mount. If that
+  // never completes (offline, blocked host, DNS failure) `ready` never fires
+  // and the preview would otherwise spin forever with no explanation.
+  const READY_TIMEOUT_MS = 15000;
+  useEffect(() => {
+    if (ready) return;
+    const timer = window.setTimeout(() => {
+      setError((current) =>
+        current ??
+        'Preview runtime failed to load. It requires network access to esm.sh and cdn.tailwindcss.com — check your connection or firewall.'
+      );
+    }, READY_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   useEffect(() => {
     if (!ready) return;
     postToFrame({ type: 'setInspecting', value: isInspecting });

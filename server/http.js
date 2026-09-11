@@ -123,7 +123,8 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
 
       sendJson(res, 404, { error: 'Not found' });
     } catch (err) {
-      sendJson(res, 500, { error: err.message || 'Internal error' });
+      const status = err.message && err.message.startsWith('Invalid project id') ? 400 : 500;
+      sendJson(res, status, { error: err.message || 'Internal error' });
     }
   });
 

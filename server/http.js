@@ -59,6 +59,10 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
     const parts = url.pathname.split('/').filter(Boolean);
 
     try {
+      if (url.pathname === '/api/health') {
+        return sendJson(res, 200, { ok: true });
+      }
+
       if (url.pathname === '/api/events') {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',

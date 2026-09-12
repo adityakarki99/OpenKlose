@@ -21,12 +21,13 @@ npx klose init
 This copies this skill file into `.claude/skills/klose/` (already done if you're reading this from
 there) and creates `.klose/projects/`.
 
-Then ensure the server is up. Try listing projects first — if it fails to connect, start the server
-in the background and retry:
+Then ensure the server is up. Check status first — `klose project ...` commands read `.klose/`
+directly on disk and will "succeed" even with no server running, so they can't tell you whether the
+canvas is actually reachable. Use `klose status` instead:
 
 ```
-npx klose project list
-# if that fails to connect:
+npx klose status
+# if it reports not running:
 npx klose serve --open &
 ```
 

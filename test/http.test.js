@@ -40,6 +40,17 @@ async function request(method, url, body) {
   return { status: res.status, body: await res.json() };
 }
 
+test('GET /api/health reports the server as up without touching .klose/', async () => {
+  const res = await request('GET', '/api/health');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true });
+});
+
+test('unknown routes still 404', async () => {
+  const res = await request('GET', '/nope');
+  assert.equal(res.status, 404);
+});
+
 test('a malformed project id is a 400, not a 500', async () => {
   for (const id of ['not-a-uuid', '%2e%2e%2f%2e%2e%2fetc%2fpasswd', '{}']) {
     const res = await request('GET', `/api/projects/${id}`);

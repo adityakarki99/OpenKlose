@@ -56,16 +56,38 @@ async function cmdInit() {
 }
 
 async function cmdServe(args) {
-  const portArg = args.find((a) => a.startsWith('--port='));
-  const port = portArg ? Number(portArg.split('=')[1]) : Number(process.env.KLOSE_PORT) || 5171;
+  const url = serverUrl(args);
+  const port = Number(new URL(url).port);
   const publicDir = path.join(packageRoot, 'web', 'dist');
   const server = createKloseServer({ cwd, publicDir: existsSync(publicDir) ? publicDir : undefined });
 
   server.listen(port, () => {
-    const url = `http://localhost:${port}`;
     console.log(`klose serving ${cwd} at ${url}`);
     if (args.includes('--open')) openBrowser(url);
   });
+}
+
+function serverUrl(args) {
+  const portArg = args.find((a) => a.startsWith('--port='));
+  const port = portArg ? Number(portArg.split('=')[1]) : Number(process.env.KLOSE_PORT) || 5171;
+  return `http://localhost:${port}`;
+}
+
+// Unlike `klose project ...`, which reads/writes .klose/ on disk directly and
+// so always "succeeds" whether or not the server is running, this is the only
+// command that actually checks for a live server — by hitting its HTTP port.
+async function cmdStatus(args) {
+  const url = serverUrl(args);
+  try {
+    const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1000) });
+    if (!res.ok) throw new Error(`unexpected status ${res.status}`);
+    if (args.includes('--json')) return printJson({ running: true, url });
+    console.log(`klose is running at ${url}`);
+  } catch {
+    if (args.includes('--json')) return printJson({ running: false, url });
+    console.log(`klose is not running at ${url}`);
+    process.exit(1);
+  }
 }
 
 async function cmdProject(args) {
@@ -138,6 +160,8 @@ async function main() {
       return cmdInit();
     case 'serve':
       return cmdServe(args);
+    case 'status':
+      return cmdStatus(args);
     case 'project':
       return cmdProject(args);
     case 'components':
@@ -148,7 +172,7 @@ async function main() {
       return console.log(pkg.version);
     }
     default:
-      console.log('Usage: klose <init|serve|project|components> [...args]');
+      console.log('Usage: klose <init|serve|status|project|components> [...args]');
       if (command) process.exit(1);
   }
 }

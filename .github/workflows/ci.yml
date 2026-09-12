@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded run on the same ref has nothing left to tell us.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node >= 18, and the published package is
+        # just bin/ + server/ + skills/ — plain node builtins, no bundler. So the
+        # suite runs on the floor we promise (18), current LTS (22), and 20 in
+        # between. node:test, fetch and fs/promises have all shifted across these
+        # versions; running all three keeps a fix for one from breaking another.
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # npm ci warns EBADENGINE on node 18 because @vitejs/plugin-react wants
+      # >= 20.19. That's a devDependency for the canvas build only — the tests
+      # never import it — so the warning is expected and not fatal here. The
+      # build job below is where that constraint actually has to hold.
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Not matrixed: @vitejs/plugin-react requires ^20.19 || >= 22.12, so
+          # the canvas build has a narrower floor than the package itself.
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The canvas UI is packaged into web/dist and published from there, so a
+      # build break is a release break even when every test passes.
+      - name: Build
+        run: npm run build

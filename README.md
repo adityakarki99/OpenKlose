@@ -356,7 +356,18 @@ obligation. See [LICENSE](LICENSE).
 npm install
 npm run dev      # Vite dev server for the canvas UI, proxies /api to localhost:5171
 npm run build    # Builds the canvas UI into web/dist for packaging
+npm test         # node --test over test/*.test.js — covers server/, ~1s
 ```
+
+Tests cover the local server (`server/`): the component scanner, the project
+store, and the HTTP routing/status codes. CI runs `npm test` on Node 18, 20 and
+22 and `npm run build` on 22 for every pull request against `main`.
+
+**Adding or changing a test — including as an AI agent?** Read
+[`test/README.md`](./test/README.md) first. It documents the conventions the
+suite relies on (no test dependencies, per-test temp directories, ephemeral
+ports, asserting error `code`s rather than message text) and lists the behaviors
+that look like bugs but are deliberate.
 
 To exercise the CLI/server against this checkout without publishing:
 
@@ -374,6 +385,9 @@ node bin/klose.js serve --open
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Commit your changes with a descriptive message
 4. Push and open a Pull Request against `main`
+
+CI (`npm test` on Node 18/20/22, `npm run build` on 22) must be green before a PR
+merges. Run `npm test` locally first — it takes about a second.
 
 Please keep PRs focused. One feature or fix per PR makes review faster.
 

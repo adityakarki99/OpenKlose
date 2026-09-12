@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { badRequest, notFound } from './errors.js';
 
 // Project ids are always server-generated UUIDs (randomUUID()). Route params
 // reach this file straight from the HTTP layer, so anything that isn't a
@@ -9,7 +10,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function assertValidId(id) {
   if (typeof id !== 'string' || !UUID_RE.test(id)) {
-    throw new Error(`Invalid project id: ${JSON.stringify(id)}`);
+    throw badRequest(`Invalid project id: ${JSON.stringify(id)}`, 'INVALID_PROJECT_ID');
   }
   return id;
 }
@@ -27,7 +28,13 @@ async function ensureDir(cwd) {
 }
 
 async function readProjectFile(cwd, id) {
-  const raw = await readFile(projectFile(cwd, id), 'utf-8');
+  let raw;
+  try {
+    raw = await readFile(projectFile(cwd, id), 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') throw notFound(`Project ${id} not found`, 'PROJECT_NOT_FOUND');
+    throw err;
+  }
   return JSON.parse(raw);
 }
 
@@ -36,6 +43,9 @@ async function writeProjectFile(cwd, project) {
   await writeFile(projectFile(cwd, project.id), JSON.stringify(project, null, 2), 'utf-8');
 }
 
+// Files whose names aren't well-formed UUIDs (or that don't parse as JSON) are
+// skipped rather than failing the whole listing: ids have always been
+// randomUUID(), so anything else in the directory isn't a project we wrote.
 export async function listProjects(cwd) {
   await ensureDir(cwd);
   const files = (await readdir(projectsDir(cwd))).filter((f) => f.endsWith('.json'));
@@ -117,7 +127,7 @@ export async function updateNode(cwd, id, nodeId, updates) {
     updatedNode = { ...n, ...updates };
     return updatedNode;
   });
-  if (!updatedNode) throw new Error(`Node ${nodeId} not found in project ${id}`);
+  if (!updatedNode) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');
   project.updated_at = new Date().toISOString();
   await writeProjectFile(cwd, project);
   return updatedNode;

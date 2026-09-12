@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { badRequest } from './errors.js';
 
 /**
  * Scans the host repository for real UI components so Klose can search them and
@@ -251,11 +252,11 @@ export async function readComponentSource(cwd, relFile) {
   const resolved = path.resolve(cwd, relFile);
   const rootWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
   if (resolved !== cwd && !resolved.startsWith(rootWithSep)) {
-    throw new Error('Path escapes project root');
+    throw badRequest('Path escapes project root', 'PATH_ESCAPES_ROOT');
   }
   const ext = path.extname(resolved);
   if (!SOURCE_EXTS.has(ext) && ext !== '.ts' && ext !== '.js') {
-    throw new Error('Not a source file');
+    throw badRequest('Not a source file', 'NOT_A_SOURCE_FILE');
   }
   const source = await readFile(resolved, 'utf-8');
   return { file: relFile, source };

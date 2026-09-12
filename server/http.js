@@ -127,8 +127,12 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
 
       sendJson(res, 404, { error: 'Not found' });
     } catch (err) {
-      const status = err.message && err.message.startsWith('Invalid project id') ? 400 : 500;
-      sendJson(res, status, { error: err.message || 'Internal error' });
+      // Client-fault errors (bad project id, out-of-tree file path) carry
+      // their own status; anything else is ours and stays a 500.
+      const status = typeof err.status === 'number' ? err.status : 500;
+      const body = { error: err.message || 'Internal error' };
+      if (err.code) body.code = err.code;
+      sendJson(res, status, body);
     }
   });
 

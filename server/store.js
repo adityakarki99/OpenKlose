@@ -2,12 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+// Project ids are always server-generated UUIDs (randomUUID()). Route params
+// reach this file straight from the HTTP layer, so anything that isn't a
+// well-formed UUID is rejected before it can influence a filesystem path.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertValidId(id) {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+    throw new Error(`Invalid project id: ${JSON.stringify(id)}`);
+  }
+  return id;
+}
+
 function projectsDir(cwd) {
   return path.join(cwd, '.klose', 'projects');
 }
 
 function projectFile(cwd, id) {
-  return path.join(projectsDir(cwd), `${id}.json`);
+  return path.join(projectsDir(cwd), `${assertValidId(id)}.json`);
 }
 
 async function ensureDir(cwd) {

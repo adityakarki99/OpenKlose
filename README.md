@@ -85,8 +85,9 @@ npm install -D klose
 npx klose init
 ```
 
-`klose init` drops a `/klose` skill into `.claude/skills/klose/` and creates local project storage at
-`.klose/`. Then, in Claude Code:
+`klose init` drops the `/klose`, `/klose-update`, and `/klose-cleanup` skills into `.claude/skills/`
+and creates local project storage at `.klose/` — seeded with a demo sketch so the canvas isn't empty
+on your first run. Then, in Claude Code:
 
 ```
 /klose
@@ -100,6 +101,17 @@ npx klose serve --open
 
 > **Requirements:** Node.js ≥ 18. Klose runs entirely on your machine — no account, no cloud service,
 > no API keys.
+
+Optional flags for `klose init`:
+
+```bash
+npx klose init --no-demo          # skip the demo project
+npx klose init --wire-claude-md   # add a short note to CLAUDE.md so the agent suggests /klose on its own
+```
+
+Later, `npx klose update` upgrades the package and refreshes the installed skill files in one step,
+and `npx klose cleanup` clears out sketches already built into real files and empty projects (dry
+run by default — pass `--yes` to apply).
 
 ---
 
@@ -265,8 +277,11 @@ them as design history or `.gitignore` them; your call. Manage as many projects 
 Everything the `/klose` skill does is a plain CLI call you can run yourself:
 
 ```
-klose init                                        Install the /klose skill and local storage in this repo
+klose init [--no-demo] [--wire-claude-md]         Install the klose skills and local storage in this repo
 klose serve [--port=N] [--open]                   Start the local server (default port 5171)
+klose status [--port=N] [--json]                  Check whether the local server is actually running
+klose update                                      Upgrade the klose package and refresh installed skill files
+klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)
 klose project list                                List projects
 klose project create <name>                       Create a project

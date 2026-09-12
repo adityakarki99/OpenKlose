@@ -136,3 +136,88 @@ export async function updateNode(cwd, id, nodeId, updates) {
 export function projectsWatchDir(cwd) {
   return projectsDir(cwd);
 }
+
+const DEMO_SKETCH_CODE = `export default function WelcomeCard() {
+  return (
+    <div className="max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
+        <span>✦</span> Klose demo sketch
+      </div>
+      <h2 className="text-lg font-semibold text-slate-900">This is a sketch</h2>
+      <p className="mt-2 text-sm text-slate-600">
+        A live-rendered preview, not a labeled box. Leave a comment below, or click an element in
+        the preview to scope feedback to it — then ask your agent to address it.
+      </p>
+      <button className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white">
+        Ask your agent to build this
+      </button>
+    </div>
+  );
+}
+`;
+
+// Gives a first-time `klose init` something on the canvas instead of an empty
+// board. Only called when no projects exist yet, so it never clobbers real work.
+export async function seedDemoProject(cwd) {
+  const project = await createProject(cwd, 'Klose demo');
+  const node = await addNode(cwd, project.id, {
+    name: 'Welcome to Klose',
+    description: 'A live-rendered preview, not a static mockup — this is what a sketch looks like.',
+    notes:
+      "Created by `klose init` so the canvas isn't empty on first run. Leave a comment on it (or " +
+      'click an element in the preview) to see feedback flow back to your agent, then ask it to ' +
+      'build something real for your project — that replaces this note with actual work.',
+    code: DEMO_SKETCH_CODE,
+  });
+  return { project, node };
+}
+
+// Built sketches and empty projects are safe to remove: the real component
+// already lives in the repo (for `built`), or there was never anything on the
+// canvas to lose (for `emptyProjects`). Defaults to a dry run — nothing is
+// written to disk unless `apply` is true, so callers can show the user what
+// would happen before doing it.
+export async function cleanup(cwd, { built = true, emptyProjects = true, apply = false } = {}) {
+  await ensureDir(cwd);
+  const files = (await readdir(projectsDir(cwd))).filter((f) => f.endsWith('.json'));
+  const report = { removedNodes: [], removedProjects: [] };
+
+  for (const f of files) {
+    const id = f.replace(/\.json$/, '');
+    let project;
+    try {
+      project = await readProjectFile(cwd, id);
+    } catch {
+      continue; // not a project we wrote (invalid id or unparseable) — leave it alone
+    }
+
+    let nodes = project.nodes || [];
+    let removedHere = [];
+    if (built) {
+      removedHere = nodes.filter((n) => n.status === 'built');
+      nodes = nodes.filter((n) => n.status !== 'built');
+    }
+
+    if (emptyProjects && nodes.length === 0) {
+      report.removedProjects.push({ projectId: id, projectName: project.name });
+      report.removedNodes.push(
+        ...removedHere.map((n) => ({ projectId: id, projectName: project.name, nodeId: n.id, name: n.name }))
+      );
+      if (apply) await unlink(projectFile(cwd, id));
+      continue;
+    }
+
+    if (removedHere.length) {
+      report.removedNodes.push(
+        ...removedHere.map((n) => ({ projectId: id, projectName: project.name, nodeId: n.id, name: n.name }))
+      );
+      if (apply) {
+        project.nodes = nodes;
+        project.updated_at = new Date().toISOString();
+        await writeProjectFile(cwd, project);
+      }
+    }
+  }
+
+  return report;
+}

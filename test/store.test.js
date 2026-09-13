@@ -106,3 +106,71 @@ test('malformed ids are rejected instead of touching the filesystem', async () =
     assert.deepEqual(entries, []);
   });
 });
+
+test('seedDemoProject creates a project with one sketch node', async () => {
+  await withTempRepo(async (cwd) => {
+    const { project, node } = await store.seedDemoProject(cwd);
+    assert.equal(project.name, 'Klose demo');
+    assert.equal(node.status, 'sketch');
+    assert.match(node.code, /export default function/);
+
+    const list = await store.listProjects(cwd);
+    assert.equal(list.length, 1);
+  });
+});
+
+test('cleanup dry run reports built nodes and empty projects without changing anything', async () => {
+  await withTempRepo(async (cwd) => {
+    const withBuilt = await store.createProject(cwd, 'Has a built sketch');
+    const builtNode = await store.addNode(cwd, withBuilt.id, { name: 'Done', status: 'built' });
+    await store.addNode(cwd, withBuilt.id, { name: 'Still sketching' });
+
+    const empty = await store.createProject(cwd, 'Never used');
+
+    const report = await store.cleanup(cwd, { apply: false });
+    assert.equal(report.removedNodes.length, 1);
+    assert.equal(report.removedNodes[0].nodeId, builtNode.id);
+    assert.deepEqual(
+      report.removedProjects.map((p) => p.projectId).sort(),
+      [empty.id].sort()
+    );
+
+    // Dry run — nothing on disk actually changed.
+    const stillThere = await store.getProject(cwd, withBuilt.id);
+    assert.equal(stillThere.nodes.length, 2);
+    const stillEmpty = await store.getProject(cwd, empty.id);
+    assert.equal(stillEmpty.id, empty.id);
+  });
+});
+
+test('cleanup --yes actually removes built nodes and empty projects', async () => {
+  await withTempRepo(async (cwd) => {
+    const withBuilt = await store.createProject(cwd, 'Has a built sketch');
+    await store.addNode(cwd, withBuilt.id, { name: 'Done', status: 'built' });
+    const keeper = await store.addNode(cwd, withBuilt.id, { name: 'Still sketching' });
+
+    const empty = await store.createProject(cwd, 'Never used');
+
+    await store.cleanup(cwd, { apply: true });
+
+    const remaining = await store.getProject(cwd, withBuilt.id);
+    assert.deepEqual(
+      remaining.nodes.map((n) => n.id),
+      [keeper.id]
+    );
+
+    await assert.rejects(() => store.getProject(cwd, empty.id));
+  });
+});
+
+test('cleanup with only --built leaves an all-built project on the canvas', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'All built');
+    await store.addNode(cwd, project.id, { name: 'Done', status: 'built' });
+
+    await store.cleanup(cwd, { built: true, emptyProjects: false, apply: true });
+
+    const remaining = await store.getProject(cwd, project.id);
+    assert.equal(remaining.nodes.length, 0);
+  });
+});

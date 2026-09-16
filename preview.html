@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'"
+    />
+    <style type="text/tailwindcss">/* Compiled locally by @tailwindcss/browser. */</style>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #0f172a; }
+      #root { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; }
+      .sb-error { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 16px; color: #ef4444; font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; text-align: center; }
+      body.sb-inspecting, body.sb-inspecting * { cursor: crosshair !important; }
+      #sb-highlight { position: fixed; z-index: 2147483647; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.12); border-radius: 2px; display: none; }
+      #sb-highlight > span { position: absolute; top: -18px; left: 0; background: #3b82f6; color: #fff; font: 9px/1.2 ui-monospace, monospace; padding: 1px 4px; border-radius: 2px 2px 0 0; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="sb-highlight"><span id="sb-highlight-label">Target</span></div>
+    <script type="module" src="/preview-runtime.tsx"></script>
+  </body>
+</html>

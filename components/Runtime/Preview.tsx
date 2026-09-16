@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as LucideReact from 'lucide-react';
-import { SANDBOX_BOOTSTRAP_HTML } from './sandboxBootstrap';
 import type { SelectedElementInfo } from '../../types';
 
 interface PreviewProps {
@@ -97,16 +96,15 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
     postToFrame({ type: 'render', code, name: exportName });
   }, [ready, code, exportName, postToFrame]);
 
-  // The sandbox loads React/Babel/Tailwind from a CDN on every mount. If that
-  // never completes (offline, blocked host, DNS failure) `ready` never fires
-  // and the preview would otherwise spin forever with no explanation.
+  // A broken/corrupt local installation should fail clearly instead of leaving
+  // the preview spinner up forever.
   const READY_TIMEOUT_MS = 15000;
   useEffect(() => {
     if (ready) return;
     const timer = window.setTimeout(() => {
       setError((current) =>
         current ??
-        'Preview runtime failed to load. It requires network access to esm.sh and cdn.tailwindcss.com — check your connection or firewall.'
+        'The bundled preview runtime failed to load. Rebuild or reinstall Klose and try again.'
       );
     }, READY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
@@ -123,7 +121,7 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
         ref={iframeRef}
         title="Sketch preview"
         sandbox="allow-scripts"
-        srcDoc={SANDBOX_BOOTSTRAP_HTML}
+        src="/preview.html"
         allowTransparency
         className="w-full h-full block border-0"
         style={{ background: 'transparent', pointerEvents: interactive || isInspecting ? 'auto' : 'none' }}

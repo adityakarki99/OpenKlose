@@ -37,13 +37,14 @@ async function request(method, url, body) {
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  return { status: res.status, body: await res.json() };
+  return { status: res.status, headers: res.headers, body: await res.json() };
 }
 
 test('GET /api/health reports the server as up without touching .klose/', async () => {
   const res = await request('GET', '/api/health');
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { ok: true });
+  assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
 test('unknown routes still 404', async () => {
@@ -117,4 +118,37 @@ test('the happy paths still work', async () => {
   const source = await request('GET', '/api/component-source?file=src/components/Button.tsx');
   assert.equal(source.status, 200);
   assert.match(source.body.source, /export function Button/);
+});
+
+test('feedback endpoint returns structured element targets', async () => {
+  const { body: project } = await request('POST', '/api/projects', { name: 'Feedback' });
+  const { body: node } = await request('POST', `/api/projects/${project.id}/nodes`, {
+    name: 'Card',
+    comments: [{
+      id: 'c1', text: 'Tighten spacing', createdAt: 10,
+      element: { tagName: 'button', text: 'Save', classes: 'px-4', path: 'div > button' },
+    }],
+  });
+  const res = await request('GET', `/api/feedback?project=${project.id}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.count, 1);
+  assert.equal(res.body.feedback[0].nodeId, node.id);
+  assert.equal(res.body.feedback[0].element.path, 'div > button');
+});
+
+test('static preview assets allow module loading from the sandbox opaque origin', async () => {
+  const publicDir = await mkdtemp(path.join(os.tmpdir(), 'klose-public-test-'));
+  await writeFile(path.join(publicDir, 'runtime.js'), 'export const ready = true;', 'utf-8');
+  const staticServer = createKloseServer({ cwd, publicDir });
+  try {
+    await new Promise((resolve) => staticServer.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${staticServer.address().port}/runtime.js`;
+    const res = await fetch(url, { headers: { Origin: 'null' } });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    assert.match(await res.text(), /ready = true/);
+  } finally {
+    await new Promise((resolve) => staticServer.close(resolve));
+    await rm(publicDir, { recursive: true, force: true });
+  }
 });

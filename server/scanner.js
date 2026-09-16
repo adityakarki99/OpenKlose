@@ -95,29 +95,55 @@ function commentAbove(lines, i) {
   return collected.join(' ').replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
-/** Pull prop names/types from `interface NameProps {…}` or `type NameProps = {…}`. */
+/** Read direct property signatures without treating nested type punctuation as separators.
+ * Still a heuristic: inherited/mapped props and imported type definitions are not resolved.
+ */
 function extractProps(source, name) {
-  const patterns = [
-    new RegExp(`interface\\s+${name}Props\\s*(?:extends[^{]+)?{([\\s\\S]*?)\\n}`),
-    new RegExp(`type\\s+${name}Props\\s*=\\s*{([\\s\\S]*?)\\n}`),
-  ];
-  let body = null;
-  for (const re of patterns) {
-    const m = source.match(re);
-    if (m) { body = m[1]; break; }
+  // Tokenize strings before comments so URLs and punctuation inside literals survive.
+  const tokens = [];
+  const lexer = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|=>|\r?\n|[^\S\r\n]+|[A-Za-z_$][\w$]*|[^\s]/g;
+  for (const match of source.matchAll(lexer)) {
+    const value = match[0];
+    if (value.startsWith('//')) continue;
+    if (value.startsWith('/*')) { tokens.push(' '); continue; }
+    tokens.push(value);
   }
-  if (!body) return [];
+  // Mask literals only when locating declarations, preventing comment/string decoys.
+  const searchable = tokens.map(t => /^["'`]/.test(t) ? ' '.repeat(t.length) : t).join('');
+  const declaration = new RegExp(`\\b(?:interface\\s+${name}Props\\s*(?:extends[^{}]+)?|type\\s+${name}Props\\s*=\\s*)\\{`).exec(searchable);
+  if (!declaration) return [];
+  const start = declaration.index + declaration[0].length;
+  let offset = 0;
+  let index = 0;
+  while (index < tokens.length && offset < start) offset += tokens[index++].length;
   const props = [];
-  for (const raw of body.split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('//') || line.startsWith('/*') || line.startsWith('*')) continue;
-    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*(.+?);?\s*$/);
-    if (m) {
-      props.push({ name: m[1], optional: !!m[2], type: m[3].replace(/\s+/g, ' ').slice(0, 80) });
+  const stack = [];
+  let member = '';
+  const append = () => {
+    const match = member.trim().match(/^(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*(\?)?\s*:\s*([\s\S]+)$/);
+    if (match && props.length < 16) {
+      props.push({ name: match[1], optional: !!match[2], type: match[3].trim().replace(/\s+/g, ' ').slice(0, 80) });
     }
-    if (props.length >= 16) break;
+    member = '';
+  };
+  const closers = { '{': '}', '(': ')', '[': ']', '<': '>' };
+  for (; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (!stack.length) {
+      if (token === '}') { append(); return props; }
+      if (token === ';' || token === ',') { append(); continue; }
+      // Newlines separate semicolon-free members, but may also continue a union/type.
+      if (/\n/.test(token) && /^(?:\s*)(?:readonly\s+)?[A-Za-z_$][\w$]*\s*\??\s*:/.test(tokens.slice(index + 1, index + 20).join(''))) {
+        append();
+        continue;
+      }
+    }
+    if (Object.hasOwn(closers, token)) stack.push(closers[token]);
+    else if (token === stack.at(-1)) stack.pop();
+    member += token;
   }
-  return props;
+  // An unterminated declaration should not borrow props from unrelated source.
+  return [];
 }
 
 function categoryFor(relPath) {

@@ -46,7 +46,7 @@ inside the Klose server process.
 
 Recorded on 2026-09-16:
 
-- `npm test`: passed, 28 tests plus one skipped browser test, including structured store/API/CLI
+- `npm test`: passed after rebasing onto `main` (43 tests plus one skipped browser test), including structured store/API/CLI
   feedback, static sandbox/CSP checks, and opaque-origin module CORS coverage.
 - `npm run build`: passed; both `index.html` and `preview.html` emitted with local hashed bundles.
 - Browser regression: blocked before launch because Playwright's Chromium executable is not installed.

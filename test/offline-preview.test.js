@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(import.meta.dirname, '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('preview iframe keeps an opaque origin and the runtime blocks network connections', async () => {
   const previewComponent = await readFile(path.join(root, 'components/Runtime/Preview.tsx'), 'utf-8');

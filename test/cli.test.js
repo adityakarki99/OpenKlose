@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as store from '../server/store.js';
 
 test('klose feedback prints stable JSON without clipboard handoff', async () => {
@@ -14,7 +15,7 @@ test('klose feedback prints stable JSON without clipboard handoff', async () => 
       name: 'Button',
       comments: [{ id: 'feedback-1', text: 'Increase contrast', createdAt: 1 }],
     });
-    const cli = path.resolve(import.meta.dirname, '..', 'bin', 'klose.js');
+    const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
     const result = spawnSync(process.execPath, [cli, 'feedback', `--project=${project.id}`], {
       cwd,
       encoding: 'utf-8',

@@ -72,6 +72,34 @@ test('deleteProject removes the project file', async () => {
   });
 });
 
+test('listFeedback flattens element-scoped comments for agent consumption', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'Review');
+    const node = await store.addNode(cwd, project.id, {
+      name: 'Checkout',
+      builtFilePath: 'src/Checkout.tsx',
+      comments: [{
+        id: 'comment-1',
+        text: 'Make this clearer',
+        createdAt: 123,
+        element: { tagName: 'button', text: 'Pay', classes: 'px-4', path: 'div > button' },
+      }],
+    });
+
+    assert.deepEqual(await store.listFeedback(cwd, { projectId: project.id }), [{
+      projectId: project.id,
+      projectName: 'Review',
+      nodeId: node.id,
+      nodeName: 'Checkout',
+      builtFilePath: 'src/Checkout.tsx',
+      commentId: 'comment-1',
+      text: 'Make this clearer',
+      createdAt: 123,
+      element: { tagName: 'button', text: 'Pay', classes: 'px-4', path: 'div > button' },
+    }]);
+  });
+});
+
 // Project ids are always server-generated UUIDs. Anything else reaching the
 // filesystem layer (e.g. a path-traversal payload smuggled in a route param)
 // must be rejected before it can turn into a file path.

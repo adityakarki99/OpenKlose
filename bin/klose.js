@@ -284,6 +284,15 @@ async function cmdComponents(args) {
   }
 }
 
+async function cmdFeedback(args) {
+  const projectArg = args.find((arg) => arg.startsWith('--project='));
+  const projectId = projectArg ? projectArg.slice('--project='.length) : undefined;
+  const feedback = await store.listFeedback(cwd, { projectId });
+  // JSON is the default: this command is primarily an agent integration
+  // surface, and stable structured output is safer than parsing prose.
+  return printJson({ count: feedback.length, feedback });
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   switch (command) {
@@ -301,13 +310,15 @@ async function main() {
       return cmdProject(args);
     case 'components':
       return cmdComponents(args);
+    case 'feedback':
+      return cmdFeedback(args);
     case '--version':
     case '-v': {
       const pkg = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf-8'));
       return console.log(pkg.version);
     }
     default:
-      console.log('Usage: klose <init|serve|status|update|cleanup|project|components> [...args]');
+      console.log('Usage: klose <init|serve|status|update|cleanup|project|components|feedback> [...args]');
       if (command) process.exit(1);
   }
 }

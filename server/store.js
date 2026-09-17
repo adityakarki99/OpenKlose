@@ -133,6 +133,29 @@ export async function updateNode(cwd, id, nodeId, updates) {
   return updatedNode;
 }
 
+/**
+ * Return pending feedback in a stable, agent-friendly shape. This avoids
+ * making an agent scrape every project/node or depend on clipboard text.
+ */
+export async function listFeedback(cwd, { projectId } = {}) {
+  const projects = projectId ? [await getProject(cwd, projectId)] : await listProjects(cwd);
+  return projects.flatMap((project) =>
+    (project.nodes || []).flatMap((node) =>
+      (node.comments || []).map((comment) => ({
+        projectId: project.id,
+        projectName: project.name,
+        nodeId: node.id,
+        nodeName: node.name,
+        builtFilePath: node.builtFilePath || null,
+        commentId: comment.id,
+        text: comment.text,
+        createdAt: comment.createdAt,
+        element: comment.element || null,
+      }))
+    )
+  );
+}
+
 export function projectsWatchDir(cwd) {
   return projectsDir(cwd);
 }

@@ -4,70 +4,33 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Klose — Design ideation canvas</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ["Inter", "sans-serif"],
-              logo: ['"Space Grotesk"', "sans-serif"],
-            },
-            colors: {
-              ceko: {
-                bg: "rgb(var(--ceko-bg) / <alpha-value>)",
-                surface: "rgb(var(--ceko-surface) / <alpha-value>)",
-                accent: "rgb(var(--app-accent) / <alpha-value>)",
-              },
-              app: {
-                bg: "rgb(var(--app-bg) / <alpha-value>)",
-                surface: "rgb(var(--app-surface) / <alpha-value>)",
-                surfaceSoft: "rgb(var(--app-surface-soft) / <alpha-value>)",
-                surfaceElevated: "rgb(var(--app-surface-elevated) / <alpha-value>)",
-                surfaceMuted: "rgb(var(--app-surface-muted) / <alpha-value>)",
-                border: "rgb(var(--app-border) / <alpha-value>)",
-                borderStrong: "rgb(var(--app-border-strong) / <alpha-value>)",
-                primary: "rgb(var(--app-text-primary) / <alpha-value>)",
-                secondary: "rgb(var(--app-text-secondary) / <alpha-value>)",
-                muted: "rgb(var(--app-text-muted) / <alpha-value>)",
-                subtle: "rgb(var(--app-text-subtle) / <alpha-value>)",
-                accent: "rgb(var(--app-accent) / <alpha-value>)",
-                grid: "rgb(var(--app-grid-dot) / <alpha-value>)",
-                canvasEmpty: "rgb(var(--app-canvas-empty) / <alpha-value>)",
-              },
-            },
-            animation: {
-              "spin-slow": "spin 120s linear infinite",
-              "pulse-slow": "pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-              float: "float 6s ease-in-out infinite",
-              glow: "glow 2s ease-in-out infinite",
-            },
-            keyframes: {
-              glow: {
-                "0%, 100%": {
-                  boxShadow:
-                    "0 0 5px rgba(96, 165, 250, 0.2), 0 0 10px rgba(96, 165, 250, 0.1)",
-                },
-                "50%": {
-                  boxShadow:
-                    "0 0 15px rgba(96, 165, 250, 0.5), 0 0 25px rgba(96, 165, 250, 0.3)",
-                },
-              },
-              float: {
-                "0%, 100%": { transform: "translateY(0)" },
-                "50%": { transform: "translateY(-20px)" },
-              },
-            },
-          },
-        },
-      };
-    </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <style type="text/tailwindcss">
+      @theme {
+        --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+        --font-logo: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+        --color-ceko-bg: rgb(var(--ceko-bg));
+        --color-ceko-surface: rgb(var(--ceko-surface));
+        --color-ceko-accent: rgb(var(--app-accent));
+        --color-app-bg: rgb(var(--app-bg));
+        --color-app-surface: rgb(var(--app-surface));
+        --color-app-surface-soft: rgb(var(--app-surface-soft));
+        --color-app-surface-elevated: rgb(var(--app-surface-elevated));
+        --color-app-surface-muted: rgb(var(--app-surface-muted));
+        --color-app-border: rgb(var(--app-border));
+        --color-app-border-strong: rgb(var(--app-border-strong));
+        --color-app-primary: rgb(var(--app-text-primary));
+        --color-app-secondary: rgb(var(--app-text-secondary));
+        --color-app-muted: rgb(var(--app-text-muted));
+        --color-app-subtle: rgb(var(--app-text-subtle));
+        --color-app-accent: rgb(var(--app-accent));
+        --color-app-grid: rgb(var(--app-grid-dot));
+        --color-app-canvas-empty: rgb(var(--app-canvas-empty));
+        --animate-spin-slow: spin 120s linear infinite;
+        --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        --animate-float: float 6s ease-in-out infinite;
+        --animate-glow: glow 2s ease-in-out infinite;
+      }
+    </style>
     <style>
       :root {
         --ceko-bg: 2 6 23;

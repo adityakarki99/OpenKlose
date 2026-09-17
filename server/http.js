@@ -37,7 +37,13 @@ async function serveStatic(res, publicDir, urlPath) {
     filePath = path.join(publicDir, 'index.html');
   }
   const ext = path.extname(filePath);
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+  // Sandboxed preview documents have an opaque (`null`) origin. Module
+  // scripts therefore require CORS even though both files came from this
+  // local server. Static assets contain no repository data.
+  res.writeHead(200, {
+    'Content-Type': MIME[ext] || 'application/octet-stream',
+    'Access-Control-Allow-Origin': '*',
+  });
   createReadStream(filePath).pipe(res);
 }
 
@@ -73,6 +79,12 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
         sseClients.add(res);
         req.on('close', () => sseClients.delete(res));
         return;
+      }
+
+      if (url.pathname === '/api/feedback' && req.method === 'GET') {
+        const projectId = url.searchParams.get('project') || undefined;
+        const feedback = await store.listFeedback(cwd, { projectId });
+        return sendJson(res, 200, { count: feedback.length, feedback });
       }
 
       // Repo component index — search & view the host repo's real components.

@@ -290,6 +290,7 @@ klose project update <id> <json|@file.json>       Merge fields into a project
 klose project delete <id>                         Delete a project
 klose project add-node <id> <json|@file.json>     Add a sketch node to a project's canvas
 klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (its code, comments, or mark it built)
+klose feedback [--project=<id>]                 Read all pending feedback as structured JSON
 ```
 
 Any `<json>` argument can instead be `@path/to/file.json` — handy for a sketch's multi-line preview
@@ -354,9 +355,10 @@ The server pushes live updates over SSE, but if a change doesn't appear within a
 refresh the tab.
 
 **A preview shows a spinner or stays blank.**
-Live previews load React and a Babel transpiler from a CDN inside a sandboxed iframe, so a preview
-needs network access the first time. Offline or behind a strict proxy, the preview may not render —
-the sketch's description and comments still work.
+Live previews use the React, Babel, Tailwind, icon, and chart runtimes bundled with Klose; they do not
+need internet access. Rebuild or reinstall Klose if the local runtime fails to load. Repo components
+with relative imports are intentionally not executed in isolation: use a self-contained sketch until
+safe project-aware bundling is available.
 
 **What does the AGPL license mean for me?**
 You can use, study, share, and modify Klose freely. The AGPL's network clause only matters if you host

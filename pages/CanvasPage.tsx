@@ -2,15 +2,42 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT, GRID_SIZE, DEFAULT_PROJECT_CONTEXT } from '../constants';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  DEFAULT_NODE_WIDTH,
+  DEFAULT_NODE_HEIGHT,
+  GRID_SIZE,
+  MIN_NODE_WIDTH,
+  MIN_NODE_HEIGHT,
+  DEFAULT_PROJECT_CONTEXT,
+} from '../constants';
 import SketchNode from '../components/Canvas/SketchNode';
 import ZoomControl from '../components/Canvas/ZoomControl';
 import VerticalNavigationBar from '../components/Canvas/VerticalNavigationBar';
 import SketchInspector from '../components/Sidebar/SketchInspector';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
 import { Loader2, X } from 'lucide-react';
+import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
 import { useHistory } from '../hooks/useHistory';
 import { usePersistence } from '../hooks/usePersistence';
+
+/** The subset of a pointer event the drag/resize math needs. */
+interface PointerSample {
+  clientX: number;
+  clientY: number;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+/** Canvas bounds and snapping rules handed to every drag/resize. */
+const FRAME_LIMITS = {
+  canvasWidth: CANVAS_WIDTH,
+  canvasHeight: CANVAS_HEIGHT,
+  minWidth: MIN_NODE_WIDTH,
+  minHeight: MIN_NODE_HEIGHT,
+  grid: GRID_SIZE,
+};
 
 const CanvasPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -61,6 +88,11 @@ const CanvasPage: React.FC = () => {
   const isSaving = saveStatus === 'saving';
 
   const dragStartNodesRef = useRef<ComponentNode[]>([]);
+  // Pointer moves fire far faster than the canvas can lay out a frame full of
+  // iframes, so they are coalesced onto animation frames instead of each one
+  // triggering its own render.
+  const pendingSampleRef = useRef<PointerSample | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
   // Distinguishes a real drag/resize from a plain click, and remembers whether the
   // node was already selected before this mousedown — see the comment above the
   // window-listener effect below for why this matters.
@@ -72,6 +104,10 @@ const CanvasPage: React.FC = () => {
   const [canvasDrag, setCanvasDrag] = useState<{ active: boolean; startX: number; startY: number; scrollLeft: number; scrollTop: number }>({ active: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
+  // While any gesture runs, previews stop taking pointer events: an iframe that
+  // still accepts them swallows every move once the cursor crosses it, which is
+  // what used to make a resize stall mid-drag over a preview.
+  const isGesturing = dragState.isDragging || resizeState.isResizing || canvasDrag.active;
 
   // --- Load Project on Mount ---
   useEffect(() => {
@@ -156,6 +192,30 @@ const CanvasPage: React.FC = () => {
     setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n)));
   };
 
+  /**
+   * Resizes a sketch frame, keeping it inside the canvas and above the minimum.
+   * Used by the inspector's size fields and by "fit to preview" on the frame.
+   */
+  const handleResizeNode = (id: string, size: { width?: number; height?: number }) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== id) return n;
+        const width = Math.round(
+          clamp(size.width ?? n.width, MIN_NODE_WIDTH, CANVAS_WIDTH - n.x)
+        );
+        const height = Math.round(
+          clamp(size.height ?? n.height, MIN_NODE_HEIGHT, CANVAS_HEIGHT - n.y)
+        );
+        if (width === n.width && height === n.height) return n;
+        return { ...n, width, height, updatedAt: Date.now() };
+      })
+    );
+  };
+
+  const handleFitToContent = (id: string, width: number, height: number) => {
+    handleResizeNode(id, { width, height });
+  };
+
   const handleInspectElement = (info: SelectedElementInfo) => {
     setPendingElement(info);
     setInspectingNodeId(null);
@@ -222,8 +282,11 @@ const CanvasPage: React.FC = () => {
   };
 
   // --- Interaction Handlers ---
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+  const handleCanvasPointerDown = (e: React.PointerEvent) => {
     if (dragState.isDragging || resizeState.isResizing) return;
+    // Primary button / single touch only: a right-click belongs to the browser,
+    // and a middle-click should not hijack the canvas either.
+    if (e.button !== 0) return;
     setSelectedNodeId(null);
     setCanvasDrag({
       active: true,
@@ -234,7 +297,7 @@ const CanvasPage: React.FC = () => {
     });
   };
 
-  const handleMouseMove = (e: { clientX: number; clientY: number }) => {
+  const handlePointerMove = (e: PointerSample) => {
     if (canvasDrag.active && canvasRef.current) {
       const dx = e.clientX - canvasDrag.startX;
       const dy = e.clientY - canvasDrag.startY;
@@ -242,47 +305,51 @@ const CanvasPage: React.FC = () => {
       canvasRef.current.scrollTop = canvasDrag.scrollTop - dy;
     }
 
+    // Everything snaps to the grid unless Alt is held, which gives pixel-exact
+    // control for the last nudge.
+    const snap = !e.altKey;
+
     if (dragState.isDragging && dragState.nodeId) {
       interactionMovedRef.current = true;
       const dx = (e.clientX - dragState.startX) / zoom;
       const dy = (e.clientY - dragState.startY) / zoom;
 
-      const newX = Math.max(0, Math.min(CANVAS_WIDTH - 100, dragState.initialNodeX + dx));
-      const newY = Math.max(0, Math.min(CANVAS_HEIGHT - 100, dragState.initialNodeY + dy));
-
-      const snappedX = Math.round(newX / GRID_SIZE) * GRID_SIZE;
-      const snappedY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
-
-      setNodesTransient((prev) => prev.map((n) => (n.id === dragState.nodeId ? { ...n, x: snappedX, y: snappedY } : n)));
+      setNodesTransient((prev) =>
+        prev.map((n) => {
+          if (n.id !== dragState.nodeId) return n;
+          const start = { ...n, x: dragState.initialNodeX, y: dragState.initialNodeY };
+          return { ...n, ...moveFrame(start, { dx, dy, snap, limits: FRAME_LIMITS }) };
+        })
+      );
     }
 
-    if (resizeState.isResizing && resizeState.nodeId) {
+    if (resizeState.isResizing && resizeState.nodeId && resizeState.handle) {
       interactionMovedRef.current = true;
       const dx = (e.clientX - resizeState.startX) / zoom;
       const dy = (e.clientY - resizeState.startY) / zoom;
+      const start = {
+        x: resizeState.initialX,
+        y: resizeState.initialY,
+        width: resizeState.initialWidth,
+        height: resizeState.initialHeight,
+      };
+      const next = resizeFrame(start, {
+        handle: resizeState.handle,
+        dx,
+        dy,
+        snap,
+        // Shift on a corner keeps the frame's starting aspect ratio.
+        keepRatio: e.shiftKey,
+        limits: FRAME_LIMITS,
+      });
 
       setNodesTransient((prev) =>
-        prev.map((n) => {
-          if (n.id !== resizeState.nodeId) return n;
-          let { x, y, width, height } = n;
-          const { handle, initialX, initialY, initialWidth, initialHeight } = resizeState;
-          if (handle?.includes('e')) width = Math.max(200, initialWidth + dx);
-          if (handle?.includes('w')) {
-            const newW = Math.max(200, initialWidth - dx);
-            if (newW !== width) { x = initialX + dx; width = newW; }
-          }
-          if (handle?.includes('s')) height = Math.max(100, initialHeight + dy);
-          if (handle?.includes('n')) {
-            const newH = Math.max(100, initialHeight - dy);
-            if (newH !== height) { y = initialY + dy; height = newH; }
-          }
-          return { ...n, x, y, width, height };
-        })
+        prev.map((n) => (n.id === resizeState.nodeId ? { ...n, ...next } : n))
       );
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     if ((dragState.isDragging || resizeState.isResizing) && dragStartNodesRef.current.length > 0) {
       commitToHistory(dragStartNodesRef.current);
       dragStartNodesRef.current = [];
@@ -302,32 +369,50 @@ const CanvasPage: React.FC = () => {
 
   // Track drag/resize/pan at the window level, not just over the canvas div.
   //
-  // Binding mousemove/mouseup only on the canvas div means releasing the mouse
-  // over a sibling overlay (the toolbar, the inspector panel) or anywhere
-  // outside the div's bounds never fires handleMouseUp — isDragging stays
+  // Binding the move/up listeners only on the canvas div means releasing the
+  // pointer over a sibling overlay (the toolbar, the inspector panel) or
+  // anywhere outside the div's bounds never ends the gesture — isDragging stays
   // true forever, so the node keeps "sticking" to the cursor on the next
   // move anywhere in the canvas. Window-level listeners, active only while a
   // gesture is actually in progress, always see the release.
   useEffect(() => {
     if (!dragState.isDragging && !resizeState.isResizing && !canvasDrag.active) return;
 
-    const onMove = (e: MouseEvent) => handleMouseMove(e);
-    const onUp = () => handleMouseUp();
+    const onMove = (e: PointerEvent) => {
+      pendingSampleRef.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      };
+      if (moveFrameRef.current !== null) return;
+      moveFrameRef.current = requestAnimationFrame(() => {
+        moveFrameRef.current = null;
+        const sample = pendingSampleRef.current;
+        if (sample) handlePointerMove(sample);
+      });
+    };
+    const onUp = () => handlePointerUp();
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     // Safety net: alt-tabbing or otherwise losing focus mid-drag should also end it.
     window.addEventListener('blur', onUp);
 
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       window.removeEventListener('blur', onUp);
+      if (moveFrameRef.current !== null) cancelAnimationFrame(moveFrameRef.current);
+      moveFrameRef.current = null;
+      pendingSampleRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragState.isDragging, resizeState.isResizing, canvasDrag.active]);
 
-  const handleDragStart = (id: string, e: React.MouseEvent) => {
+  const handleDragStart = (id: string, e: React.PointerEvent) => {
     e.stopPropagation();
     const node = nodes.find((n) => n.id === id);
     if (node) {
@@ -339,7 +424,7 @@ const CanvasPage: React.FC = () => {
     }
   };
 
-  const handleResizeStart = (id: string, handle: string, e: React.MouseEvent) => {
+  const handleResizeStart = (id: string, handle: string, e: React.PointerEvent) => {
     e.stopPropagation();
     const node = nodes.find((n) => n.id === id);
     if (node) {
@@ -448,8 +533,8 @@ const CanvasPage: React.FC = () => {
 
         <div
           ref={canvasRef}
-          className={`w-full h-full overflow-auto canvas-scroll relative ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'}`}
-          onMouseDown={handleCanvasMouseDown}
+          className={`w-full h-full overflow-auto canvas-scroll relative ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
+          onPointerDown={handleCanvasPointerDown}
         >
           <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }} className="relative">
             <div
@@ -490,7 +575,11 @@ const CanvasPage: React.FC = () => {
                   node={node}
                   isSelected={selectedNodeId === node.id}
                   isInspecting={inspectingNodeId === node.id}
+                  zoom={zoom}
+                  isGesturing={isGesturing}
+                  isResizing={resizeState.isResizing && resizeState.nodeId === node.id}
                   onInspectElement={handleInspectElement}
+                  onFitToContent={handleFitToContent}
                   onSelect={(id, e) => {
                     e.stopPropagation();
                     // The preceding mousedown already selected this node (see
@@ -537,6 +626,7 @@ const CanvasPage: React.FC = () => {
           onConsumePendingElement={() => setPendingElement(null)}
           onClose={() => setSelectedNodeId(null)}
           onUpdate={handleUpdateNode}
+          onResize={handleResizeNode}
         />
       )}
     </div>

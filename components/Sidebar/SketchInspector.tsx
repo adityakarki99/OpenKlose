@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Trash2, Copy, Check, Send, MousePointerSquareDashed, Crosshair } from 'lucide-react';
 import { ComponentNode, SelectedElementInfo } from '../../types';
+import { MIN_NODE_HEIGHT, MIN_NODE_WIDTH, SIZE_PRESETS } from '../../constants';
 
 interface SketchInspectorProps {
   node: ComponentNode;
@@ -13,6 +14,8 @@ interface SketchInspectorProps {
   onConsumePendingElement: () => void;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<ComponentNode>) => void;
+  /** Resizes the frame, clamped to the canvas and to the minimum frame size. */
+  onResize: (id: string, size: { width?: number; height?: number }) => void;
 }
 
 function timeAgo(ts: number): string {
@@ -67,12 +70,17 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
   onConsumePendingElement,
   onClose,
   onUpdate,
+  onResize,
 }) => {
   const [name, setName] = useState(node.name);
   const [description, setDescription] = useState(node.description);
   const [notes, setNotes] = useState(node.notes || '');
   const [newComment, setNewComment] = useState('');
   const [copied, setCopied] = useState(false);
+  // Size fields are free text while being typed, and only committed on blur or
+  // Enter — otherwise a half-typed "4" would resize the frame to the minimum.
+  const [width, setWidth] = useState(String(Math.round(node.width)));
+  const [height, setHeight] = useState(String(Math.round(node.height)));
 
   useEffect(() => {
     setName(node.name);
@@ -81,6 +89,22 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
     setNewComment('');
     setCopied(false);
   }, [node.id]);
+
+  // Keep the size fields in step with the frame while it is dragged or fitted.
+  useEffect(() => {
+    setWidth(String(Math.round(node.width)));
+    setHeight(String(Math.round(node.height)));
+  }, [node.width, node.height]);
+
+  const commitSize = (axis: 'width' | 'height', raw: string) => {
+    const value = Number.parseInt(raw, 10);
+    if (Number.isNaN(value)) {
+      setWidth(String(Math.round(node.width)));
+      setHeight(String(Math.round(node.height)));
+      return;
+    }
+    onResize(node.id, { [axis]: value });
+  };
 
   const comments = node.comments || [];
   const hasPreview = !!node.code;
@@ -152,6 +176,57 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
             className="h-28 w-full resize-none rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs leading-relaxed text-app-secondary outline-none focus:border-blue-500"
           />
         </label>
+
+        <div className="space-y-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-app-subtle">Frame size</span>
+          <div className="flex items-center gap-2">
+            <label className="flex flex-1 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2 py-1.5">
+              <span className="text-[10px] font-medium uppercase text-app-subtle">W</span>
+              <input
+                type="number"
+                min={MIN_NODE_WIDTH}
+                value={width}
+                onChange={(e) => setWidth(e.target.value)}
+                onBlur={(e) => commitSize('width', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="w-full bg-transparent text-xs text-app-primary outline-none"
+              />
+            </label>
+            <label className="flex flex-1 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2 py-1.5">
+              <span className="text-[10px] font-medium uppercase text-app-subtle">H</span>
+              <input
+                type="number"
+                min={MIN_NODE_HEIGHT}
+                value={height}
+                onChange={(e) => setHeight(e.target.value)}
+                onBlur={(e) => commitSize('height', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="w-full bg-transparent text-xs text-app-primary outline-none"
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {SIZE_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => onResize(node.id, { width: preset.width, height: preset.height })}
+                className="rounded-md border border-app-border bg-app-surfaceSoft px-2 py-1 text-[10px] font-medium text-app-secondary transition-colors hover:bg-app-surface"
+                title={`${preset.width} × ${preset.height}`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] leading-relaxed text-app-muted">
+            Drag a frame handle to resize — hold <kbd>Shift</kbd> to keep the ratio, <kbd>Alt</kbd> to
+            ignore the grid. The frame's{' '}
+            <span className="font-medium text-app-secondary">fit</span> button sizes it to its preview.
+          </p>
+        </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">

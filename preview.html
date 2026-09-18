@@ -10,7 +10,18 @@
     <style type="text/tailwindcss">/* Compiled locally by @tailwindcss/browser. */</style>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #0f172a; }
-      #root { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; }
+      /*
+         `safe center` keeps a component that outgrows its frame scrollable from
+         its top-left instead of having its start edge clipped by the centering,
+         and children keep their natural size rather than being squeezed by the
+         flex container — so a too-small frame scrolls instead of lying about the
+         component's layout.
+      */
+      #root { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: safe center; justify-content: safe center; overflow: auto; }
+      #root > * { flex: 0 0 auto; }
+      #root::-webkit-scrollbar { width: 6px; height: 6px; }
+      #root::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 3px; }
+      #root::-webkit-scrollbar-track { background: transparent; }
       .sb-error { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 16px; color: #ef4444; font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; text-align: center; }
       body.sb-inspecting, body.sb-inspecting * { cursor: crosshair !important; }
       #sb-highlight { position: fixed; z-index: 2147483647; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.12); border-radius: 2px; display: none; }

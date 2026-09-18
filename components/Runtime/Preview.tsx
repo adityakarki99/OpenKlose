@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import * as LucideReact from 'lucide-react';
 import type { SelectedElementInfo } from '../../types';
 
@@ -14,14 +14,32 @@ interface PreviewProps {
   /**
    * Whether the live component should receive pointer events. When false, the
    * iframe ignores pointer events so clicks fall through to the canvas (e.g.
-   * to select or drag the node).
+   * to select or drag the node). The canvas also turns this off for the
+   * duration of a drag/resize/pan: an iframe that still accepts pointer events
+   * swallows every move once the cursor crosses it, which used to stall a
+   * resize the moment it passed over the preview.
    */
   interactive?: boolean;
   /** When true, hovering highlights elements and a click reports the element instead of interacting with it. */
   isInspecting?: boolean;
   /** Called with the clicked element's info while inspecting. */
   onElementSelect?: (info: SelectedElementInfo) => void;
+  /** Called with the rendered component's own size, so the frame can be fitted to it. */
+  onContentSize?: (size: { width: number; height: number }) => void;
 }
+
+export interface PreviewHandle {
+  /** Rasterizes the live preview and resolves with a PNG data URL. */
+  capture: (options?: { scale?: number }) => Promise<string>;
+}
+
+interface PendingCapture {
+  resolve: (dataUrl: string) => void;
+  reject: (error: Error) => void;
+  timer: number;
+}
+
+const CAPTURE_TIMEOUT_MS = 20000;
 
 /**
  * Renders a sketch's preview code inside a sandboxed, cross-origin iframe.
@@ -30,14 +48,24 @@ interface PreviewProps {
  * treated as untrusted. It runs in an opaque-origin iframe
  * (`sandbox="allow-scripts"`, no `allow-same-origin`) so it cannot read the
  * parent app's cookies, localStorage, or DOM, and its CSP blocks network
- * access. All communication is mediated through postMessage.
+ * access. All communication is mediated through postMessage — including
+ * screenshots, which the sandbox has to take of itself because the parent
+ * cannot read a cross-origin frame's pixels.
  */
-const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true, isInspecting = false, onElementSelect }) => {
+const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
+  { code, exportName, interactive = true, isInspecting = false, onElementSelect, onContentSize },
+  ref
+) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onElementSelectRef = useRef(onElementSelect);
   onElementSelectRef.current = onElementSelect;
+  const onContentSizeRef = useRef(onContentSize);
+  onContentSizeRef.current = onContentSize;
+  const pendingCapturesRef = useRef(new Map<string, PendingCapture>());
+  const readyRef = useRef(false);
+  readyRef.current = ready;
 
   const postToFrame = useCallback((message: Record<string, unknown>) => {
     const frame = iframeRef.current;
@@ -58,6 +86,47 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
       // ignore
     }
     return '#0f172a';
+  }, []);
+
+  const settleCapture = useCallback((id: unknown, settle: (pending: PendingCapture) => void) => {
+    if (typeof id !== 'string') return;
+    const pending = pendingCapturesRef.current.get(id);
+    if (!pending) return;
+    pendingCapturesRef.current.delete(id);
+    window.clearTimeout(pending.timer);
+    settle(pending);
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      capture: (options) =>
+        new Promise<string>((resolve, reject) => {
+          if (!readyRef.current) {
+            reject(new Error('The preview is still loading.'));
+            return;
+          }
+          const id = `cap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const timer = window.setTimeout(() => {
+            pendingCapturesRef.current.delete(id);
+            reject(new Error('The preview took too long to produce a screenshot.'));
+          }, CAPTURE_TIMEOUT_MS);
+          pendingCapturesRef.current.set(id, { resolve, reject, timer });
+          postToFrame({ type: 'capture', id, scale: options?.scale ?? 2 });
+        }),
+    }),
+    [postToFrame]
+  );
+
+  useEffect(() => {
+    const pending = pendingCapturesRef.current;
+    return () => {
+      pending.forEach((entry) => {
+        window.clearTimeout(entry.timer);
+        entry.reject(new Error('The preview was closed before the screenshot finished.'));
+      });
+      pending.clear();
+    };
   }, []);
 
   useEffect(() => {
@@ -82,13 +151,31 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
         case 'select':
           if (data.info) onElementSelectRef.current?.(data.info as SelectedElementInfo);
           break;
+        case 'contentSize':
+          if (typeof data.width === 'number' && typeof data.height === 'number') {
+            onContentSizeRef.current?.({ width: data.width, height: data.height });
+          }
+          break;
+        case 'capture':
+          settleCapture(data.id, (entry) => {
+            if (typeof data.dataUrl === 'string') entry.resolve(data.dataUrl);
+            else entry.reject(new Error('The sandbox returned an empty screenshot.'));
+          });
+          break;
+        case 'captureError':
+          settleCapture(data.id, (entry) =>
+            entry.reject(
+              new Error(typeof data.message === 'string' ? data.message : 'Screenshot failed')
+            )
+          );
+          break;
         default:
           break;
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [postToFrame, resolveSurfaceColor]);
+  }, [postToFrame, resolveSurfaceColor, settleCapture]);
 
   useEffect(() => {
     if (!ready) return;
@@ -124,7 +211,7 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
         src="/preview.html"
         allowTransparency
         className="w-full h-full block border-0"
-        style={{ background: 'transparent', pointerEvents: interactive || isInspecting ? 'auto' : 'none' }}
+        style={{ background: 'transparent', pointerEvents: interactive ? 'auto' : 'none' }}
       />
 
       {error && (
@@ -142,6 +229,6 @@ const Preview: React.FC<PreviewProps> = ({ code, exportName, interactive = true,
       )}
     </div>
   );
-};
+});
 
 export default Preview;

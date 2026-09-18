@@ -217,6 +217,17 @@ Sketches render **real component code** (written by the agent) inside a sandboxe
 your design system — so a preview looks like it belongs in your app. A sketch doesn't *need* code to
 be useful, but when it has it, you see the actual thing, interactive.
 
+### Resize, screenshot, and read the code
+
+Drag any frame handle to resize a sketch — edges snap to the grid, **Shift** on a corner keeps the
+ratio, **Alt** ignores the grid, and a live readout shows the exact size. The inspector takes exact
+width/height values and a few device presets, and the frame's **fit** button snaps it to the size its
+preview actually wants.
+
+The camera button saves a 2× PNG of the preview (hold **Alt** to copy it to the clipboard instead) —
+taken inside the sandbox, so nothing leaves your machine. The `</>` button flips the frame to the
+preview's source: the exact code the sandbox renders, with a copy button.
+
 ### Comments & "Copy for agent"
 
 <div align="center">

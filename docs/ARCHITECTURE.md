@@ -79,6 +79,22 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
   `sandbox="allow-scripts"` (no `allow-same-origin`) and a `connect-src 'none'` CSP, so agent-written
   code can't reach the parent page's storage or the network. A node with no `code` just shows its
   description text — a sketch doesn't require a preview to be useful.
+- A frame's chrome carries the actions that need the live iframe: a **code toggle** (`CodeView`
+  overlays the preview with its own source — the iframe stays mounted underneath, so toggling costs
+  no reload), a **screenshot** button, and **fit to preview**, which resizes the frame to the size
+  the sandbox reports for the rendered component (`contentSize` over postMessage).
+- **Screenshots are taken inside the sandbox.** The parent cannot read a cross-origin frame's pixels,
+  so `preview/screenshot.ts` clones the rendered DOM, inlines the document's stylesheets (including
+  the Tailwind the sandbox compiled at runtime), wraps it in an `<svg><foreignObject>` and draws that
+  into a canvas — the same technique as html2canvas's foreignObject renderer. The SVG is a `data:`
+  URL, which is all the CSP's `img-src data: blob:` allows, so a capture still makes no network
+  request. The PNG data URL comes back over postMessage and the canvas saves or copies it.
+- **Drag/resize geometry lives in `lib/frameGeometry.js`** (plain ESM, so `node --test` can cover it):
+  edge-based resizing where an untouched edge never moves, grid snapping applied to positions rather
+  than to deltas (Alt bypasses it), Shift for ratio-locked corners, and clamping to the canvas and to
+  the minimum frame size. The canvas drives it with pointer events coalesced onto animation frames,
+  and switches every preview to `pointer-events: none` for the duration of a gesture — an interactive
+  iframe otherwise swallows the moves the moment the cursor crosses it.
 - A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel, shown as a
   small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
   project/node ids) as text meant to be pasted straight into the coding agent's chat. A comment can

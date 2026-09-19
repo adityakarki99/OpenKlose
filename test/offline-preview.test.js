@@ -23,3 +23,22 @@ test('host and preview entrypoints contain no external runtime URLs', async () =
     assert.doesNotMatch(source, /https?:\/\//, file);
   }
 });
+
+test('the sandbox screenshot module never reaches the network', async () => {
+  const source = await readFile(path.join(root, 'preview/screenshot.ts'), 'utf-8');
+  const urls = [...new Set(source.match(/https?:\/\/[^\s'"`)]+/g) || [])].sort();
+  // XML namespaces are identifiers, not addresses — nothing is ever fetched
+  // from them, and an opaque-origin sandbox could not fetch them anyway.
+  assert.deepEqual(urls, ['http://www.w3.org/1999/xhtml', 'http://www.w3.org/2000/svg']);
+  assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|importScripts/);
+  // The image the capture rasterizes has to be a data URL: the CSP allows
+  // `img-src data: blob:` and nothing else.
+  assert.match(source, /data:image\/svg\+xml/);
+});
+
+test('screenshots leave the sandbox only as postMessage replies', async () => {
+  const runtime = await readFile(path.join(root, 'preview-runtime.tsx'), 'utf-8');
+  assert.match(runtime, /data\.type === 'capture'/);
+  assert.match(runtime, /post\(\{ type: 'capture', id, dataUrl \}\)/);
+  assert.match(runtime, /type: 'captureError'/);
+});

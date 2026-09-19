@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import * as Babel from '@babel/standalone';
 import * as LucideReact from 'lucide-react';
 import * as Recharts from 'recharts';
+import { capture } from './preview/screenshot';
 import '@tailwindcss/browser';
 
 const rootElement = document.getElementById('root');
@@ -10,6 +11,7 @@ if (!rootElement) throw new Error('Preview root is missing');
 
 const root = createRoot(rootElement);
 let inspecting = false;
+let surfaceColor = '#0f172a';
 const highlight = document.getElementById('sb-highlight') as HTMLElement;
 const highlightLabel = document.getElementById('sb-highlight-label') as HTMLElement;
 
@@ -18,7 +20,17 @@ function post(message: Record<string, unknown>) {
 }
 
 function postAfterPaint(message: Record<string, unknown>) {
-  requestAnimationFrame(() => requestAnimationFrame(() => post(message)));
+  let sent = false;
+  const send = () => {
+    if (sent) return;
+    sent = true;
+    post(message);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(send));
+  // A frame that is scrolled out of view, in a background tab, or otherwise
+  // throttled may never paint, and animation frames stop firing with it. The
+  // canvas still needs to hear that the render went through.
+  setTimeout(send, 100);
 }
 
 function describePath(element: Element): string {
@@ -71,8 +83,55 @@ function renderCode(code: string, exportName?: string) {
     if (!isComponent(Component)) throw new Error('Component does not export a valid React component.');
     root.render(React.createElement(Component as React.ElementType));
     postAfterPaint({ type: 'rendered' });
+    setTimeout(observeContent, 0);
   } catch (error) {
     renderError(error instanceof Error ? error.message : 'Failed to render component');
+  }
+}
+
+/**
+ * Reports how much room the rendered component actually wants, so the canvas can
+ * offer "fit the frame to the preview" instead of making the user eyeball it.
+ */
+const contentObserver = new ResizeObserver(() => postContentSize());
+let contentTimer: ReturnType<typeof setTimeout> | undefined;
+
+function postContentSize() {
+  // Debounced on a timer rather than an animation frame: a frame that is
+  // scrolled out of view or in a background tab stops painting, and the size
+  // still has to reach the canvas.
+  clearTimeout(contentTimer);
+  contentTimer = setTimeout(() => {
+    const content = rootElement.firstElementChild as HTMLElement | null;
+    if (!content) return;
+    post({
+      type: 'contentSize',
+      width: Math.ceil(Math.max(content.scrollWidth, content.getBoundingClientRect().width)),
+      height: Math.ceil(Math.max(content.scrollHeight, content.getBoundingClientRect().height)),
+    });
+  }, 50);
+}
+
+function observeContent() {
+  contentObserver.disconnect();
+  const content = rootElement.firstElementChild;
+  if (content) contentObserver.observe(content);
+  postContentSize();
+}
+
+async function handleCapture(id: unknown, scale: unknown) {
+  try {
+    const dataUrl = await capture(rootElement as HTMLElement, {
+      scale: typeof scale === 'number' ? scale : undefined,
+      background: surfaceColor,
+    });
+    post({ type: 'capture', id, dataUrl });
+  } catch (error) {
+    post({
+      type: 'captureError',
+      id,
+      message: error instanceof Error ? error.message : 'Screenshot failed',
+    });
   }
 }
 
@@ -99,9 +158,11 @@ window.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'render') renderCode(data.code || '', data.name);
   if (data.type === 'surface' && data.color) {
-    document.documentElement.style.backgroundColor = data.color;
-    document.body.style.backgroundColor = data.color;
+    surfaceColor = String(data.color);
+    document.documentElement.style.backgroundColor = surfaceColor;
+    document.body.style.backgroundColor = surfaceColor;
   }
+  if (data.type === 'capture') handleCapture(data.id, data.scale);
   if (data.type === 'setInspecting') {
     inspecting = !!data.value;
     document.body.classList.toggle('sb-inspecting', inspecting);

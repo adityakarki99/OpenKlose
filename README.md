@@ -240,9 +240,11 @@ and clears the ones it handles.
 
 ### Element-scoped comments
 
-Hit **Point to an element**, click a specific element in the live preview, and your next comment is
-scoped to it. The agent then knows the exact tag, text, classes, and DOM path — so "make this bigger"
-is unambiguous.
+Click the **target** button on the frame — it sits with the code and camera buttons, where you are
+already looking — then click an element in the live preview. Or skip the button: while the comment
+box has focus the preview is already targetable, so you can start typing, click the thing you mean,
+and carry on. Either way the element lands as a token on the comment's own input line, and the agent
+gets the exact tag, text, classes and DOM path — so "make this bigger" is unambiguous.
 
 ### Grounded in your design system
 

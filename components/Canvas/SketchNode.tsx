@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Trash2, Copy, FileCode2, MessageSquare, Code2, Eye, Camera, Scan, Loader2 } from 'lucide-react';
+import { Trash2, Copy, FileCode2, MessageSquare, Code2, Eye, Camera, Scan, Crosshair, Loader2 } from 'lucide-react';
 import { ComponentNode, SelectedElementInfo } from '../../types';
 import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
@@ -9,7 +9,10 @@ import CodeView from './CodeView';
 interface SketchNodeProps {
   node: ComponentNode;
   isSelected: boolean;
-  isInspecting?: boolean;
+  /** True while this sketch's preview is accepting element picks. */
+  isTargeting?: boolean;
+  /** Why it is: the frame's own toggle, or the comment composer having focus. */
+  targetingReason?: 'pinned' | 'composer' | null;
   /** Canvas zoom, so resize handles can keep a constant on-screen size. */
   zoom: number;
   /** True while a drag/resize/pan is in progress anywhere on the canvas. */
@@ -22,6 +25,8 @@ interface SketchNodeProps {
   onDragStart: (id: string, e: React.PointerEvent) => void;
   onResizeStart: (id: string, handle: string, e: React.PointerEvent) => void;
   onInspectElement?: (info: SelectedElementInfo) => void;
+  /** Toggles this frame's "comment on an element" mode. */
+  onToggleInspect?: (id: string) => void;
   /** Resize this node so the preview fits exactly, with sizes already in canvas units. */
   onFitToContent?: (id: string, width: number, height: number) => void;
 }
@@ -42,7 +47,8 @@ type CaptureState = 'idle' | 'working' | 'done' | 'error';
 const SketchNode: React.FC<SketchNodeProps> = ({
   node,
   isSelected,
-  isInspecting = false,
+  isTargeting = false,
+  targetingReason = null,
   zoom,
   isGesturing = false,
   isResizing = false,
@@ -52,6 +58,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   onDragStart,
   onResizeStart,
   onInspectElement,
+  onToggleInspect,
   onFitToContent,
 }) => {
   const isBuilt = node.status === 'built';
@@ -105,7 +112,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
     <div
       data-node-id={node.id}
       className={`absolute flex flex-col rounded-2xl border bg-app-surfaceElevated shadow-lg transition-colors ${
-        isInspecting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-borderStrong'
+        isTargeting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-borderStrong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
@@ -164,6 +171,22 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               >
                 <Scan size={14} />
               </button>
+              {/*
+                Targeting starts here, on the frame, rather than from a button
+                further down the inspector: this is where you are looking when
+                you decide a particular element needs a comment.
+              */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleInspect?.(node.id); }}
+                className={`rounded-md p-1 hover:bg-app-surfaceMuted/10 hover:text-app-primary ${
+                  targetingReason === 'pinned' ? 'bg-blue-500/15 text-blue-300' : 'text-app-subtle'
+                }`}
+                aria-label="Comment on an element"
+                aria-pressed={targetingReason === 'pinned'}
+                title="Comment on an element — click one in the preview"
+              >
+                <Crosshair size={14} />
+              </button>
             </>
           )}
           {isSelected && (
@@ -200,8 +223,8 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             exportName={node.exportName}
             // An interactive iframe eats the pointer events a gesture depends on,
             // so the preview only takes them when the canvas is idle.
-            interactive={(isSelected || isInspecting) && !isGesturing}
-            isInspecting={isInspecting}
+            interactive={(isSelected || isTargeting) && !isGesturing}
+            isInspecting={isTargeting}
             onElementSelect={onInspectElement}
             onContentSize={handleContentSize}
           />
@@ -213,9 +236,12 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               onClose={() => setShowCode(false)}
             />
           )}
-          {isInspecting && (
-            <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-blue-500/40 bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-blue-300 shadow">
-              Click an element to comment on it
+          {isTargeting && !showCode && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 border-t border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-[11px] font-medium text-blue-200">
+              <Crosshair size={12} className="flex-shrink-0" />
+              {targetingReason === 'pinned'
+                ? 'Pick an element to comment on'
+                : 'Writing a comment — click an element to attach it'}
             </div>
           )}
           {captureError && (
@@ -223,7 +249,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               {captureError}
             </div>
           )}
-          {isBuilt && node.builtFilePath && !showCode && !captureError && (
+          {isBuilt && node.builtFilePath && !showCode && !captureError && !isTargeting && (
             <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surfaceElevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
               <FileCode2 size={12} /> {node.builtFilePath}
             </div>

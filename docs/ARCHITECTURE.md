@@ -98,10 +98,16 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 - A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel, shown as a
   small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
   project/node ids) as text meant to be pasted straight into the coding agent's chat. A comment can
-  optionally carry an `element` (`SelectedElementInfo`): the user enters inspection mode ("Point to
-  an element"), the sandbox reports the clicked element's tag/text/classes/DOM-path via postMessage,
-  and the next comment is scoped to it — so the agent knows exactly which part of the preview the
-  feedback targets.
+  optionally carry an `element` (`SelectedElementInfo`): the sandbox reports the clicked element's
+  tag/text/classes/DOM-path via postMessage, and the next comment is scoped to it — so the agent
+  knows exactly which part of the preview the feedback targets.
+- **Targeting an element has two entry points, and `lib/targeting.js` decides which frame accepts a
+  pick.** The frame's own toggle (next to the code and camera buttons) pins targeting to that sketch
+  for one pick; focusing the comment composer targets the selected sketch for as long as it holds
+  focus, so the common case needs no mode switch. A pick moves focus into the preview's iframe, so
+  the composer's blur handler ignores a blur that landed on a preview (`focusMovedIntoPreview`) and
+  the canvas hands focus back to the composer once the element arrives — the draft survives, and
+  Escape drops the targeted element before it drops the selection.
 
 ## Local Server
 

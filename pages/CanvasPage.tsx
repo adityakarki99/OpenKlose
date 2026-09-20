@@ -19,6 +19,7 @@ import SketchInspector from '../components/Sidebar/SketchInspector';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
 import { Loader2, X } from 'lucide-react';
 import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
+import { targetedNodeId, targetingReason } from '../lib/targeting.js';
 import { useHistory } from '../hooks/useHistory';
 import { usePersistence } from '../hooks/usePersistence';
 
@@ -67,10 +68,14 @@ const CanvasPage: React.FC = () => {
   const [projectContext, setProjectContext] = useState<ProjectContext>(DEFAULT_PROJECT_CONTEXT);
   const [isContextPopUpOpen, setIsContextPopUpOpen] = useState(false);
 
-  // Element inspection: when active, clicking an element in the selected node's
-  // live preview captures it as a pending target for the next comment.
+  // Element targeting: clicking an element in a live preview captures it as the
+  // target for the next comment. Two things turn it on — the frame's own toggle
+  // (`inspectingNodeId`), and simply focusing the comment composer
+  // (`composerNodeId`), so the common case needs no mode switch at all.
   const [inspectingNodeId, setInspectingNodeId] = useState<string | null>(null);
+  const [composerNodeId, setComposerNodeId] = useState<string | null>(null);
   const [pendingElement, setPendingElement] = useState<SelectedElementInfo | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -108,6 +113,17 @@ const CanvasPage: React.FC = () => {
   // still accepts them swallows every move once the cursor crosses it, which is
   // what used to make a resize stall mid-drag over a preview.
   const isGesturing = dragState.isDragging || resizeState.isResizing || canvasDrag.active;
+
+  const targetingNodeId = targetedNodeId({
+    pinnedNodeId: inspectingNodeId,
+    composerNodeId,
+    selectedNodeId,
+  });
+  const targetingWhy = targetingReason({
+    pinnedNodeId: inspectingNodeId,
+    composerNodeId,
+    selectedNodeId,
+  });
 
   // --- Load Project on Mount ---
   useEffect(() => {
@@ -218,12 +234,23 @@ const CanvasPage: React.FC = () => {
 
   const handleInspectElement = (info: SelectedElementInfo) => {
     setPendingElement(info);
+    // The frame toggle is a one-shot pick; composer focus keeps targeting live.
     setInspectingNodeId(null);
+    // Clicking inside the preview moved focus into its iframe. Hand it back to
+    // the composer so the comment can be typed straight away — this is what
+    // makes "pick an element" end where the writing happens.
+    window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
-  // Reset inspection/pending-element state whenever the selected sketch changes.
+  const handleToggleInspect = (id: string) => {
+    setSelectedNodeId(id);
+    setInspectingNodeId((prev) => (prev === id ? null : id));
+  };
+
+  // Reset targeting/pending-element state whenever the selected sketch changes.
   useEffect(() => {
     setInspectingNodeId(null);
+    setComposerNodeId(null);
     setPendingElement(null);
   }, [selectedNodeId]);
 
@@ -574,7 +601,9 @@ const CanvasPage: React.FC = () => {
                   key={node.id}
                   node={node}
                   isSelected={selectedNodeId === node.id}
-                  isInspecting={inspectingNodeId === node.id}
+                  isTargeting={targetingNodeId === node.id}
+                  targetingReason={targetingNodeId === node.id ? targetingWhy : null}
+                  onToggleInspect={handleToggleInspect}
                   zoom={zoom}
                   isGesturing={isGesturing}
                   isResizing={resizeState.isResizing && resizeState.nodeId === node.id}
@@ -617,11 +646,10 @@ const CanvasPage: React.FC = () => {
           node={selectedNode}
           projectId={projectId}
           projectName={projectName}
-          isInspecting={inspectingNodeId === selectedNode.id}
+          isTargeting={targetingNodeId === selectedNode.id}
           pendingElement={pendingElement}
-          onToggleInspect={() =>
-            setInspectingNodeId((prev) => (prev === selectedNode.id ? null : selectedNode.id))
-          }
+          composerRef={composerRef}
+          onComposerFocusChange={(focused) => setComposerNodeId(focused ? selectedNode.id : null)}
           onClearPendingElement={() => setPendingElement(null)}
           onConsumePendingElement={() => setPendingElement(null)}
           onClose={() => setSelectedNodeId(null)}

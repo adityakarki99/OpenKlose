@@ -1,15 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { X, Trash2, Copy, Check, Send, MousePointerSquareDashed, Crosshair } from 'lucide-react';
+import { X, Trash2, Copy, Check, Send, Crosshair } from 'lucide-react';
 import { ComponentNode, SelectedElementInfo } from '../../types';
 import { MIN_NODE_HEIGHT, MIN_NODE_WIDTH, SIZE_PRESETS } from '../../constants';
+import { focusMovedIntoPreview } from '../../lib/targeting.js';
 
 interface SketchInspectorProps {
   node: ComponentNode;
   projectId: string;
   projectName: string;
-  isInspecting: boolean;
+  /** True while this sketch's preview is accepting element picks. */
+  isTargeting: boolean;
   pendingElement: SelectedElementInfo | null;
-  onToggleInspect: () => void;
+  /** The canvas focuses this after an element is picked, so the comment can be typed straight away. */
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** Focusing the composer is itself a targeting mode — the canvas needs to know. */
+  onComposerFocusChange: (focused: boolean) => void;
   onClearPendingElement: () => void;
   onConsumePendingElement: () => void;
   onClose: () => void;
@@ -63,9 +68,10 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
   node,
   projectId,
   projectName,
-  isInspecting,
+  isTargeting,
   pendingElement,
-  onToggleInspect,
+  composerRef,
+  onComposerFocusChange,
   onClearPendingElement,
   onConsumePendingElement,
   onClose,
@@ -272,44 +278,56 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
             </div>
           )}
 
-          {/* Pending element chip — the next comment will be scoped to this element. */}
+          {/*
+            The targeted element rides on the composer's own input line rather
+            than in a block of its own further up the panel: it belongs where
+            the comment is being written.
+          */}
           {pendingElement && (
-            <div className="flex items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 px-2.5 py-1.5 text-[11px] text-blue-200">
-              <Crosshair size={12} className="flex-shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Commenting on {describeElement(pendingElement)}</span>
-              <button onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-white" aria-label="Clear targeted element">
-                <X size={12} />
+            <div className="flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 py-1 pl-2 pr-1 text-[11px] text-blue-200">
+              <Crosshair size={11} className="flex-shrink-0" />
+              <span className="min-w-0 flex-1 truncate font-mono">{describeElement(pendingElement)}</span>
+              <button
+                onClick={onClearPendingElement}
+                className="flex-shrink-0 rounded p-0.5 hover:text-white"
+                aria-label="Clear targeted element"
+              >
+                <X size={11} />
               </button>
             </div>
           )}
 
-          {hasPreview && (
-            <button
-              onClick={onToggleInspect}
-              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
-                isInspecting
-                  ? 'border-blue-500 bg-blue-500/15 text-blue-200'
-                  : 'border-app-border bg-app-surfaceSoft text-app-secondary hover:bg-app-surface'
-              }`}
-              title="Pick an element in the preview to attach your comment to"
-            >
-              <MousePointerSquareDashed size={13} />
-              {isInspecting ? 'Click an element in the preview… (cancel)' : 'Point to an element'}
-            </button>
-          )}
-
           <div className="flex items-start gap-2">
             <textarea
+              ref={composerRef}
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
+              onFocus={() => onComposerFocusChange(true)}
+              onBlur={() => {
+                // Clicking an element moves focus into the preview's iframe a
+                // moment before the sandbox reports what was clicked. That blur
+                // must not end targeting, or the click lands on nothing.
+                window.setTimeout(() => {
+                  if (focusMovedIntoPreview(document.activeElement)) return;
+                  onComposerFocusChange(false);
+                }, 0);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleAddComment();
                 }
+                // Escape drops the targeted element first — the draft survives.
+                if (e.key === 'Escape' && pendingElement) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onClearPendingElement();
+                }
               }}
-              placeholder={pendingElement ? 'Feedback on the targeted element…' : 'Leave feedback on this design...'}
-              className="h-16 flex-1 resize-none rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs leading-relaxed text-app-secondary outline-none focus:border-blue-500"
+              placeholder={pendingElement ? 'Feedback on this element…' : 'Leave feedback on this design…'}
+              className={`h-16 flex-1 resize-none rounded-lg border bg-app-surface px-3 py-2 text-xs leading-relaxed text-app-secondary outline-none ${
+                isTargeting ? 'border-blue-500' : 'border-app-border focus:border-blue-500'
+              }`}
             />
             <button
               onClick={handleAddComment}
@@ -320,6 +338,16 @@ export const SketchInspector: React.FC<SketchInspectorProps> = ({
               <Send size={14} />
             </button>
           </div>
+
+          {hasPreview && (
+            <p className={`px-0.5 text-[10px] leading-relaxed ${isTargeting || pendingElement ? 'text-blue-300' : 'text-app-muted'}`}>
+              {pendingElement
+                ? 'This comment carries the element, so the agent knows exactly what you mean.'
+                : isTargeting
+                  ? 'Targeting is on — click any element in the preview to attach it.'
+                  : 'Click here, or the target button on the frame, then pick an element in the preview.'}
+            </p>
+          )}
         </div>
 
         <div className="rounded-xl border border-app-border bg-app-surfaceSoft p-3">

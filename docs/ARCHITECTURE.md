@@ -61,6 +61,14 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 7. Check sketches for `comments` at the start of a session (or when handed a "Copy for agent" text
    block) and address them, clearing the ones handled.
 
+## Theme Tokens
+
+`index.html` declares the palette in a Tailwind v4 `@theme` block
+(`--color-app-surface-elevated`, `--color-app-border-strong`, …), and utilities must spell the token
+exactly: `bg-app-surface-elevated`, not `bg-app-surfaceElevated`. A camelCase name generates no CSS at
+all and the element silently renders with no background or border colour — which is what had happened
+to every elevated surface on the canvas (the inspector, the sketch frames, the nav rail).
+
 ## The Canvas UI
 
 - **`/`** — a landing/home page (`pages/LandingPage.tsx`) that explains the sketch → preview →
@@ -95,8 +103,11 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
   the minimum frame size. The canvas drives it with pointer events coalesced onto animation frames,
   and switches every preview to `pointer-events: none` for the duration of a gesture — an interactive
   iframe otherwise swallows the moves the moment the cursor crosses it.
-- A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel, shown as a
-  small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
+- A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel — docked
+  bottom-right, titled by the sketch's own name and description, and opening on the comment thread
+  with description, notes, frame size and status folded away behind disclosures, so the panel is as
+  tall as the work needs rather than as tall as the window. The composer is pinned below the thread.
+  Comments also show as a small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
   project/node ids) as text meant to be pasted straight into the coding agent's chat. A comment can
   optionally carry an `element` (`SelectedElementInfo`): the sandbox reports the clicked element's
   tag/text/classes/DOM-path via postMessage, and the next comment is scoped to it — so the agent

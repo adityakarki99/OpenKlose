@@ -33,7 +33,7 @@ export const Avatar = ({
                     className="aspect-square h-full w-full object-cover"
                 />
             ) : (
-                <div className="flex h-full w-full items-center justify-center border border-app-border bg-app-surfaceSoft text-app-muted">
+                <div className="flex h-full w-full items-center justify-center border border-app-border bg-app-surface-soft text-app-muted">
                     {fallback ? (
                         <span className="font-semibold">{fallback.slice(0, 2).toUpperCase()}</span>
                     ) : (

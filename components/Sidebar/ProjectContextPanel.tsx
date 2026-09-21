@@ -65,12 +65,12 @@ export function ProjectContextPanel({
                         value={localContext.projectDescription || ''}
                         onChange={(e) => handleContextChange(e.target.value)}
                         placeholder="Describe your project here... (Target audience, brand voice, key features, design inspiration)"
-                        className="h-64 w-full resize-none rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs leading-relaxed text-app-secondary transition-colors placeholder:text-app-subtle focus:border-app-borderStrong focus:outline-none focus:ring-1 focus:ring-app-borderStrong/30"
+                        className="h-64 w-full resize-none rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs leading-relaxed text-app-secondary transition-colors placeholder:text-app-subtle focus:border-app-border-strong focus:outline-none focus:ring-1 focus:ring-app-border-strong/30"
                     />
                     <button
                         onClick={handleSaveContext}
                         disabled={!isCtxDirty}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-app-border bg-app-surfaceSoft py-2 text-xs font-medium text-app-primary transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-app-border bg-app-surface-soft py-2 text-xs font-medium text-app-primary transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <Save size={14} /> Save Context
                     </button>
@@ -91,12 +91,12 @@ export function ProjectContextPanel({
                         value={localDesignPrompt}
                         onChange={(e) => handleDsChange(e.target.value)}
                         placeholder={`e.g.\nPrimary color: #FF5733\nFont family: Inter, sans-serif\nBorder radius: 8px\nSpacing scale: compact\nExisting components live in src/components/ui`}
-                        className="h-40 w-full resize-none rounded-xl border border-app-border bg-app-surface p-3 font-mono text-xs text-app-secondary transition-colors placeholder:text-app-subtle focus:border-app-borderStrong focus:outline-none focus:ring-1 focus:ring-app-borderStrong/30"
+                        className="h-40 w-full resize-none rounded-xl border border-app-border bg-app-surface p-3 font-mono text-xs text-app-secondary transition-colors placeholder:text-app-subtle focus:border-app-border-strong focus:outline-none focus:ring-1 focus:ring-app-border-strong/30"
                     />
                     <button
                         onClick={handleSaveDs}
                         disabled={!isDsDirty}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-app-border bg-app-surfaceSoft py-2 text-xs font-medium text-app-primary transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-app-border bg-app-surface-soft py-2 text-xs font-medium text-app-primary transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <Save size={14} /> Save Notes
                     </button>

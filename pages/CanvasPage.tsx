@@ -539,12 +539,12 @@ const CanvasPage: React.FC = () => {
         </div>
 
         {isContextPopUpOpen && (
-          <div className="absolute left-24 top-6 z-[100] flex h-[600px] max-h-[80vh] w-[400px] flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surfaceElevated shadow-2xl animate-in fade-in slide-in-from-left-4 duration-300">
-            <div className="flex items-center justify-between border-b border-app-border bg-app-surfaceSoft/60 px-4 py-3">
+          <div className="absolute left-24 top-6 z-[100] flex h-[600px] max-h-[80vh] w-[400px] flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl animate-in fade-in slide-in-from-left-4 duration-300">
+            <div className="flex items-center justify-between border-b border-app-border bg-app-surface-soft/60 px-4 py-3">
               <span className="text-xs font-bold uppercase tracking-widest text-app-muted">Project Context</span>
               <button
                 onClick={() => setIsContextPopUpOpen(false)}
-                className="rounded-lg p-1 text-app-subtle transition-colors hover:bg-app-surfaceMuted/10 hover:text-app-primary"
+                className="rounded-lg p-1 text-app-subtle transition-colors hover:bg-app-surface-muted/10 hover:text-app-primary"
               >
                 <X size={16} />
               </button>
@@ -578,7 +578,7 @@ const CanvasPage: React.FC = () => {
               />
               {nodes.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                  <div className="pointer-events-auto mx-4 w-full max-w-md space-y-4 rounded-2xl border border-app-border bg-app-canvasEmpty/90 p-6 shadow-2xl backdrop-blur-xl">
+                  <div className="pointer-events-auto mx-4 w-full max-w-md space-y-4 rounded-2xl border border-app-border bg-app-canvas-empty/90 p-6 shadow-2xl backdrop-blur-xl">
                     <div className="space-y-2">
                       <h2 className="text-lg font-semibold text-app-primary">Start sketching a component.</h2>
                       <p className="text-sm text-app-secondary">
@@ -589,7 +589,7 @@ const CanvasPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleAddSketch}
-                      className="rounded-full border border-app-border bg-app-surfaceMuted/10 px-4 py-2 text-xs font-medium text-app-primary transition-colors hover:bg-app-surfaceMuted/20"
+                      className="rounded-full border border-app-border bg-app-surface-muted/10 px-4 py-2 text-xs font-medium text-app-primary transition-colors hover:bg-app-surface-muted/20"
                     >
                       + Add a sketch
                     </button>

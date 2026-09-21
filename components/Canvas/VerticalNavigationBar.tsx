@@ -27,7 +27,7 @@ interface ContainerProps {
 
 const NavBarContainer: React.FC<ContainerProps> = ({ children }) => (
   <nav 
-    className="font-inter z-10 flex h-fit min-h-[320px] w-14 flex-col items-center rounded-2xl border border-app-border bg-app-surfaceElevated py-4 font-sans text-app-primary"
+    className="font-inter z-10 flex h-fit min-h-[320px] w-14 flex-col items-center rounded-2xl border border-app-border bg-app-surface-elevated py-4 font-sans text-app-primary"
     aria-label="Sidebar Navigation"
   >
     {children}
@@ -36,7 +36,7 @@ const NavBarContainer: React.FC<ContainerProps> = ({ children }) => (
 
 const Tooltip = ({ label, hidden }: { label: string; hidden?: boolean }) => (
   <span 
-    className={`pointer-events-none absolute left-full top-1/2 z-50 ml-4 -translate-y-1/2 whitespace-nowrap rounded border border-app-border bg-app-surfaceElevated px-2 py-1 text-xs font-medium text-app-primary shadow-lg drop-shadow-md transition-all duration-200
+    className={`pointer-events-none absolute left-full top-1/2 z-50 ml-4 -translate-y-1/2 whitespace-nowrap rounded border border-app-border bg-app-surface-elevated px-2 py-1 text-xs font-medium text-app-primary shadow-lg drop-shadow-md transition-all duration-200
       ${hidden ? 'opacity-0 invisible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'}
     `}
   >
@@ -48,7 +48,7 @@ const BrandLogo: React.FC<{ projectName: string; onBack: () => void }> = ({ proj
   <div className="relative group">
     <button 
       onClick={onBack}
-      className="flex h-10 w-10 items-center justify-center rounded-lg transition-all hover:bg-app-surfaceMuted/10 focus:outline-none" 
+      className="flex h-10 w-10 items-center justify-center rounded-lg transition-all hover:bg-app-surface-muted/10 focus:outline-none" 
       aria-label={projectName}
     >
       <div className="w-3 h-3 rounded-full bg-[#60A5FA] shadow-[0_0_10px_rgba(96,165,250,0.5)]" />
@@ -74,7 +74,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ icon, label, onClick, disable
       className={`flex h-10 w-10 items-center justify-center rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-slate-600 ${
         disabled 
           ? 'cursor-not-allowed opacity-50 text-app-subtle' 
-          : 'cursor-pointer text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary'
+          : 'cursor-pointer text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary'
       } ${className || ''}`}
       aria-label={label}
     >
@@ -114,7 +114,7 @@ const ComponentDropdown = ({
       <div className="group relative">
         <button 
           onClick={() => setIsOpen(!isOpen)} 
-          className={`flex h-10 w-10 items-center justify-center rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-[#60A5FA]/50 ${isOpen ? 'bg-app-surfaceMuted/10 text-app-primary' : 'text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary'}`}
+          className={`flex h-10 w-10 items-center justify-center rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-[#60A5FA]/50 ${isOpen ? 'bg-app-surface-muted/10 text-app-primary' : 'text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary'}`}
           aria-expanded={isOpen}
           aria-haspopup="true"
           aria-label="Component Navigation"
@@ -125,7 +125,7 @@ const ComponentDropdown = ({
       </div>
       
       {isOpen && (
-        <div className="absolute left-full top-0 z-50 ml-4 flex max-h-[60vh] w-52 flex-col overflow-hidden rounded-xl border border-app-border bg-app-surfaceElevated py-2 shadow-2xl animate-in fade-in slide-in-from-left-2 duration-200">
+        <div className="absolute left-full top-0 z-50 ml-4 flex max-h-[60vh] w-52 flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface-elevated py-2 shadow-2xl animate-in fade-in slide-in-from-left-2 duration-200">
           <div className="mb-1 px-4 py-2 text-[9px] font-mono uppercase tracking-wider text-app-subtle">
             Available Components
           </div>
@@ -142,7 +142,7 @@ const ComponentDropdown = ({
                     onSelectNode(item.id);
                     setIsOpen(false);
                   }}
-                  className="w-full truncate px-4 py-2 text-left text-xs font-medium text-app-primary transition-colors hover:bg-app-surfaceMuted/10 focus:bg-app-surfaceMuted/10 focus:outline-none"
+                  className="w-full truncate px-4 py-2 text-left text-xs font-medium text-app-primary transition-colors hover:bg-app-surface-muted/10 focus:bg-app-surface-muted/10 focus:outline-none"
                   title={item.name}
                 >
                   {item.name}

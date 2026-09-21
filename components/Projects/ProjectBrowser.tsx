@@ -23,8 +23,8 @@ const Thumbnail = ({ variant }: { variant: ThumbnailVariant }) => {
           bg-app-surface p-1.5 shadow-sm transition-all duration-300 
           group-hover:-translate-y-2 group-hover:rotate-1 group-hover:shadow-lg 
           ${isContent
-                        ? 'border-app-borderStrong group-hover:border-ceko-accent/50 group-hover:shadow-ceko-accent/10'
-                        : 'border-app-border opacity-60 group-hover:opacity-100 group-hover:border-app-borderStrong'}
+                        ? 'border-app-border-strong group-hover:border-ceko-accent/50 group-hover:shadow-ceko-accent/10'
+                        : 'border-app-border opacity-60 group-hover:opacity-100 group-hover:border-app-border-strong'}
         `}
             >
                 {/* Header line simulating title */}
@@ -32,13 +32,13 @@ const Thumbnail = ({ variant }: { variant: ThumbnailVariant }) => {
 
                 {/* Content Wireframes */}
                 {variant === 'single-rect' && (
-                    <div className="flex-1 rounded-[2px] border border-dashed border-app-borderStrong bg-app-surfaceSoft transition-colors group-hover:border-ceko-accent/30" />
+                    <div className="flex-1 rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
                 )}
 
                 {variant === 'double-rect' && (
                     <div className="flex flex-1 flex-col gap-1">
-                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-borderStrong bg-app-surfaceSoft transition-colors group-hover:border-ceko-accent/30" />
-                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-borderStrong bg-app-surfaceSoft transition-colors group-hover:border-ceko-accent/30" />
+                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
+                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
                     </div>
                 )}
 

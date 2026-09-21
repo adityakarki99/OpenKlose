@@ -91,14 +91,14 @@ const CodeView: React.FC<CodeViewProps> = ({ code, exportName, filePath, onClose
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-app-border bg-app-surfaceSoft/60 px-3 py-1.5">
+      <div className="flex items-center justify-between gap-2 border-b border-app-border bg-app-surface-soft/60 px-3 py-1.5">
         <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-wider text-app-subtle">
           {filePath || (exportName ? `export ${exportName}` : 'preview source')}
         </span>
         <div className="flex flex-shrink-0 items-center gap-1">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary"
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary"
             aria-label="Copy preview code"
           >
             {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
@@ -106,7 +106,7 @@ const CodeView: React.FC<CodeViewProps> = ({ code, exportName, filePath, onClose
           </button>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary"
+            className="rounded-md p-1 text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary"
             aria-label="Back to preview"
           >
             <X size={12} />

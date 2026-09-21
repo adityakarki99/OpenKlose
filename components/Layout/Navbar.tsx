@@ -16,7 +16,7 @@ const Navbar: React.FC = () => {
   ];
 
   return (
-    <div className="relative z-20 flex w-full items-center justify-between border-b border-app-border bg-app-surfaceElevated px-6 py-4 text-app-primary shadow-sm">
+    <div className="relative z-20 flex w-full items-center justify-between border-b border-app-border bg-app-surface-elevated px-6 py-4 text-app-primary shadow-sm">
       {/* Left: Logo */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/projects')} className="flex items-center gap-3 group">
@@ -36,7 +36,7 @@ const Navbar: React.FC = () => {
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                 isActive
                   ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                  : 'text-app-muted hover:text-app-primary hover:bg-app-surfaceSoft'
+                  : 'text-app-muted hover:text-app-primary hover:bg-app-surface-soft'
               }`}
             >
               <Icon size={16} />
@@ -51,7 +51,7 @@ const Navbar: React.FC = () => {
         <button
           type="button"
           onClick={() => updateSettings({ themeMode: isLightMode ? 'dark' : 'light' })}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface hover:bg-app-surfaceSoft text-app-muted hover:text-app-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface hover:bg-app-surface-soft text-app-muted hover:text-app-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
           aria-label={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
           title={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
         >
@@ -59,7 +59,7 @@ const Navbar: React.FC = () => {
         </button>
         <button
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface hover:bg-app-surfaceSoft text-app-secondary hover:text-app-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface hover:bg-app-surface-soft text-app-secondary hover:text-app-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
           aria-label="User menu"
         >
           <User size={20} />
@@ -75,7 +75,7 @@ const Navbar: React.FC = () => {
                     navigate('/settings');
                     setIsDropdownOpen(false);
                   }}
-                  className="group flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-app-secondary transition-colors hover:bg-app-surfaceSoft hover:text-app-primary"
+                  className="group flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-app-secondary transition-colors hover:bg-app-surface-soft hover:text-app-primary"
                 >
                   <Settings size={16} className="transition-transform group-hover:-translate-x-0.5" />
                   Settings

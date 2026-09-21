@@ -111,8 +111,8 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   return (
     <div
       data-node-id={node.id}
-      className={`absolute flex flex-col rounded-2xl border bg-app-surfaceElevated shadow-lg transition-colors ${
-        isTargeting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-borderStrong'
+      className={`absolute flex flex-col rounded-2xl border bg-app-surface-elevated shadow-lg transition-colors ${
+        isTargeting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-border-strong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
@@ -132,7 +132,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         <div className="flex flex-shrink-0 items-center gap-1">
           {commentCount > 0 && (
             <span
-              className="flex items-center gap-1 rounded-full bg-app-surfaceMuted/10 px-1.5 py-0.5 text-[10px] font-medium text-app-subtle"
+              className="flex items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[10px] font-medium text-app-subtle"
               title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
             >
               <MessageSquare size={11} /> {commentCount}
@@ -141,7 +141,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           {hasPreview && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowCode((v) => !v); }}
-              className={`rounded-md p-1 hover:bg-app-surfaceMuted/10 hover:text-app-primary ${showCode ? 'text-blue-400' : 'text-app-subtle'}`}
+              className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary ${showCode ? 'text-blue-400' : 'text-app-subtle'}`}
               aria-label={showCode ? 'Show live preview' : 'Show preview code'}
               aria-pressed={showCode}
               title={showCode ? 'Back to the live preview' : 'View the code behind this preview'}
@@ -154,7 +154,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               <button
                 onClick={(e) => { e.stopPropagation(); handleScreenshot(e.altKey || e.shiftKey); }}
                 disabled={capture === 'working'}
-                className={`rounded-md p-1 hover:bg-app-surfaceMuted/10 hover:text-app-primary disabled:opacity-60 ${
+                className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary disabled:opacity-60 ${
                   capture === 'error' ? 'text-red-400' : capture === 'done' ? 'text-emerald-400' : 'text-app-subtle'
                 }`}
                 aria-label="Screenshot this preview"
@@ -165,7 +165,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               <button
                 onClick={(e) => { e.stopPropagation(); handleFit(); }}
                 disabled={!canFit}
-                className="rounded-md p-1 text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary disabled:opacity-40"
+                className="rounded-md p-1 text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary disabled:opacity-40"
                 aria-label="Fit frame to the preview"
                 title="Resize this frame to fit its preview exactly"
               >
@@ -178,7 +178,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
               */}
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleInspect?.(node.id); }}
-                className={`rounded-md p-1 hover:bg-app-surfaceMuted/10 hover:text-app-primary ${
+                className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary ${
                   targetingReason === 'pinned' ? 'bg-blue-500/15 text-blue-300' : 'text-app-subtle'
                 }`}
                 aria-label="Comment on an element"
@@ -193,7 +193,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); onDuplicate(node.id); }}
-                className="rounded-md p-1 text-app-subtle hover:bg-app-surfaceMuted/10 hover:text-app-primary"
+                className="rounded-md p-1 text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary"
                 aria-label="Duplicate sketch"
               >
                 <Copy size={14} />
@@ -245,12 +245,12 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             </div>
           )}
           {captureError && (
-            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-lg border border-red-500/40 bg-app-surfaceElevated/95 px-2 py-1 text-[11px] text-red-300 shadow">
+            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-lg border border-red-500/40 bg-app-surface-elevated/95 px-2 py-1 text-[11px] text-red-300 shadow">
               {captureError}
             </div>
           )}
           {isBuilt && node.builtFilePath && !showCode && !captureError && !isTargeting && (
-            <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surfaceElevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
+            <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surface-elevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
               <FileCode2 size={12} /> {node.builtFilePath}
             </div>
           )}
@@ -271,7 +271,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
       {/* Live size readout, so a resize can hit an exact number instead of being eyeballed. */}
       {isResizing && (
         <div
-          className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-md border border-app-border bg-app-surfaceElevated px-2 py-0.5 font-mono text-app-secondary shadow"
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-md border border-app-border bg-app-surface-elevated px-2 py-0.5 font-mono text-app-secondary shadow"
           style={{ top: `calc(100% + ${8 / zoom}px)`, fontSize: 11 / zoom, borderWidth: 1 / zoom }}
         >
           {Math.round(node.width)} × {Math.round(node.height)}
@@ -297,7 +297,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             onPointerDown={(e) => { e.stopPropagation(); onResizeStart(node.id, h.key, e); }}
           >
             <div
-              className="rounded-full bg-app-surfaceElevated"
+              className="rounded-full bg-app-surface-elevated"
               style={{
                 width: handleSize,
                 height: handleSize,

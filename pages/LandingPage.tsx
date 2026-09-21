@@ -7,11 +7,13 @@ import {
   Hammer,
   Lock,
   Palette,
-  Bot,
   FolderOpen,
   ArrowRight,
   Plus,
   Crosshair,
+  Search,
+  Layers,
+  FileCode,
   Github,
   Moon,
   Sun,
@@ -131,20 +133,44 @@ const STEPS = [
 
 const TILES = [
   {
-    icon: Lock,
-    title: 'Local & private',
-    body: 'Runs as a server on your machine. Projects are plain JSON in .klose/. No login, no cloud, no bundled API keys.',
+    icon: Crosshair,
+    title: 'Point at the exact element',
+    body: 'Click the thing that is wrong in the live preview. The agent gets its tag, text, classes and DOM path — so "make this bigger" is never ambiguous again.',
   },
   {
     icon: Palette,
     title: 'Grounded in your design system',
-    body: 'Reads your Tailwind config, tokens, and existing components — so previews match your app instead of generic defaults.',
+    body: 'Reads your Tailwind config, tokens, and existing components before it sketches — so previews match your app instead of generic defaults.',
   },
   {
-    icon: Bot,
-    title: 'Agent-native',
-    body: 'Your comments become instructions the coding agent acts on. Feedback in, real code out — right in the repo you are working in.',
+    icon: Search,
+    title: 'Reuse before you build',
+    body: 'Every exported component in the repo is indexed with its props and file path, and the agent has to search it first — instead of handing you a fourth Button.',
   },
+  {
+    icon: FileCode,
+    title: 'Sketches stay linked to real code',
+    body: 'A built sketch keeps the path of the file it produced. Comment on it later and the agent edits that real component and re-previews it.',
+  },
+  {
+    icon: Layers,
+    title: 'A board, not a transcript',
+    body: 'Three variants side by side, a whole flow left to right, every edge state visible at once. Composition is something you see — chat scrollback cannot show it.',
+  },
+  {
+    icon: Lock,
+    title: 'Local, private, versionable',
+    body: 'Runs on your machine. Projects are plain JSON in .klose/ — commit them as design history or gitignore them. No login, no cloud, no API keys.',
+  },
+];
+
+const COMPARISON: { label: string; chat: string; klose: string }[] = [
+  { label: 'Styling', chat: 'Generic defaults the model invents', klose: 'Your Tailwind config, tokens, and conventions' },
+  { label: 'Knows your components', chat: 'No', klose: 'Yes — a searchable index the agent checks first' },
+  { label: 'Feedback precision', chat: 'Describe it in prose', klose: 'Click the element; the agent gets its exact DOM path' },
+  { label: 'Layout', chat: 'One thing at a time, linear', klose: 'Infinite board — variants, flows, and edge states at once' },
+  { label: 'After the build', chat: 'Dead end; you copy-paste out', klose: 'Sketch stays linked to its file and keeps iterating' },
+  { label: 'Where it runs', chat: 'Hosted', klose: 'Your machine; JSON in your repo' },
 ];
 
 const LandingPage: React.FC = () => {
@@ -227,12 +253,13 @@ const LandingPage: React.FC = () => {
               Local · No login · No API keys
             </span>
             <h1 className="mt-5 text-4xl font-bold leading-[1.1] tracking-tight text-app-primary md:text-5xl">
-              Design components where you code.
+              The visual surface your coding agent is missing.
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-app-secondary">
               Klose is a local canvas that lives inside your coding agent. Sketch UI ideas as live
-              previews grounded in your project&apos;s real design system, leave feedback right on
-              them, and let the agent build them into your repo.
+              previews grounded in your project&apos;s <em className="not-italic text-app-primary">real</em>{' '}
+              design system, point at the exact element that is wrong, and let the agent build it
+              into your repo — as a real file, on a real path.
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -297,7 +324,11 @@ const LandingPage: React.FC = () => {
 
       {/* Why it's different */}
       <section className="mx-auto max-w-6xl px-6 py-14">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="mb-8 text-center">
+          <h2 className="text-2xl font-bold tracking-tight text-app-primary">What you don&apos;t get from a chat window</h2>
+          <p className="mt-2 text-sm text-app-muted">Klose has no model of its own — your agent is the intelligence. This is the surface it was missing.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {TILES.map((t) => (
             <div key={t.title} className="rounded-2xl border border-app-border bg-app-surface p-6">
               <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-app-primary/10 text-app-accent">
@@ -308,6 +339,57 @@ const LandingPage: React.FC = () => {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Chat artifact vs Klose */}
+      <section className="mx-auto max-w-6xl px-6 py-14">
+        {/* md+: a three-column table */}
+        <div className="hidden overflow-hidden rounded-3xl border border-app-border bg-app-surface md:block">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.3fr)] gap-px bg-app-border text-sm">
+            <div className="bg-app-surface-elevated px-5 py-4 text-[11px] font-semibold uppercase tracking-wider text-app-subtle">
+              &nbsp;
+            </div>
+            <div className="bg-app-surface-elevated px-5 py-4 text-[11px] font-semibold uppercase tracking-wider text-app-subtle">
+              Generating it in chat
+            </div>
+            <div className="bg-app-surface-elevated px-5 py-4 text-[11px] font-semibold uppercase tracking-wider text-app-accent">
+              Klose
+            </div>
+            {COMPARISON.map((row) => (
+              <React.Fragment key={row.label}>
+                <div className="bg-app-surface px-5 py-4 font-medium text-app-primary">{row.label}</div>
+                <div className="bg-app-surface px-5 py-4 text-app-muted">{row.chat}</div>
+                <div className="bg-app-surface px-5 py-4 text-app-secondary">{row.klose}</div>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {/* mobile: one stacked card per row */}
+        <div className="space-y-3 md:hidden">
+          {COMPARISON.map((row) => (
+            <div key={row.label} className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <p className="text-sm font-semibold text-app-primary">{row.label}</p>
+              <div className="mt-3 space-y-2 text-sm">
+                <p className="text-app-muted">
+                  <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wider text-app-subtle">In chat</span>
+                  {row.chat}
+                </p>
+                <p className="text-app-secondary">
+                  <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wider text-app-accent">Klose</span>
+                  {row.klose}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <p className="mx-auto mt-6 max-w-2xl text-center text-sm leading-relaxed text-app-muted">
+          A chat artifact shows you a beautiful component. Klose shows you{' '}
+          <span className="text-app-primary">your</span> component — next to the other five you are
+          considering, in your tokens, reusing what you already built, with a comment pinned to the
+          exact element that is wrong.
+        </p>
       </section>
 
       {/* Quick start */}

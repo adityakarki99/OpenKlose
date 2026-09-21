@@ -1,6 +1,6 @@
 ---
 name: klose
-description: Open the local Klose design-ideation canvas for this repo, ideate a new UI component against the project's real design system, render a live preview of it on the canvas, and build it as a real file once the user confirms. Use when the user says "/klose", asks to sketch/ideate a component visually, or wants to design something before building it.
+description: Open the local Klose design-ideation canvas for this repo, ideate a new UI component against the project's real design system, render a live preview of it on the canvas, and build it as a real file once the user confirms. Use when the user says "/klose", asks to sketch/ideate a component visually, wants to design something before building it, or asks you to address feedback or comments left on the canvas.
 ---
 
 # Klose: ideate on the canvas, build in the repo

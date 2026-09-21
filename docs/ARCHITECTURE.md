@@ -7,6 +7,17 @@ It gives you a local, no-login canvas for sketching component ideas — rendered
 board, not just as labeled boxes — and grounds the coding agent's ideation in your project's *actual*
 design system before it builds the real component into your repo.
 
+Three things follow from that, and they are what the rest of this document explains:
+
+- **Feedback carries a DOM path, not prose.** A comment can name the element it is about (tag, text,
+  classes, path), because the preview runs in a sandbox this app controls. That is the loop chat
+  cannot close — see [The Canvas UI](#the-canvas-ui).
+- **Context comes from the host repo, not from the model.** Tokens, conventions and an index of the
+  repo's real components are read off disk before anything is sketched — see
+  [The Component Index](#the-component-index).
+- **A sketch has a lifecycle.** `sketch` → `built`, and a built node keeps the path of the file it
+  produced, so later comments edit real code.
+
 Klose has no AI model of its own. It used to (an earlier version generated and live-rendered code via
 Google Gemini behind a hosted Supabase-backed SaaS), and that hosted pipeline — auth, cloud database,
 Gemini codegen — has been removed in favor of this local, agent-driven model. The live-preview
@@ -132,6 +143,33 @@ to every elevated surface on the canvas (the inspector, the sketch frames, the n
 The CLI (`bin/klose.js`) calls the same `server/store.js` functions directly for `project *`
 subcommands — it doesn't need the server running to read/write project data, but the server's
 directory watch means changes made either way show up live in the browser.
+
+---
+
+## The Component Index
+
+`server/scanner.js` walks the *host* repo and indexes its real components, so both the Components tab
+and the agent can reuse what already exists instead of sketching a duplicate. It is a deliberately
+dependency-free heuristic scanner (Klose ships zero runtime deps), not a TypeScript parser:
+
+- **What it walks** — `.tsx`/`.jsx` files under the repo root, skipping the usual build and vendor
+  directories (`node_modules`, `dist`, `.next`, `.klose`, `web`, …), files over 256 KB, and anything
+  past a 6000-file ceiling (the result carries `truncated: true` when that ceiling is hit).
+- **What it matches** — exported component declarations by regex (`export function Name`,
+  `export const Name =`, `export class Name`, `export default Name`), plus each one's props and its
+  leading doc comment. A `.tsx` file with no JSX and no React import is skipped, so plain utilities
+  typed `.tsx` don't pollute the index.
+- **Previewability** — a component that imports repo-local modules is flagged rather than executed,
+  since relative imports can't resolve inside the isolated sandbox.
+- **Repo identity** — `repoInfo()` reads `.git/HEAD` and `.git/config` directly for the name, branch
+  and remote shown on the Components tab's badge, so a global install always says which repo it is
+  looking at.
+- **Caching** — results are memoized per root for 4s (`force: true` bypasses it), which keeps the
+  Components tab responsive without the agent ever seeing a stale index between CLI calls.
+
+Three surfaces read it: `GET /api/components[?q=]` (the Components tab), `klose components [query]`
+(what the `/klose` skill runs before it sketches), and `readComponentSource()` for the detail view —
+which resolves the requested path and rejects anything escaping the repo root or not a source file.
 
 ---
 

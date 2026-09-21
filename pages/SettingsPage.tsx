@@ -36,7 +36,7 @@ const SettingsPage: React.FC = () => {
         <p className="mb-8 text-sm text-app-muted">Appearance and internationalization preferences.</p>
 
         <Card variant="default" noPadding className="mb-8 overflow-hidden">
-          <h2 className="border-b border-app-border bg-app-surfaceSoft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
+          <h2 className="border-b border-app-border bg-app-surface-soft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
             Appearance
           </h2>
           <div className="grid gap-4 p-6 md:grid-cols-2">
@@ -50,7 +50,7 @@ const SettingsPage: React.FC = () => {
                   className={`rounded-2xl border p-4 text-left transition-all ${
                     isSelected
                       ? 'border-ceko-accent bg-ceko-accent/10 shadow-lg shadow-blue-500/10'
-                      : 'border-app-border bg-app-surface hover:border-app-borderStrong hover:bg-app-surfaceSoft'
+                      : 'border-app-border bg-app-surface hover:border-app-border-strong hover:bg-app-surface-soft'
                   }`}
                 >
                   <div className="mb-3 flex items-center gap-2 text-ceko-accent">
@@ -65,14 +65,14 @@ const SettingsPage: React.FC = () => {
         </Card>
 
         <Card variant="default" noPadding className="overflow-hidden">
-          <h2 className="border-b border-app-border bg-app-surfaceSoft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
+          <h2 className="border-b border-app-border bg-app-surface-soft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
             Internationalization
           </h2>
           <div className="divide-y divide-app-border">
             {SETTING_CONFIG.map(({ key, label, description }) => (
               <label
                 key={key}
-                className="flex cursor-pointer items-start gap-4 px-6 py-4 transition-colors hover:bg-app-surfaceSoft/60"
+                className="flex cursor-pointer items-start gap-4 px-6 py-4 transition-colors hover:bg-app-surface-soft/60"
               >
                 <div className="flex-1 min-w-0">
                   <span className="block text-sm font-medium text-app-primary">{label}</span>

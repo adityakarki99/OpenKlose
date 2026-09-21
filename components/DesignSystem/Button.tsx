@@ -28,10 +28,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         // Variants
         const variants = {
             primary: "bg-ceko-accent text-white hover:bg-blue-500 shadow-lg shadow-blue-500/25 border border-transparent",
-            secondary: "bg-app-surface text-app-primary hover:bg-app-surfaceSoft border border-app-border",
-            ghost: "bg-transparent text-app-secondary hover:text-app-primary hover:bg-app-surfaceMuted/10",
+            secondary: "bg-app-surface text-app-primary hover:bg-app-surface-soft border border-app-border",
+            ghost: "bg-transparent text-app-secondary hover:text-app-primary hover:bg-app-surface-muted/10",
             destructive: "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20",
-            outline: "bg-transparent border border-app-border text-app-secondary hover:text-app-primary hover:border-app-borderStrong"
+            outline: "bg-transparent border border-app-border text-app-secondary hover:text-app-primary hover:border-app-border-strong"
         };
 
         // Sizes

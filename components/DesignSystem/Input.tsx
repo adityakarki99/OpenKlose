@@ -54,7 +54,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
               transition-all duration-200
               ${leftIcon ? 'pl-10' : 'pl-4'}
               ${rightIcon ? 'pr-10' : 'pr-4'}
-              ${error ? 'border-red-500/50 focus:ring-red-500/20 focus:border-red-500/50' : 'hover:border-app-borderStrong'}
+              ${error ? 'border-red-500/50 focus:ring-red-500/20 focus:border-red-500/50' : 'hover:border-app-border-strong'}
               ${className}
             `}
                         {...props}

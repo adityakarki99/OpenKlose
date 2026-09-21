@@ -34,7 +34,7 @@ const MiniNodeShell: React.FC<{
   children: React.ReactNode;
 }> = ({ name, status, badge, className, style, children }) => (
   <div
-    className={`absolute w-56 overflow-hidden rounded-xl border border-app-border bg-app-surfaceElevated shadow-2xl ${className || ''}`}
+    className={`absolute w-56 overflow-hidden rounded-xl border border-app-border bg-app-surface-elevated shadow-2xl ${className || ''}`}
     style={style}
   >
     <div className="flex items-center justify-between gap-2 border-b border-app-border px-3 py-2">
@@ -50,7 +50,7 @@ const MiniNodeShell: React.FC<{
 
 const MiniCanvas: React.FC = () => (
   <div
-    className="relative h-[360px] w-full overflow-hidden rounded-2xl border border-app-border bg-app-canvasEmpty/60"
+    className="relative h-[360px] w-full overflow-hidden rounded-2xl border border-app-border bg-app-canvas-empty/60"
     aria-hidden
   >
     {/* dotted grid */}
@@ -70,7 +70,7 @@ const MiniCanvas: React.FC = () => (
       className="left-6 top-6 animate-float"
       style={{ animationDelay: '0s' }}
       badge={
-        <span className="flex items-center gap-1 rounded-full bg-app-surfaceMuted/10 px-1.5 py-0.5 text-[9px] font-medium text-app-subtle">
+        <span className="flex items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[9px] font-medium text-app-subtle">
           <MessageSquare size={9} /> 2
         </span>
       }
@@ -81,8 +81,8 @@ const MiniCanvas: React.FC = () => (
           $29<span className="text-[10px] font-normal text-app-muted">/mo</span>
         </p>
         <div className="mt-2 space-y-1">
-          <div className="h-1 w-full rounded-full bg-app-surfaceMuted/15" />
-          <div className="h-1 w-3/4 rounded-full bg-app-surfaceMuted/15" />
+          <div className="h-1 w-full rounded-full bg-app-surface-muted/15" />
+          <div className="h-1 w-3/4 rounded-full bg-app-surface-muted/15" />
         </div>
         <div className="mt-2.5 rounded-md bg-blue-600 py-1 text-center text-[10px] font-semibold text-white">
           Subscribe
@@ -212,7 +212,7 @@ const LandingPage: React.FC = () => {
           </button>
           <button
             onClick={() => navigate('/projects')}
-            className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-medium text-app-primary transition-colors hover:bg-app-surfaceSoft"
+            className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-medium text-app-primary transition-colors hover:bg-app-surface-soft"
           >
             Open Klose
           </button>
@@ -246,7 +246,7 @@ const LandingPage: React.FC = () => {
               </button>
               <button
                 onClick={() => navigate('/projects')}
-                className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-5 py-2.5 text-sm font-semibold text-app-primary transition-colors hover:bg-app-surfaceSoft"
+                className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-5 py-2.5 text-sm font-semibold text-app-primary transition-colors hover:bg-app-surface-soft"
               >
                 <FolderOpen size={16} />
                 Browse projects
@@ -256,7 +256,7 @@ const LandingPage: React.FC = () => {
 
             <button
               onClick={copyInstall}
-              className="group mt-6 inline-flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 font-mono text-xs text-app-secondary transition-colors hover:bg-app-surfaceSoft"
+              className="group mt-6 inline-flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 font-mono text-xs text-app-secondary transition-colors hover:bg-app-surface-soft"
               title="Copy install command"
             >
               <span className="text-app-subtle">$</span> npm install -D klose &amp;&amp; npx klose init
@@ -312,7 +312,7 @@ const LandingPage: React.FC = () => {
 
       {/* Quick start */}
       <section className="mx-auto max-w-6xl px-6 py-14">
-        <div className="rounded-3xl border border-app-border bg-app-surfaceElevated p-8 md:p-10">
+        <div className="rounded-3xl border border-app-border bg-app-surface-elevated p-8 md:p-10">
           <h2 className="text-2xl font-bold tracking-tight text-app-primary">Get started in two commands</h2>
           <p className="mt-2 text-sm text-app-muted">Install it in any repo, then use it from your agent.</p>
           <div className="mt-6 space-y-3">
@@ -339,7 +339,7 @@ const LandingPage: React.FC = () => {
               href={`${REPO_URL}#readme`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-5 py-2.5 text-sm font-semibold text-app-primary transition-colors hover:bg-app-surfaceSoft"
+              className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-5 py-2.5 text-sm font-semibold text-app-primary transition-colors hover:bg-app-surface-soft"
             >
               Read the docs <ArrowRight size={15} />
             </a>

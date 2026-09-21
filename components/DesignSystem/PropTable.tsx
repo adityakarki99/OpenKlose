@@ -23,7 +23,7 @@ export const PropTable: React.FC<PropTableProps> = ({ props }) => {
   if (entries.length === 0) return null;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-app-border bg-app-surfaceSoft/60">
+    <div className="overflow-x-auto rounded-lg border border-app-border bg-app-surface-soft/60">
       <table className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-app-border">

@@ -14,7 +14,7 @@ export const SubElementsSection: React.FC<SubElementsSectionProps> = ({ subEleme
         {subElements.map((el) => (
           <span
             key={el}
-            className="rounded-md border border-app-border bg-app-surfaceSoft px-2.5 py-1 font-mono text-xs text-app-secondary"
+            className="rounded-md border border-app-border bg-app-surface-soft px-2.5 py-1 font-mono text-xs text-app-secondary"
           >
             {el}
           </span>

@@ -2,11 +2,11 @@
 
 # Klose
 
-**Design components where you code.**
+**The visual surface your coding agent is missing.**
 
 A local, no-login design canvas that lives inside your coding agent. Sketch UI ideas as live
-previews grounded in your project's *real* design system, leave feedback right on them, and let the
-agent build them into your repo.
+previews grounded in your project's *real* design system, point at the exact element that's wrong,
+and let the agent build it into your repo — as a real file, on a real path.
 
 <p>
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg">
@@ -24,6 +24,8 @@ agent build them into your repo.
 
 - [What is Klose?](#what-is-klose)
 - [The loop](#the-loop-sketch--preview--comment--build)
+- [What makes Klose different](#what-makes-klose-different)
+- [Klose vs. a chat artifact](#klose-vs-a-chat-artifact)
 - [Install](#install)
 - [Guided walkthrough](#guided-walkthrough)
 - [Use cases](#use-cases)
@@ -52,7 +54,8 @@ visual surface — no place to *see* an idea, arrange a few of them, and point a
   and existing components), so it looks like *your* app, not a generic template;
 - you leave **comments** right on a design — or click a specific element to scope feedback to it —
   and copy that feedback straight back to the agent;
-- when you're happy, the agent **builds the real component** into your source tree.
+- when you're happy, the agent **builds the real component** into your source tree, and the sketch
+  stays linked to the file it produced.
 
 Klose has **no AI model of its own**. It's a visual scratchpad and a place to keep design notes; the
 coding agent does the thinking and the building. That's why there's no login, no cloud backend, and
@@ -68,13 +71,102 @@ no API keys — everything is a local server and plain JSON files under `.klose/
 
 | Step | What happens |
 | :--- | :--- |
-| **1. Ideate** | Run `/klose`. The agent reads your repo's design system, then talks through purpose, states, data, and interactions with you. |
+| **1. Ideate** | Run `/klose`. The agent reads your repo's design system, searches your existing components for something to reuse, then talks through purpose, states, data, and interactions with you. |
 | **2. Preview** | The settled design lands on the canvas as a **live, rendered mockup** — styled to your design system, not a generic default. |
 | **3. Comment** | Leave feedback on a sketch, or **point at an exact element** in the preview. One click copies it back to the agent. |
 | **4. Build** | On your go-ahead, the agent writes the real component into your source tree and marks the sketch **built**, with the file path. |
 
 The whole loop stays in your editor — no context-switching to a separate design tool, no copy-pasting
 between apps, no re-explaining your design system every time.
+
+---
+
+## What makes Klose different
+
+Seven things you don't get from generating a component in a chat window.
+
+### 1. Element-scoped feedback — the loop nothing else closes
+
+This is the wedge. Click the **target** button on a frame, then click the actual button in the live
+preview. The agent receives the exact tag, text, classes and DOM path. "Make this bigger" becomes
+unambiguous — no more *"the CTA in the pricing card, third one down."* **Copy for agent** formats it,
+you paste it, the agent acts, and the comments it handled get cleared.
+
+### 2. Grounded in *your* design system, not a generic one
+
+Before it sketches anything, the `/klose` skill makes the agent read your `tailwind.config.*`, your
+`:root` custom properties, your `components/ui`, plus the per-project **design-system notes** and
+**project brief** you pinned. The preview looks like your app because it was written against your
+tokens — so "does this match our product?" is answered on the canvas, not in PR review.
+
+### 3. Reuse before you build — enforced
+
+`npx klose components <query>` indexes every exported `.tsx`/`.jsx` component in the repo with its
+props, file path, and doc comment, and the skill makes the agent search it **before** sketching. A
+chat window has no idea your `<Button>` already exists, so it cheerfully hands you a fourth one.
+
+### 4. Sketches stay linked to real code
+
+A sketch carries a status — amber **sketch**, green **built** with the file path it produced. That's
+a lifecycle a one-off generated component doesn't have. Leave a comment on a *built* node and the
+agent edits the real file and re-previews it. The canvas keeps pointing at your source tree instead
+of becoming a dead end you copy-paste out of.
+
+### 5. A board, not a conversation
+
+Chat is linear — one component at a time, buried in scrollback. Klose is an infinite canvas: three
+variants of a card side by side, a whole sign-up flow left to right, all four edge states
+(empty / loading / error / success) visible at once. Composition is something you *see*, and a
+transcript can't show it to you.
+
+### 6. Local, private, versionable, keyless
+
+Plain JSON under `.klose/projects/`. Commit it as design history or `.gitignore` it — your call. No
+login, no cloud, no API keys; Klose ships no model at all, because your agent is the intelligence.
+Screenshots are captured inside the sandbox, so nothing leaves your machine. If you can't paste your
+product's UI into a hosted tool, that isn't a nice-to-have — it's the whole thing.
+
+### 7. No context-switch, no re-explaining
+
+The design conversation happens in the same session that already has your repo loaded. You never
+re-describe your design system, and the thing that designed it is the thing that writes the file.
+
+---
+
+## Klose vs. a chat artifact
+
+Generating a component in a chat window (a Claude artifact, or any similar preview pane) and using
+Klose solve different halves of the problem. A chat artifact is a place to **generate something to
+look at**. Klose is a place to **decide what to build, in the repo you're building it in**.
+
+| | Chat artifact | **Klose** |
+| :--- | :--- | :--- |
+| **Styling** | Generic defaults the model invents | **Your** Tailwind config, tokens, and conventions |
+| **Knows your components** | No | Yes — a searchable index the agent must check first |
+| **Feedback precision** | Describe it in prose | **Click the element**; agent gets tag, text, classes, DOM path |
+| **Layout** | One thing at a time, linear | Infinite board — variants, flows, and edge states side by side |
+| **After the build** | Dead end; you copy-paste out | Sketch stays linked to its file; comments re-edit the real component |
+| **Where it runs** | Hosted | Your machine; JSON in your repo |
+| **Design history** | Chat scrollback | Committed files you can diff and review |
+
+### Where a chat artifact is genuinely better
+
+Worth being straight about, because the pitch is stronger without overclaiming:
+
+- **Zero setup, no repo needed.** Artifacts work from nothing. Klose wants Node ≥ 18, an install, and
+  a repo worth grounding in.
+- **Sharing.** An artifact is a URL you send to your PM. Klose is `localhost` — no links, no
+  multiplayer. "Async handoff" here means handing someone the *Copy for agent* text.
+- **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
+  inert without an agent driving it.
+- **Preview fidelity ceiling.** Klose previews are self-contained sandboxed snippets; components that
+  import repo-local modules are flagged rather than executed. The preview is a faithful *restatement*
+  in your tokens, not your real component tree running.
+
+**The one-line version:** a chat artifact shows you a beautiful component. Klose shows you *your*
+component — next to the other five you're considering, in your tokens, reusing what you already
+built, with a comment pinned to the exact element that's wrong, and a path to a real file in your
+repo.
 
 ---
 
@@ -140,9 +232,10 @@ you create or open a project. Projects are just workspaces — one per feature, 
 ### 3. Ideate — and a sketch appears
 
 Tell the agent what you want ("a pricing card for our billing page"). It reads your design system,
-asks a couple of focused questions, then writes a **live preview** onto the canvas. Every sketch
-carries a status — amber for **sketch** (an idea), green for **built** (a real file exists) — plus
-its description and any notes the agent should keep in mind.
+searches your existing components for something to reuse, asks a couple of focused questions, then
+writes a **live preview** onto the canvas. Every sketch carries a status — amber for **sketch** (an
+idea), green for **built** (a real file exists) — plus its description and any notes the agent should
+keep in mind.
 
 ### 4. Leave feedback
 
@@ -158,7 +251,8 @@ everything — including the targeted element — as text you paste straight bac
 
 When you say "build it," the agent writes the actual component into your repo — following the design
 system it read, using your real import paths and conventions — then marks the sketch **built** with
-the file path. The sketch on the canvas now points at real code.
+the file path. The sketch on the canvas now points at real code, and further comments on it edit that
+file.
 
 ---
 
@@ -319,9 +413,11 @@ The `/klose` skill (installed at `.claude/skills/klose/SKILL.md`) tells the agen
 2. **Pick or create a project**, and check its sketches for pending comments to address.
 3. **Read your real design system** — Tailwind config, CSS custom properties, existing components —
    rather than inventing generic tokens.
-4. **Ideate with you** in chat, using that context.
-5. **Write the sketch to the canvas** with live-preview code grounded in step 3.
-6. **Build the real component** on confirmation, then mark the sketch built.
+4. **Search the component index first** (`klose components <query>`) and reuse or extend what already
+   exists instead of sketching a duplicate.
+5. **Ideate with you** in chat, using that context.
+6. **Write the sketch to the canvas** with live-preview code grounded in step 3.
+7. **Build the real component** on confirmation, then mark the sketch built with its file path.
 
 It's all driven through the CLI above, so nothing is a black box — you can inspect or script any of it.
 
@@ -351,6 +447,12 @@ behavior lives in the coding agent via the `/klose` skill. See
 
 ## FAQ & troubleshooting
 
+**How is this different from having Claude generate a component in chat?**
+See [Klose vs. a chat artifact](#klose-vs-a-chat-artifact). Short version: chat generates something
+generic to look at once; Klose grounds it in your tokens and your existing components, lets you point
+at the exact element that's wrong, keeps every variant on one board, and links the result to a real
+file in your source tree.
+
 **Do I need an API key or an account?**
 No. Klose runs a local server and stores JSON files. The "intelligence" is your coding agent, which
 you're already running.
@@ -362,6 +464,11 @@ add `.klose/` to `.gitignore` to keep it local-only.
 **Does it work with agents other than Claude Code?**
 The `/klose` skill targets Claude Code, but the `klose` CLI and server are agent-agnostic — any agent
 that can run shell commands can drive the canvas via `klose project …`.
+
+**Can I share a canvas with a teammate?**
+Not over the network — Klose is deliberately local, so there are no links or multiplayer sessions.
+Commit `.klose/` and your teammate gets the whole board (sketches, comments, notes) on their next
+pull.
 
 **The canvas tab didn't update after the agent added a sketch.**
 The server pushes live updates over SSE, but if a change doesn't appear within a second or two, just

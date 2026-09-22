@@ -118,6 +118,20 @@ test('scanComponents ignores node_modules and non-component files', async () => 
   );
 });
 
+test('scanComponents indexes a monorepo app folder named web, but not build output inside it', async () => {
+  await withTempRepo(
+    {
+      'apps/web/src/components/Hero.tsx': "export function Hero() { return <section />; }\n",
+      'web/components/Nav.tsx': "export function Nav() { return <nav />; }\n",
+      'apps/web/dist/Bundled.jsx': "export function Bundled() { return <div />; }\n",
+    },
+    async (cwd) => {
+      const data = await scanComponents(cwd, { force: true });
+      assert.deepEqual(data.components.map((c) => c.name).sort(), ['Hero', 'Nav']);
+    }
+  );
+});
+
 test('filterComponents matches by name, file, or description (case-insensitive)', async () => {
   await withTempRepo({ 'src/components/Button.tsx': BUTTON_SOURCE }, async (cwd) => {
     const { components } = await scanComponents(cwd, { force: true });

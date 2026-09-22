@@ -1,8 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Babel from '@babel/standalone';
-import * as LucideReact from 'lucide-react';
-import * as Recharts from 'recharts';
 import { capture } from './preview/screenshot';
 import '@tailwindcss/browser';
 
@@ -11,6 +9,19 @@ if (!rootElement) throw new Error('Preview root is missing');
 
 const root = createRoot(rootElement);
 let inspecting = false;
+// Tailwind's browser build watches `text/tailwindcss` styles and recompiles
+// when they change, so the repo's tokens land here and utilities rebuild.
+const themeStyle = document.querySelector('style[type="text/tailwindcss"]') as HTMLStyleElement | null;
+
+// Recharts and Lucide are most of what a preview would otherwise parse before
+// it can render, and most sketches use neither — so they're separate chunks,
+// loaded only when the compiled code actually requires them.
+const lazyModules: Record<string, () => Promise<unknown>> = {
+  'lucide-react': () => import('lucide-react'),
+  recharts: () => import('recharts'),
+};
+const loadedModules = new Map<string, unknown>([['react', React]]);
+let renderSeq = 0;
 let surfaceColor = '#0f172a';
 const highlight = document.getElementById('sb-highlight') as HTMLElement;
 const highlightLabel = document.getElementById('sb-highlight-label') as HTMLElement;
@@ -61,18 +72,26 @@ function renderError(message: string) {
   post({ type: 'error', message });
 }
 
-function renderCode(code: string, exportName?: string) {
+async function renderCode(code: string, exportName?: string) {
   if (!code) return;
+  // A newer render may arrive while an older one waits on a chunk; only the
+  // latest one gets to paint.
+  const seq = ++renderSeq;
   try {
     const result = Babel.transform(code, { presets: ['env', 'react', 'typescript'], filename: 'component.tsx' });
+    const compiled = result.code || '';
+    const needed = [...compiled.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)]
+      .map((m) => m[1])
+      .filter((name) => name in lazyModules && !loadedModules.has(name));
+    await Promise.all(needed.map(async (name) => loadedModules.set(name, await lazyModules[name]())));
+    if (seq !== renderSeq) return;
+
     const module = { exports: {} as Record<string, unknown> };
     const requireModule = (name: string) => {
-      if (name === 'react') return React;
-      if (name === 'lucide-react') return LucideReact;
-      if (name === 'recharts') return Recharts;
+      if (loadedModules.has(name)) return loadedModules.get(name);
       throw new Error(`Unsupported preview import "${name}". Repo-local imports must be replaced with a self-contained sketch.`);
     };
-    const factory = new Function('require', 'module', 'exports', 'React', result.code || '');
+    const factory = new Function('require', 'module', 'exports', 'React', compiled);
     factory(requireModule, module, module.exports, React);
 
     const exports = module.exports;
@@ -85,6 +104,7 @@ function renderCode(code: string, exportName?: string) {
     postAfterPaint({ type: 'rendered' });
     setTimeout(observeContent, 0);
   } catch (error) {
+    if (seq !== renderSeq) return;
     renderError(error instanceof Error ? error.message : 'Failed to render component');
   }
 }
@@ -156,7 +176,10 @@ document.addEventListener('click', (event) => {
 window.addEventListener('message', (event) => {
   if (event.source !== parent) return;
   const data = event.data || {};
-  if (data.type === 'render') renderCode(data.code || '', data.name);
+  if (data.type === 'theme' && themeStyle && typeof data.css === 'string') {
+    themeStyle.textContent = `/* Compiled locally by @tailwindcss/browser, with the repo's tokens. */\n${data.css}`;
+  }
+  if (data.type === 'render') void renderCode(data.code || '', data.name);
   if (data.type === 'surface' && data.color) {
     surfaceColor = String(data.color);
     document.documentElement.style.backgroundColor = surfaceColor;

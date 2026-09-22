@@ -42,6 +42,21 @@ interface PendingCapture {
 const CAPTURE_TIMEOUT_MS = 20000;
 
 /**
+ * The host repo's design tokens (Tailwind config, `@theme` blocks, `:root`
+ * variables) as Tailwind CSS, fetched once per page and shared by every
+ * preview. Without it the sandbox only knows stock Tailwind, so a sketch
+ * written against the repo's `bg-brand-500` would render unstyled.
+ */
+let themeCssPromise: Promise<string> | null = null;
+function loadThemeCss(): Promise<string> {
+  themeCssPromise ??= fetch('/api/theme')
+    .then((res) => (res.ok ? res.json() : { css: '' }))
+    .then((body) => (typeof body.css === 'string' ? body.css : ''))
+    .catch(() => '');
+  return themeCssPromise;
+}
+
+/**
  * Renders a sketch's preview code inside a sandboxed, cross-origin iframe.
  *
  * SECURITY: this code comes from the coding agent, not Klose itself, so it's
@@ -59,6 +74,7 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [themeCss, setThemeCss] = useState<string | null>(null);
   const onElementSelectRef = useRef(onElementSelect);
   onElementSelectRef.current = onElementSelect;
   const onContentSizeRef = useRef(onContentSize);
@@ -178,10 +194,26 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }, [postToFrame, resolveSurfaceColor, settleCapture]);
 
   useEffect(() => {
-    if (!ready) return;
+    let cancelled = false;
+    loadThemeCss().then((css) => {
+      if (!cancelled) setThemeCss(css);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Declared before the render effect so the tokens reach the sandbox first.
+  useEffect(() => {
+    if (!ready || themeCss === null) return;
+    postToFrame({ type: 'theme', css: themeCss });
+  }, [ready, themeCss, postToFrame]);
+
+  useEffect(() => {
+    if (!ready || themeCss === null) return;
     setError(null);
     postToFrame({ type: 'render', code, name: exportName });
-  }, [ready, code, exportName, postToFrame]);
+  }, [ready, themeCss, code, exportName, postToFrame]);
 
   // A broken/corrupt local installation should fail clearly instead of leaving
   // the preview spinner up forever.

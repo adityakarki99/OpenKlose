@@ -12,27 +12,31 @@ just as labeled boxes), rearrange them, and store per-project design notes.
 
 ## 1. Make sure the local server is running
 
-Check whether `.klose/` exists in the current repo. If not, this is the first run:
+Check whether `.klose/` exists at the repo root. If not, this is the first run:
 
 ```
 npx klose init
 ```
 
 This copies this skill file into `.claude/skills/klose/` (already done if you're reading this from
-there) and creates `.klose/projects/`.
+there), creates `.klose/projects/`, and prints which design tokens and components it found — pass
+that summary on to the user in a sentence.
 
-Then ensure the server is up. Check status first — `klose project ...` commands read `.klose/`
-directly on disk and will "succeed" even with no server running, so they can't tell you whether the
-canvas is actually reachable. Use `klose status` instead:
+Then make sure the canvas is up. `klose project ...` commands read `.klose/` directly on disk and
+"succeed" with no server running, so they can't tell you whether the canvas is reachable — use
+`klose status`, which also checks the server belongs to *this* repo:
 
 ```
 npx klose status
 # if it reports not running:
-npx klose serve --open &
+npx klose serve --detach --open
 ```
 
-`klose serve` prints the URL it's listening on (default `http://localhost:5171`). Tell the user that
-URL so they can watch the canvas while you work, unless you already opened it with `--open`.
+`--detach` returns as soon as the server is up and prints its URL (usually `http://localhost:5171`,
+or the next free port). Don't background `klose serve` with `&` — the detached server records itself
+in `.klose/server.json`, so `status` and `npx klose stop` can find it later. If the canvas is already
+running, `serve` just prints where. Tell the user the URL so they can watch the canvas while you
+work.
 
 ## 2. Pick or create a project
 
@@ -125,7 +129,11 @@ npx klose project add-node <projectId> @/tmp/sketch.json
   - A single self-contained file: one default-exported function component, no props required to render.
   - Only `react`, `lucide-react`, and `recharts` are available via `require(...)` / `import` — no other
     imports, no fetch/network calls (the sandbox blocks them).
-  - Style with Tailwind utility classes (the sandbox loads the Tailwind CDN, same as the canvas itself).
+  - Style with Tailwind utility classes. The sandbox compiles Tailwind locally and loads **the repo's
+    own tokens** — its `tailwind.config.*` theme, `@theme` blocks and `:root` CSS variables — so use
+    the repo's class names (`bg-primary`, `text-brand-500`, `rounded-card`) and `var(--...)`s rather
+    than copying hex values. `npx klose theme` lists what the sandbox has; if it reports no tokens or
+    a warning, fall back to literal values that match what you read in step 3.
   - Use realistic placeholder content, not lorem ipsum — actual-looking copy, prices, names, etc.
   - This is a visualization aid, not the deliverable — it doesn't need to match the real codebase's
     import paths or component-splitting conventions, just its *look*.

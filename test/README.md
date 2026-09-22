@@ -1,7 +1,7 @@
 # Tests
 
 ```bash
-npm test        # node --test test/*.test.js — no watch mode, no config, ~1s
+npm test        # node --test test/*.test.js — no watch mode, no config, a few seconds
 ```
 
 CI runs this on Node 18, 20 and 22 (`.github/workflows/ci.yml`), plus `npm run
@@ -17,9 +17,14 @@ in ways a diff won't show you.
 | --- | --- |
 | `scanner.test.js` | `server/scanner.js` — component detection, prop extraction, filtering, and the path/extension guards in `readComponentSource` |
 | `store.test.js` | `server/store.js` — project CRUD, node updates, and project-id validation at the filesystem boundary |
-| `http.test.js` | `server/http.js` — routing and status codes, driven over a real server on an ephemeral port |
+| `http.test.js` | `server/http.js` — routing, status codes and the Host/Origin/content-type guards, driven over a real server on an ephemeral port |
+| `theme.test.js` | `server/theme.js` — CSS token extraction and Tailwind v3 config → v4 variables |
+| `root.test.js` | `server/root.js` — which folder a command run from a subfolder acts on |
+| `skills.test.js` | `server/skills.js` — skill installs that replace Klose's own copies but not the user's edits |
+| `cli.test.js` | `bin/klose.js` as a subprocess — help, `init` from a subfolder, and `serve --detach` / `status` / `stop`, which bind `--port=0` |
+| `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
 
-Only `server/` is covered. The React canvas under `components/` and `pages/` has
+`server/` and the CLI are covered. The React canvas under `components/` and `pages/` has
 no tests and no test runner configured for it — don't add a React test to this
 suite expecting it to run.
 

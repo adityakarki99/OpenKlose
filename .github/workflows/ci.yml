@@ -62,3 +62,9 @@ jobs:
       # build break is a release break even when every test passes.
       - name: Build
         run: npm run build
+
+      # Installs the packed tarball into an empty repo and walks a first run
+      # (init, serve, load the canvas, status, stop) — the path a new user
+      # takes, which the unit tests never exercise.
+      - name: Pack-and-install smoke test
+        run: npm run smoke

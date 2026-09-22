@@ -215,3 +215,54 @@ test('the sandbox reports the size its component wants, so a frame can be fitted
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("repo tokens reach the sandbox, and a lazily loaded library still renders", { skip: canRun ? false : 'Chromium or built web assets unavailable' }, async () => {
+  const server = createKloseServer({ cwd: root, publicDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ executablePath: executable, headless: true });
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.evaluate(async () => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = '/preview.html';
+      document.body.appendChild(frame);
+      const send = (message) => frame.contentWindow.postMessage(message, '*');
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Preview did not render')), 15_000);
+        addEventListener('message', function handler(event) {
+          if (event.source !== frame.contentWindow || event.data?.source !== 'klose-sandbox') return;
+          if (event.data.type === 'ready') {
+            // What the canvas sends: the repo's tokens first, then the sketch.
+            send({ type: 'theme', css: '@theme { --color-brand-500: rgb(255, 51, 102); }' });
+            send({
+              type: 'render',
+              code: "import React from 'react'; import { Star } from 'lucide-react'; export default function Demo(){ return <button className=\"bg-brand-500\"><Star />Token OK</button>; }",
+            });
+          }
+          if (event.data.type === 'error') reject(new Error(event.data.message));
+          if (event.data.type === 'rendered') {
+            clearTimeout(timeout);
+            removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+    });
+    const button = page.frameLocator('iframe[src="/preview.html"]').getByRole('button', { name: 'Token OK' });
+    await button.locator('svg').waitFor();
+    // Tailwind compiles in-page after the DOM commits; poll for the utility.
+    let background = '';
+    for (let i = 0; i < 50 && background !== 'rgb(255, 51, 102)'; i++) {
+      background = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
+      if (background !== 'rgb(255, 51, 102)') await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(background, 'rgb(255, 51, 102)');
+  } finally {
+    await browser?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

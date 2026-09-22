@@ -12,7 +12,7 @@ import { badRequest } from './errors.js';
  * full TypeScript parser; it aims to be resilient and useful, not exhaustive.
  */
 
-const IGNORED_DIRS = new Set([
+export const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit',
   'coverage', '.cache', '.vercel', '.turbo', '.parcel-cache', 'vendor',
   '.klose', 'web', '.idea', '.vscode', 'tmp', 'temp',

@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createKloseServer } from '../server/http.js';
@@ -21,7 +22,8 @@ before(async () => {
     "import React from 'react';\nexport function Button({ label }: { label: string }) {\n  return <button>{label}</button>;\n}\n",
     'utf-8'
   );
-  server = createKloseServer({ cwd });
+  await writeFile(path.join(cwd, 'src', 'globals.css'), ':root { --brand: #ff3366; color: red; }\n', 'utf-8');
+  server = createKloseServer({ cwd, version: '9.9.9' });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
@@ -40,10 +42,35 @@ async function request(method, url, body) {
   return { status: res.status, headers: res.headers, body: await res.json() };
 }
 
+// fetch() won't let a caller set Host, so the browser-attack cases go through
+// node:http, which sends whatever headers it's given.
+function rawRequest(method, url, headers = {}, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${baseUrl}${url}`, { method, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf-8');
+        let parsed = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          // Not JSON (static asset).
+        }
+        resolve({ status: res.statusCode, body: parsed });
+      });
+    });
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
 test('GET /api/health reports the server as up without touching .klose/', async () => {
   const res = await request('GET', '/api/health');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { ok: true });
+  // `root` is how `klose status` tells this repo's server from another repo's.
+  assert.deepEqual(res.body, { ok: true, root: cwd, version: '9.9.9', pid: process.pid });
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
@@ -151,4 +178,53 @@ test('static preview assets allow module loading from the sandbox opaque origin'
     await new Promise((resolve) => staticServer.close(resolve));
     await rm(publicDir, { recursive: true, force: true });
   }
+});
+
+test('a request addressed to a non-loopback Host is refused (DNS rebinding)', async () => {
+  const res = await rawRequest('GET', '/api/projects', { Host: 'evil.example:5171' });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'FORBIDDEN_HOST');
+});
+
+test('a cross-origin page cannot call the API', async () => {
+  const read = await rawRequest('GET', '/api/projects', { Origin: 'https://evil.example' });
+  assert.equal(read.status, 403);
+  assert.equal(read.body.code, 'FORBIDDEN_ORIGIN');
+
+  // The sandboxed preview has an opaque origin; it gets static assets, not the API.
+  const sandboxed = await rawRequest('GET', '/api/projects', { Origin: 'null' });
+  assert.equal(sandboxed.status, 403);
+  assert.equal(sandboxed.body.code, 'FORBIDDEN_ORIGIN');
+});
+
+test('a write must be application/json, which a no-preflight form post cannot send', async () => {
+  const res = await rawRequest('POST', '/api/projects', { 'Content-Type': 'text/plain' }, '{"name":"CSRF"}');
+  assert.equal(res.status, 415);
+  assert.equal(res.body.code, 'UNSUPPORTED_MEDIA_TYPE');
+});
+
+test('a malformed JSON body is a 400, not a 500', async () => {
+  const res = await rawRequest('POST', '/api/projects', { 'Content-Type': 'application/json' }, '{nope');
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'INVALID_JSON');
+});
+
+test('the canvas itself (a localhost origin, e.g. the Vite dev server) is allowed', async () => {
+  const res = await rawRequest(
+    'POST',
+    '/api/projects',
+    { Host: 'localhost:5170', Origin: 'http://localhost:5170', 'Content-Type': 'application/json' },
+    '{"name":"From the canvas"}'
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.body.name, 'From the canvas');
+});
+
+test('GET /api/theme returns the repo tokens as Tailwind CSS', async () => {
+  const res = await request('GET', '/api/theme');
+  assert.equal(res.status, 200);
+  assert.match(res.body.css, /--brand: #ff3366/);
+  assert.doesNotMatch(res.body.css, /color: red/);
+  assert.equal(res.body.tokenCount, 1);
+  assert.deepEqual(res.body.sources, [{ file: path.join('src', 'globals.css'), kind: 'css', count: 1 }]);
 });

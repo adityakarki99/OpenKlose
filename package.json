@@ -1,7 +1,7 @@
 {
   "name": "klose",
   "version": "0.2.0",
-  "description": "A local, no-login design canvas that installs as a /klose skill in Claude Code — sketch components against your repo's real design system, point at the exact element that is wrong, and have the agent build it into your source tree.",
+  "description": "A local, no-login design canvas that installs as a /klose skill in Claude Code \u2014 sketch components against your repo's real design system, point at the exact element that is wrong, and have the agent build it into your source tree.",
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "keywords": [
@@ -45,7 +45,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test test/*.test.js",
-    "prepublishOnly": "npm run build"
+    "smoke": "node scripts/smoke-pack.mjs",
+    "prepare": "node scripts/prepare.mjs",
+    "prepublishOnly": "npm test && npm run build"
   },
   "devDependencies": {
     "@babel/standalone": "^7.28.4",

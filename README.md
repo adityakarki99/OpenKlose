@@ -172,38 +172,75 @@ repo.
 
 ## Install
 
+From the root of the repo you want to design in:
+
 ```bash
 npm install -D klose
 npx klose init
 ```
 
-`klose init` drops the `/klose`, `/klose-update`, and `/klose-cleanup` skills into `.claude/skills/`
-and creates local project storage at `.klose/` — seeded with a demo sketch so the canvas isn't empty
-on your first run. Then, in Claude Code:
+> **Not on npm yet?** Until the first release is published, install straight from GitHub — npm builds
+> the canvas UI for you as part of the install:
+>
+> ```bash
+> npm install -D github:adityakarki99/OpenKlose
+> npx klose init
+> ```
+
+`klose init` installs the `/klose`, `/klose-update`, and `/klose-cleanup` skills into
+`.claude/skills/`, creates local storage at `.klose/` (seeded with a demo sketch so the canvas isn't
+empty), and then tells you what it found in your repo:
 
 ```
-/klose
+Klose 0.2.0 is set up in /code/acme-web
+
+  ✓ Skills       /klose, /klose-cleanup, /klose-update → .claude/skills/
+  ✓ Storage      .klose/ (with a demo project, so the canvas isn't empty)
+
+What Klose found in this repo
+  ✓ Tailwind config tailwind.config.ts (18 tokens)
+  ✓ CSS tokens      app/globals.css (34 tokens)
+  ✓ Components      23 exported components (components/ui, app/(marketing), …)
+
+Sketches in .klose/projects/ are plain JSON and will be committed with the repo as design
+history. To keep them local instead, run: npx klose init --ignore-projects
+
+Next: in Claude Code, try
+  /klose a pricing card for our billing page
 ```
 
-The skill starts the local server for you. To run it manually:
+Then, in Claude Code:
+
+```
+/klose a pricing card for our billing page
+```
+
+The skill starts the canvas for you. To run it yourself:
 
 ```bash
-npx klose serve --open
+npx klose serve --open        # foreground; Ctrl-C to stop
+npx klose serve --detach      # background; stop with `npx klose stop`
 ```
 
+Run from a subfolder, every command still acts on the repo root (the nearest parent with a `.klose/`
+or `.git`). Running `serve` when the canvas is already up just tells you where it is, and if port
+5171 is taken by something else, the next free port is used.
+
 > **Requirements:** Node.js ≥ 18. Klose runs entirely on your machine — no account, no cloud service,
-> no API keys.
+> no API keys. The server listens on `127.0.0.1` only.
 
 Optional flags for `klose init`:
 
 ```bash
 npx klose init --no-demo          # skip the demo project
+npx klose init --ignore-projects  # keep sketches out of git
 npx klose init --wire-claude-md   # add a short note to CLAUDE.md so the agent suggests /klose on its own
 ```
 
-Later, `npx klose update` upgrades the package and refreshes the installed skill files in one step,
-and `npx klose cleanup` clears out sketches already built into real files and empty projects (dry
-run by default — pass `--yes` to apply).
+Later, `npx klose update` upgrades the package and refreshes the installed skill files in one step
+(skills you've edited are left alone — `--force` replaces them and keeps a `.bak`), and
+`npx klose cleanup` clears out sketches already built into real files and empty projects (dry run by
+default — pass `--yes` to apply). `npx klose help` lists everything.
 
 ---
 
@@ -218,7 +255,10 @@ npm install -D klose
 npx klose init
 ```
 
-You'll get a `.claude/skills/klose/SKILL.md` (the `/klose` command) and an empty `.klose/projects/`.
+You'll get the `/klose`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
+`.klose/projects/` folder holding a demo project, and a short report of the design tokens and
+components Klose found. If `/klose` doesn't show up in Claude Code's command list, restart Claude
+Code.
 
 ### 2. Open Klose and pick a project
 
@@ -381,15 +421,19 @@ them as design history or `.gitignore` them; your call. Manage as many projects 
 
 ## CLI reference
 
-Everything the `/klose` skill does is a plain CLI call you can run yourself:
+Everything the `/klose` skill does is a plain CLI call you can run yourself. `klose help <command>`
+shows each command's options.
 
 ```
-klose init [--no-demo] [--wire-claude-md]         Install the klose skills and local storage in this repo
-klose serve [--port=N] [--open]                   Start the local server (default port 5171)
-klose status [--port=N] [--json]                  Check whether the local server is actually running
-klose update                                      Upgrade the klose package and refresh installed skill files
+klose init [--no-demo] [--ignore-projects] [--wire-claude-md] [--force] [--here]
+                                                  Install the klose skills and local storage in this repo
+klose serve [--port=N] [--open] [--detach]        Start this repo's canvas (default port 5171)
+klose status [--port=N] [--json]                  Check whether this repo's canvas is running
+klose stop                                        Stop this repo's canvas
+klose update [--force]                            Upgrade the klose package and refresh installed skill files
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)
+klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)
@@ -397,7 +441,7 @@ klose project update <id> <json|@file.json>       Merge fields into a project
 klose project delete <id>                         Delete a project
 klose project add-node <id> <json|@file.json>     Add a sketch node to a project's canvas
 klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (its code, comments, or mark it built)
-klose feedback [--project=<id>]                 Read all pending feedback as structured JSON
+klose feedback [--project=<id>]                   Read all pending feedback as structured JSON
 ```
 
 Any `<json>` argument can instead be `@path/to/file.json` — handy for a sketch's multi-line preview
@@ -428,12 +472,17 @@ It's all driven through the CLI above, so nothing is a black box — you can ins
 ```
 your-repo/
 ├── .claude/skills/klose/SKILL.md   The /klose skill (copied in by `klose init`)
-└── .klose/projects/<id>.json       One JSON file per project — sketches, comments, design notes
+└── .klose/
+    ├── projects/<id>.json          One JSON file per project — sketches, comments, design notes
+    ├── skills.json                 Hashes of the installed skills, so updates don't clobber your edits
+    └── server.json                 Where this repo's canvas is running (git-ignored)
 
 klose package
-├── bin/klose.js       CLI (init / serve / project *)
-├── server/store.js    File-based project storage over .klose/projects/*.json
-├── server/http.js     Local HTTP server: REST API + SSE live-refresh + serves the built canvas UI
+├── bin/klose.js         CLI (init / serve / status / stop / project * / ...)
+├── server/store.js      File-based project storage over .klose/projects/*.json
+├── server/http.js       Local HTTP server: REST API + SSE live-refresh + serves the built canvas UI
+├── server/theme.js      Reads the repo's design tokens for the preview sandbox
+├── server/scanner.js    Indexes the repo's real components
 ├── skills/klose/      Source of the skill klose init copies into your repo
 └── web/               The canvas UI (React + Vite), built to web/dist and shipped in the package
 ```
@@ -458,8 +507,9 @@ No. Klose runs a local server and stores JSON files. The "intelligence" is your 
 you're already running.
 
 **Where does my data live?**
-In `.klose/projects/*.json` in the repo you ran `klose init` in. Commit it to keep design history, or
-add `.klose/` to `.gitignore` to keep it local-only.
+In `.klose/projects/*.json` at the root of the repo you ran `klose init` in. Commit it to keep design
+history, or run `npx klose init --ignore-projects` to keep it local-only. Machine-specific files
+(`server.json`, `server.log`) are always git-ignored.
 
 **Does it work with agents other than Claude Code?**
 The `/klose` skill targets Claude Code, but the `klose` CLI and server are agent-agnostic — any agent
@@ -469,6 +519,20 @@ that can run shell commands can drive the canvas via `klose project …`.
 Not over the network — Klose is deliberately local, so there are no links or multiplayer sessions.
 Commit `.klose/` and your teammate gets the whole board (sketches, comments, notes) on their next
 pull.
+
+**Is the local server safe to leave running?**
+It listens on `127.0.0.1` only, so nothing else on your network can reach it. It also refuses
+requests addressed to any host other than `localhost` (DNS rebinding) and API calls from any page that
+isn't the canvas itself, so a website open in another tab can't read or edit your projects.
+
+**My preview doesn't use my brand colors.**
+Run `npx klose theme` to see which tokens Klose found. Previews get your `tailwind.config.*` theme,
+any `@theme` blocks, and `:root` custom properties from your CSS. A TypeScript config needs Node
+22.18 or newer to load; on older Node, `klose theme` says so and previews fall back to stock Tailwind
+plus your CSS variables.
+
+**`klose status` says a different repo's canvas is running.**
+Each repo gets its own server. Run `npx klose serve --detach` here — it picks the next free port.
 
 **The canvas tab didn't update after the agent added a sketch.**
 The server pushes live updates over SSE, but if a change doesn't appear within a second or two, just
@@ -493,12 +557,19 @@ obligation. See [LICENSE](LICENSE).
 npm install
 npm run dev      # Vite dev server for the canvas UI, proxies /api to localhost:5171
 npm run build    # Builds the canvas UI into web/dist for packaging
-npm test         # node --test over test/*.test.js — covers server/, ~1s
+npm test         # node --test over test/*.test.js — covers server/ and the CLI, a few seconds
+npm run smoke    # npm pack, install the tarball into an empty repo, and walk a first run
 ```
 
-Tests cover the local server (`server/`): the component scanner, the project
-store, and the HTTP routing/status codes. CI runs `npm test` on Node 18, 20 and
-22 and `npm run build` on 22 for every pull request against `main`.
+Tests cover the local server (`server/`) and the CLI: the component scanner, the
+project store, theme extraction, the HTTP routing/status codes and request
+guards, and the serve/status/stop lifecycle. CI runs `npm test` on Node 18, 20
+and 22, and `npm run build` plus the pack-and-install smoke test on 22, for every
+pull request against `main`.
+
+**Releasing.** Bump the version and push the tag — `npm version patch && git push
+--follow-tags`. The Release workflow tests, builds, smoke-tests and publishes to
+npm; it needs an `NPM_TOKEN` repository secret.
 
 **Adding or changing a test — including as an AI agent?** Read
 [`test/README.md`](./test/README.md) first. It documents the conventions the
@@ -523,8 +594,8 @@ node bin/klose.js serve --open
 3. Commit your changes with a descriptive message
 4. Push and open a Pull Request against `main`
 
-CI (`npm test` on Node 18/20/22, `npm run build` on 22) must be green before a PR
-merges. Run `npm test` locally first — it takes about a second.
+CI (`npm test` on Node 18/20/22; `npm run build` and `npm run smoke` on 22) must be green before a
+PR merges. Run `npm test` locally first — it takes a few seconds.
 
 Please keep PRs focused. One feature or fix per PR makes review faster.
 

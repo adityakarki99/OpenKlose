@@ -5,6 +5,8 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import * as store from './store.js';
 import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
+import { loadTheme } from './theme.js';
+import { HttpError } from './errors.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -19,7 +21,65 @@ async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  } catch {
+    throw new HttpError('Request body is not valid JSON', 400, 'INVALID_JSON');
+  }
+}
+
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+function isLocalHost(hostHeader) {
+  if (!hostHeader) return false;
+  try {
+    return LOCAL_HOSTNAMES.has(new URL(`http://${hostHeader}`).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLocalOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && LOCAL_HOSTNAMES.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The API reads and writes the user's repo, so only the canvas itself may
+ * call it. Two browser attacks matter for a server on localhost:
+ *
+ *   - DNS rebinding: evil.example re-resolves to 127.0.0.1 and reads the API
+ *     as a same-origin page. Its requests still carry `Host: evil.example`,
+ *     so anything whose Host isn't a loopback name is refused.
+ *   - Cross-site requests: any page can fire a "simple" POST at localhost
+ *     without a CORS preflight. Browsers attach `Origin` to those, so a
+ *     foreign (or sandboxed `null`) Origin on an /api request is refused, and
+ *     writes must be `application/json`, which a simple request can't send.
+ *
+ * Requests with no Origin at all (curl, the CLI, tests) are allowed: they
+ * don't come from a web page, and the server only listens on loopback.
+ */
+function rejectForeignRequest(req, res, isApi) {
+  if (!isLocalHost(req.headers.host)) {
+    sendJson(res, 403, { error: 'Klose only answers requests addressed to localhost', code: 'FORBIDDEN_HOST' });
+    return true;
+  }
+  if (!isApi) return false;
+  const origin = req.headers.origin;
+  if (origin !== undefined && !isLocalOrigin(origin)) {
+    sendJson(res, 403, { error: 'Cross-origin requests to the Klose API are not allowed', code: 'FORBIDDEN_ORIGIN' });
+    return true;
+  }
+  if ((req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') &&
+      !/^application\/json\b/i.test(req.headers['content-type'] || '')) {
+    sendJson(res, 415, { error: 'Request body must be application/json', code: 'UNSUPPORTED_MEDIA_TYPE' });
+    return true;
+  }
+  return false;
 }
 
 function sendJson(res, status, data) {
@@ -47,7 +107,7 @@ async function serveStatic(res, publicDir, urlPath) {
   createReadStream(filePath).pipe(res);
 }
 
-export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
+export function createKloseServer({ cwd = process.cwd(), publicDir, version = null } = {}) {
   const sseClients = new Set();
 
   const notify = () => {
@@ -64,9 +124,18 @@ export function createKloseServer({ cwd = process.cwd(), publicDir } = {}) {
     const url = new URL(req.url, 'http://localhost');
     const parts = url.pathname.split('/').filter(Boolean);
 
+    if (rejectForeignRequest(req, res, parts[0] === 'api')) return;
+
     try {
+      // `root` lets `klose status` tell this repo's server apart from one
+      // another repo started on the same port.
       if (url.pathname === '/api/health') {
-        return sendJson(res, 200, { ok: true });
+        return sendJson(res, 200, { ok: true, root: cwd, version, pid: process.pid });
+      }
+
+      // The repo's design tokens as Tailwind CSS, injected into every preview.
+      if (url.pathname === '/api/theme' && req.method === 'GET') {
+        return sendJson(res, 200, await loadTheme(cwd, { force: url.searchParams.get('refresh') === '1' }));
       }
 
       if (url.pathname === '/api/events') {

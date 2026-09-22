@@ -41,24 +41,36 @@ system) instead of a server-proxied Gemini call.
 ## Package Layout
 
 ```
-bin/klose.js         CLI entry point: init / serve / project *
-server/store.js       File-based CRUD over .klose/projects/<id>.json
+bin/klose.js           CLI entry point: init / serve / status / stop / project * / ...
+server/root.js         Finds the repo root a command acts on (nearest .klose/ or .git)
+server/store.js        File-based CRUD over .klose/projects/<id>.json
 server/http.js         Node HTTP server: REST API + SSE + serves the built canvas UI
+server/instance.js     .klose/server.json bookkeeping: is this repo's server running, and where
+server/skills.js       Installs skill files without clobbering the user's edits
+server/theme.js        Extracts the repo's design tokens for the preview sandbox
+server/scanner.js      Indexes the repo's real components
 skills/klose/SKILL.md  Source of the /klose skill (copied into consumer repos by `klose init`)
+scripts/               smoke-pack.mjs (pack-and-install first-run test), prepare.mjs (git installs)
 web/                    The canvas UI source (built to web/dist for packaging)
 ```
 
 ## What Happens On Install
 
-`npx klose init` in a target repo:
-1. Copies `skills/klose/SKILL.md` to `.claude/skills/klose/SKILL.md`, so Claude Code picks it up as
-   the `/klose` command.
-2. Creates `.klose/projects/` for local project storage.
+`npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
+holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
+1. Copies each `skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
+   `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
+   each file as written; a later `init` or `update` replaces only files that still match it, and
+   leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
+2. Creates `.klose/projects/` for local project storage, seeded with a demo project, and a
+   `.klose/.gitignore` for the per-machine files (plus `projects/` with `--ignore-projects`).
+3. Reports the design tokens (`server/theme.js`) and components (`server/scanner.js`) it found, and
+   the prompt to try first.
 
 ## What Happens On `/klose`
 
 The skill (see `skills/klose/SKILL.md`) instructs the agent to:
-1. Ensure the local server is running (`klose serve`, backgrounded if needed) and share the URL.
+1. Ensure the local server is running (`klose status`, then `klose serve --detach`) and share the URL.
 2. Pick or create a `.klose` project.
 3. **Read the host repo's real design system** — Tailwind config, CSS custom properties, existing
    component conventions — rather than inventing generic tokens.
@@ -135,7 +147,18 @@ to every elevated surface on the canvas (the inspector, the sketch frames, the n
 
 `server/http.js` is a small Node `http` server (no Express) that:
 - Serves a REST API (`/api/projects`, `/api/projects/:id`, `/api/projects/:id/nodes[/…]`) backed by
-  `server/store.js`, which reads/writes `.klose/projects/<id>.json` in the current working directory.
+  `server/store.js`, which reads/writes `.klose/projects/<id>.json` under the repo root.
+- Serves `/api/theme`: the repo's `tailwind.config.*` theme (converted to Tailwind v4 `@theme`
+  variables), its `@theme` blocks and its `:root` custom properties. The canvas posts this CSS into
+  every preview sandbox before rendering, so sketches written against the repo's own class names
+  render with the repo's own values.
+- Listens on `127.0.0.1` only, refuses any request whose `Host` isn't a loopback name (DNS
+  rebinding), refuses `/api` requests carrying a non-localhost `Origin` (including the sandbox's
+  `null`), and requires `application/json` on writes so a cross-site "simple" form post can't
+  reach it.
+- Reports `{ ok, root, version, pid }` on `/api/health`, and `klose serve` records the same in
+  `.klose/server.json`. `klose status` / `stop` / a second `serve` confirm against the live health
+  endpoint, so a server another repo started on the same port is never mistaken for this one.
 - Watches `.klose/projects/` and pushes an SSE `update` event on any change, so an open canvas tab
   live-refreshes when the agent writes a new sketch from a separate CLI invocation.
 - Serves the pre-built canvas UI (`web/dist/`) as static files, with an SPA fallback to `index.html`.

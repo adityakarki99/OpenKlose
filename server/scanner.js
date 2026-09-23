@@ -12,10 +12,13 @@ import { badRequest } from './errors.js';
  * full TypeScript parser; it aims to be resilient and useful, not exhaustive.
  */
 
+// Build output, caches and tooling only. Never a source-folder name like
+// `web`: that one used to be here and hid every component in a monorepo's
+// `apps/web`. Klose's own bundle lives in `web/dist`, which `dist` covers.
 export const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit',
   'coverage', '.cache', '.vercel', '.turbo', '.parcel-cache', 'vendor',
-  '.klose', 'web', '.idea', '.vscode', 'tmp', 'temp',
+  '.klose', '.idea', '.vscode', 'tmp', 'temp',
 ]);
 
 const SOURCE_EXTS = new Set(['.tsx', '.jsx']);

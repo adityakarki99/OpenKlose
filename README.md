@@ -433,6 +433,7 @@ klose stop                                        Stop this repo's canvas
 klose update [--force]                            Upgrade the klose package and refresh installed skill files
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)
+klose components "<need>" --rank [--top=N] [--json]   Rank components by fit using Jev (optional, needs TYPESAFE_API_KEY)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose project list                                List projects
 klose project create <name>                       Create a project
@@ -505,6 +506,13 @@ file in your source tree.
 **Do I need an API key or an account?**
 No. Klose runs a local server and stores JSON files. The "intelligence" is your coding agent, which
 you're already running.
+
+The one optional exception is `klose components "<need>" --rank`, which asks
+[Jev](https://docs.typesafe.ai) (TypeSafe AI) which of your existing components fits a plain-language
+description, so the agent finds reuse candidates whose names don't match your words. It only runs
+when you pass `--rank` with `TYPESAFE_API_KEY` set, sends each component's name, path, props and doc
+comment (never source code) to `api.typesafe.ai`, and falls back to the local text search on any
+error. Without a key, nothing leaves your machine.
 
 **Where does my data live?**
 In `.klose/projects/*.json` at the root of the repo you ran `klose init` in. Commit it to keep design

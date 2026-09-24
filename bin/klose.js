@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as store from '../server/store.js';
 import { createKloseServer } from '../server/http.js';
 import { scanComponents, filterComponents } from '../server/scanner.js';
+import { rankComponents, JEV_DEFAULT_BASE_URL, MAX_CANDIDATES } from '../server/jev.js';
 import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
@@ -91,9 +92,19 @@ unless --force, which keeps the old copy as SKILL.md.bak.`,
 Removes sketches already built into real files and/or empty projects. With
 neither filter, does both. Dry run unless --yes.`,
   components: `Usage: klose components [query] [--json]
+       klose components "<what you want to build>" --rank [--top=N] [--json]
 
 Searches every exported .tsx/.jsx component in the repo by name, file, props
-and doc comment.`,
+and doc comment.
+
+Options
+  --rank     Rank components by how well they fit a plain-language need, using
+             Jev (TypeSafe AI). Opt-in: needs TYPESAFE_API_KEY, and sends each
+             component's name, path, category, prop names and doc comment (no
+             source code) to api.typesafe.ai. Says whether anything fits:
+             reuse, partial or new. Falls back to the text search on any error.
+  --top=N    How many ranked components to show (default 5)
+  --json     Machine-readable output`,
   theme: `Usage: klose theme [--json | --css]
 
 Shows the design tokens found in this repo (Tailwind config, @theme blocks,
@@ -548,14 +559,20 @@ async function cmdProject(args) {
 
 // Search the host repo's real components — so the agent can reuse what already
 // exists instead of re-sketching it. `--json` for machine output; default is a
-// short human-readable list.
+// short human-readable list. `--rank` asks Jev which component fits a need.
 async function cmdComponents(args) {
   const flags = args.filter((a) => a.startsWith('--'));
   const query = args.filter((a) => !a.startsWith('--')).join(' ');
+  const json = flags.includes('--json');
   const data = await scanComponents(root, { force: true });
-  const components = filterComponents(data.components, query);
 
-  if (flags.includes('--json')) {
+  if (flags.includes('--rank')) {
+    const ranking = await rankOrWarn(data.components, query, flags);
+    if (ranking) return printRanking(data, query, ranking, flags);
+  }
+
+  const components = filterComponents(data.components, query);
+  if (json) {
     return printJson({ ...data, count: components.length, components });
   }
 
@@ -567,12 +584,74 @@ async function cmdComponents(args) {
   }
   console.log(`Repo: ${where}`);
   console.log(`${components.length} component${components.length === 1 ? '' : 's'}${query ? ` matching "${query}"` : ''}:\n`);
-  for (const c of components) {
-    const props = c.props.length ? `  props: ${c.props.map((p) => p.name + (p.optional ? '?' : '')).join(', ')}` : '';
-    console.log(`  ${c.name}  —  ${c.file}:${c.line}`);
-    if (c.description) console.log(`    ${c.description}`);
-    if (props) console.log(props);
+  for (const c of components) printComponent(c);
+}
+
+function printComponent(c, prefix = '') {
+  const props = c.props.length ? `  props: ${c.props.map((p) => p.name + (p.optional ? '?' : '')).join(', ')}` : '';
+  console.log(`  ${prefix}${c.name}  —  ${c.file}:${c.line}`);
+  if (c.description) console.log(`    ${' '.repeat(prefix.length)}${c.description}`);
+  if (props) console.log(`${' '.repeat(prefix.length)}${props}`);
+}
+
+// Returns the Jev ranking, or null after explaining on stderr why the plain
+// text search is shown instead — ranking is a speed-up, never a hard dependency.
+async function rankOrWarn(components, query, flags) {
+  const apiKey = process.env.TYPESAFE_API_KEY;
+  const fallback = (why) => {
+    process.stderr.write(`klose: --rank skipped (${why}); showing text matches instead.\n`);
+    return null;
+  };
+  if (!apiKey) return fallback('TYPESAFE_API_KEY is not set');
+  if (!query.trim()) return fallback('describe what you want to build, e.g. klose components "pricing table with a monthly/annual toggle" --rank');
+  if (!components.length) return null;
+  process.stderr.write(`klose: asking Jev to rank ${Math.min(components.length, MAX_CANDIDATES)} components (names, paths, props and doc comments; no source code)…\n`);
+  try {
+    return await rankComponents(components, query, {
+      apiKey,
+      baseUrl: process.env.TYPESAFE_BASE_URL || JEV_DEFAULT_BASE_URL,
+    });
+  } catch (err) {
+    return fallback(`Jev: ${err.message}`);
   }
+}
+
+const VERDICT_TEXT = {
+  reuse: 'an existing component fits — reuse or extend the top match',
+  partial: 'partial fit — check the top matches before sketching something new',
+  new: 'nothing here does this job — sketch a new component',
+};
+
+function printRanking(data, query, ranking, flags) {
+  const topArg = flags.find((f) => f.startsWith('--top='));
+  const top = Math.max(1, Number.parseInt(topArg?.slice('--top='.length), 10) || 5);
+  const json = flags.includes('--json');
+  const shown = ranking.ranked.slice(0, top);
+  if (json) {
+    return printJson({
+      ...data,
+      query,
+      ranking: {
+        source: 'jev',
+        model: ranking.model,
+        exists: ranking.exists,
+        verdict: ranking.verdict,
+        considered: ranking.considered,
+        total: ranking.total,
+      },
+      count: shown.length,
+      components: shown,
+    });
+  }
+  const where = `${data.repo.name}${data.repo.branch ? ` (${data.repo.branch})` : ''} — ${data.repo.root}`;
+  console.log(`Repo: ${where}`);
+  console.log(`Ranked by Jev for "${query}"`);
+  console.log(`Fit: ${ranking.exists.toFixed(2)} — ${VERDICT_TEXT[ranking.verdict]}`);
+  if (ranking.considered < ranking.total) {
+    console.log(`(ranked the ${ranking.considered} of ${ranking.total} components that best matched the query's words)`);
+  }
+  console.log('');
+  for (const c of shown) printComponent(c, `${c.relevance.toFixed(2)}  `);
 }
 
 async function cmdTheme(args) {

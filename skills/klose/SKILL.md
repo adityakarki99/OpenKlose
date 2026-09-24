@@ -85,6 +85,26 @@ Each result gives the component's name, file path and line, its props, and a sho
 user can also browse this visually at the canvas server's **Components** tab (`/components`) and hit
 "Copy for agent" to hand you a reuse note.
 
+**Faster, meaning-based search (optional).** A text query misses a component whose name doesn't
+contain your words (`pricing` won't find `PlanTier`). If `TYPESAFE_API_KEY` is set in the
+environment, rank the index against a plain-language description of what you're about to build:
+
+```
+npx klose components "pricing table with a monthly/annual toggle" --rank --json
+```
+
+This asks Jev (TypeSafe AI) which component fits and whether *anything* does, sending only the
+index's names, paths, props and doc comments — no source code. Act on `ranking.verdict`:
+
+- `reuse` — open **only the top component's file** and build on it; don't browse for alternatives.
+- `partial` — read the top two, then tell the user which is closest and ask whether to extend it or
+  start fresh.
+- `new` — nothing fits; go straight to sketching a new component instead of searching further.
+
+Each component carries a `relevance` (0–1) for the ordering. If the key isn't set, or Jev is
+unreachable, the command says so on stderr and returns the plain text matches instead — carry on
+with those. Don't use `--rank` when the user hasn't set a key, and don't ask them for one.
+
 - If a suitable component already exists, prefer **reusing/extending it** — read its file, then build
   on it (compose it, add a variant/prop) rather than sketching a duplicate. Tell the user you found
   an existing `<Name>` and are reusing it.

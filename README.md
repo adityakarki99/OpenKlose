@@ -448,6 +448,32 @@ the plan travels with the code — readable in review, and something the agent c
 doesn't count as a change. Saved sketches are marked so your type-checker, linter and Klose's own
 component index skip them.
 
+### One hub for every repo
+
+Running a canvas per repo gets old when you work in several. `klose hub` runs **one** canvas for
+the whole machine and finds your repos by itself:
+
+```bash
+npx klose init --global        # once: install the /klose skill for every repo (~/.claude/skills)
+npx klose hub --detach --open  # one canvas for every repo; stop with `npx klose hub stop`
+```
+
+The hub's home page lists every repo that has a Claude Code session open (with a dot showing
+whether the agent is working or idle) and the ones you used recently, each with its Klose files,
+sketches and comments still waiting for the agent. Open one and you're on that repo's canvas at
+`/r/<id>/…`; the navbar's repo switcher (`⌘K`) jumps between them.
+
+How it knows: Claude Code already records its sessions in `~/.claude/sessions` and its
+transcripts in `~/.claude/projects`. The hub only **reads** those. It writes its own bookkeeping to
+`~/.klose/`, and a repo's `.klose/` the first time you sketch there — never before, so a repo you
+only looked at stays untouched. Nothing is installed in any repo, and it still listens on
+`127.0.0.1` only.
+
+While the hub is up, `klose status` and `klose serve` inside any repo point at it instead of
+starting a second server, so `/klose` works in a repo that has never seen `klose init`. A repo the
+hub hasn't noticed (no agent has been there) can be listed with `klose hub add`. Per-repo
+`klose serve` keeps working exactly as before if you'd rather not run a hub.
+
 ---
 
 ## CLI reference
@@ -461,6 +487,11 @@ klose init [--no-demo] [--ignore-projects] [--wire-claude-md] [--force] [--here]
 klose serve [--port=N] [--open] [--detach]        Start this repo's canvas (default port 5171)
 klose status [--port=N] [--json]                  Check whether this repo's canvas is running
 klose stop                                        Stop this repo's canvas
+klose hub [--port=N] [--open] [--detach]          Start one canvas for every repo on this machine
+klose hub status [--json]                         Whether the hub is running, and the repos it sees
+klose hub stop                                    Stop the hub
+klose hub add [path]                              List a repo the hub hasn't noticed (default: this one)
+klose init --global                               Install the klose skills for every repo (~/.claude/skills)
 klose update [--force]                            Upgrade the klose package and refresh installed skill files
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)

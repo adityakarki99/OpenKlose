@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallba
 import { useParams, useNavigate } from 'react-router-dom';
 import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
+import { API_BASE } from '../lib/repoScope';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -241,7 +242,7 @@ const CanvasPage: React.FC = () => {
   // Live-refresh nodes written by an external process (e.g. the /klose agent) while this tab is open.
   useEffect(() => {
     if (!projectId) return;
-    const source = new EventSource('/api/events');
+    const source = new EventSource(`${API_BASE}/events`);
     source.addEventListener('update', () => {
       setFilesRefreshKey((k) => k + 1);
       getProject(projectId)

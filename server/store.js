@@ -46,9 +46,18 @@ async function writeProjectFile(cwd, project) {
 // Files whose names aren't well-formed UUIDs (or that don't parse as JSON) are
 // skipped rather than failing the whole listing: ids have always been
 // randomUUID(), so anything else in the directory isn't a project we wrote.
+//
+// Reading never creates .klose/: the hub lists repos it has only discovered,
+// and nothing may be written into a repo until the user sketches in it.
 export async function listProjects(cwd) {
-  await ensureDir(cwd);
-  const files = (await readdir(projectsDir(cwd))).filter((f) => f.endsWith('.json'));
+  let names;
+  try {
+    names = await readdir(projectsDir(cwd));
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const files = names.filter((f) => f.endsWith('.json'));
   const projects = await Promise.all(
     files.map(async (f) => {
       try {

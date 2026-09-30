@@ -240,15 +240,16 @@ async function walk(dir, root, out) {
   }
 }
 
-let cache = null; // { root, at, data }
+const cache = new Map(); // root -> { at, data }
 
 /**
  * Scan `cwd` for components. Results are cached briefly so repeated UI/CLI calls
  * don't re-walk the tree; pass { force: true } to bypass the cache.
  */
 export async function scanComponents(cwd = process.cwd(), { force = false } = {}) {
-  if (!force && cache && cache.root === cwd && Date.now() - cache.at < CACHE_TTL_MS) {
-    return cache.data;
+  const cached = cache.get(cwd);
+  if (!force && cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    return cached.data;
   }
   const out = { count: 0, components: [] };
   const [, repo] = await Promise.all([walk(cwd, cwd, out), repoInfo(cwd)]);
@@ -262,7 +263,7 @@ export async function scanComponents(cwd = process.cwd(), { force = false } = {}
     count: out.components.length,
     components: out.components,
   };
-  cache = { root: cwd, at: Date.now(), data };
+  cache.set(cwd, { at: Date.now(), data });
   return data;
 }
 

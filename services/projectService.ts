@@ -1,7 +1,9 @@
 import { Project, ComponentNode, ProjectContext, RepoSave } from '../types';
+import { API_BASE, REPO_ID } from '../lib/repoScope';
+import { getRepo, getServerInfo } from './hubService';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -41,10 +43,11 @@ export const deleteProject = (id: string): Promise<void> =>
 export const saveProjectToRepo = (id: string): Promise<{ dir: string; files: string[]; repo: RepoSave }> =>
   request(`/projects/${id}/export`, { method: 'POST', body: '{}' });
 
-/** Folder name of the repo this canvas server is running for. */
+/** Folder name of the repo this canvas is for. */
 export const getRepoName = async (): Promise<string> => {
-  const { root } = await request<{ root: string }>('/health');
-  return root.split(/[\\/]/).filter(Boolean).pop() || root;
+  if (REPO_ID) return (await getRepo(REPO_ID)).name;
+  const { root } = await getServerInfo();
+  return (root || '').split(/[\\/]/).filter(Boolean).pop() || '';
 };
 
 export const addNode = (projectId: string, node: Partial<ComponentNode>): Promise<ComponentNode> =>

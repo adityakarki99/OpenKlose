@@ -4,6 +4,7 @@ import { listProjects, createProject, createExampleProject, deleteProject, saveP
 import { openComments } from '../../lib/feedback.js';
 import { boundsOf } from '../../lib/viewport.js';
 import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot, Sparkles } from 'lucide-react';
+import { API_BASE } from '../../lib/repoScope';
 import { Button } from '../DesignSystem/Button';
 import { Card } from '../DesignSystem/Card';
 import { Input } from '../DesignSystem/Input';
@@ -280,7 +281,7 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
 
     // Files the agent creates or edits show up here without a reload.
     useEffect(() => {
-        const source = new EventSource('/api/events');
+        const source = new EventSource(`${API_BASE}/events`);
         source.addEventListener('update', () => fetchProjects({ quiet: true }));
         return () => source.close();
     }, []);

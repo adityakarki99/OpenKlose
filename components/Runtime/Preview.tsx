@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { API_BASE } from '../../lib/repoScope';
 import * as LucideReact from 'lucide-react';
 import type { PinPosition, SelectedElementInfo } from '../../types';
 
@@ -53,7 +54,7 @@ const CAPTURE_TIMEOUT_MS = 20000;
  */
 let themeCssPromise: Promise<string> | null = null;
 function loadThemeCss(): Promise<string> {
-  themeCssPromise ??= fetch('/api/theme')
+  themeCssPromise ??= fetch(`${API_BASE}/theme`)
     .then((res) => (res.ok ? res.json() : { css: '' }))
     .then((body) => (typeof body.css === 'string' ? body.css : ''))
     .catch(() => '');

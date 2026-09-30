@@ -159,14 +159,15 @@ async function walkCss(dir, out) {
   }
 }
 
-let cache = null; // { root, at, data }
+const cache = new Map(); // root -> { at, data }
 
 /**
  * Collects the repo's tokens. Returns `{ css, tokenCount, sources, warnings }`
  * where `css` is ready to drop into a `<style type="text/tailwindcss">`.
  */
 export async function loadTheme(root, { force = false } = {}) {
-  if (!force && cache && cache.root === root && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
+  const cached = cache.get(root);
+  if (!force && cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
 
   const warnings = [];
   const sources = [];
@@ -202,6 +203,6 @@ export async function loadTheme(root, { force = false } = {}) {
   }
 
   const data = { css: parts.join('\n'), tokenCount, sources, warnings };
-  cache = { root, at: Date.now(), data };
+  cache.set(root, { at: Date.now(), data });
   return data;
 }

@@ -1,7 +1,8 @@
 import { ComponentIndex } from '../types';
+import { API_BASE } from '../lib/repoScope';
 
 async function request<T>(path: string): Promise<T> {
-  const res = await fetch(`/api${path}`);
+  const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request to ${path} failed (${res.status})`);

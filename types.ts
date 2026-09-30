@@ -182,6 +182,30 @@ export interface Project {
   repo?: RepoSave;
 }
 
+/** A repo as the hub sees it (server/hub.js): where it is, who is working in it, what's on its canvas. */
+export interface HubRepo {
+  /** Stable id used in /r/<id>/… and /api/repos/<id>/…. */
+  id: string;
+  root: string;
+  /** `root` with the home directory shortened to ~. */
+  path: string;
+  name: string;
+  branch: string | null;
+  worktree: boolean;
+  /** 'working' = an agent session is busy here; 'idle' = one is open; null = none. */
+  agent: 'working' | 'idle' | null;
+  /** The session that best describes the repo right now (the busy one, else the latest). */
+  session: { name: string | null; status: 'working' | 'idle' } | null;
+  sessions: number;
+  /** Epoch ms of the last agent activity (or when it was added by hand). */
+  lastActive: number;
+  hasKlose: boolean;
+  files: number;
+  sketches: number;
+  /** Pending comments across every sketch — feedback the agent hasn't picked up. */
+  comments: number;
+}
+
 export interface UserSettings {
   themeMode: ThemeMode;
   cssLogicalProperties: boolean;

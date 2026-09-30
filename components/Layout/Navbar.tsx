@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FolderOpen, Settings, Moon, Sun, Blocks } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { RepoSwitcher } from '../Hub/RepoSwitcher';
 
 const Navbar: React.FC = () => {
   const { settings, updateSettings } = useSettings();
@@ -22,6 +23,7 @@ const Navbar: React.FC = () => {
           <div className="h-8 w-8 flex-shrink-0 rounded-full bg-app-primary shadow-[0_0_20px_rgba(59,130,246,0.2)] transition-shadow group-hover:shadow-[0_0_30px_rgba(59,130,246,0.35)]" />
           <span className="hidden font-logo text-lg font-bold tracking-tight text-app-primary sm:block">Klose</span>
         </button>
+        <RepoSwitcher />
       </div>
 
       {/* Center: Nav Links */}

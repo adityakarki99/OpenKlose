@@ -21,6 +21,10 @@ export const getProject = (id: string): Promise<Project> => request(`/projects/$
 export const createProject = (name: string = 'Untitled Project'): Promise<Project> =>
   request('/projects', { method: 'POST', body: JSON.stringify({ name }) });
 
+/** A file with one live demo sketch on it, for a first look at the canvas. */
+export const createExampleProject = (): Promise<Project> =>
+  request('/projects', { method: 'POST', body: JSON.stringify({ example: true }) });
+
 export const saveProject = (
   id: string,
   updates: {

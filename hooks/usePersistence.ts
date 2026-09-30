@@ -16,9 +16,11 @@ interface UsePersistenceOptions {
   projectId: string | null;
   data: PersistenceData;
   enabled: boolean;
+  /** Called with exactly what was written, after each successful save. */
+  onSaved?: (data: PersistenceData) => void;
 }
 
-export function usePersistence({ projectId, data, enabled }: UsePersistenceOptions) {
+export function usePersistence({ projectId, data, enabled, onSaved }: UsePersistenceOptions) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
@@ -30,9 +32,13 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
   const isMountedRef = useRef(true);
   const dataRef = useRef(data);
   dataRef.current = data;
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
 
   const currentSnapshot = enabled && projectId ? JSON.stringify(data) : '';
-  const isDirty = currentSnapshot !== '' && currentSnapshot !== lastSavedSnapshotRef.current;
+  // No baseline yet means the page hasn't loaded: nothing to save.
+  const isDirty =
+    currentSnapshot !== '' && lastSavedSnapshotRef.current !== '' && currentSnapshot !== lastSavedSnapshotRef.current;
 
   const persistData = useCallback(async () => {
     if (!projectId || !isMountedRef.current) return;
@@ -51,6 +57,7 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
       if (!isMountedRef.current) return;
 
       lastSavedSnapshotRef.current = JSON.stringify(currentData);
+      onSavedRef.current?.(currentData);
       setLastSavedAt(Date.now());
       clearWAL(projectId);
       retryCountRef.current = 0;
@@ -72,6 +79,15 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
       }
     }
   }, [projectId]);
+
+  /**
+   * Records `saved` as what's on disk without writing it, e.g. after the page
+   * loads or takes in a version the agent wrote. Only what differs from it
+   * is then autosaved.
+   */
+  const markSaved = useCallback((saved: PersistenceData) => {
+    lastSavedSnapshotRef.current = JSON.stringify(saved);
+  }, []);
 
   // Manual save — exposed for the save button
   const saveNow = useCallback(async () => {
@@ -101,7 +117,7 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
       if (!projectId) return;
       // Recompute dirty inline — refs may be stale in event handlers
       const snap = JSON.stringify(dataRef.current);
-      if (snap === lastSavedSnapshotRef.current) return;
+      if (!lastSavedSnapshotRef.current || snap === lastSavedSnapshotRef.current) return;
       writeWAL(projectId, dataRef.current);
       e.preventDefault();
       e.returnValue = '';
@@ -115,7 +131,7 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
     const handler = () => {
       if (document.visibilityState !== 'hidden' || !projectId) return;
       const snap = JSON.stringify(dataRef.current);
-      if (snap === lastSavedSnapshotRef.current) return;
+      if (!lastSavedSnapshotRef.current || snap === lastSavedSnapshotRef.current) return;
       writeWAL(projectId, dataRef.current);
       persistData();
     };
@@ -128,7 +144,7 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
     const handleOnline = () => {
       if (!projectId) return;
       const snap = JSON.stringify(dataRef.current);
-      if (snap !== lastSavedSnapshotRef.current) {
+      if (lastSavedSnapshotRef.current && snap !== lastSavedSnapshotRef.current) {
         retryCountRef.current = 0;
         persistData();
       }
@@ -153,7 +169,9 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
         .then(() => clearWAL(projectId))
         .catch(() => { /* Will be retried by normal auto-save cycle */ });
     }
-    lastSavedSnapshotRef.current = JSON.stringify(data);
+    // The page's own load (markSaved) sets the real baseline; until then
+    // nothing is dirty, because nothing has loaded.
+    lastSavedSnapshotRef.current = '';
   }, [projectId]);
 
   // Cleanup
@@ -167,5 +185,5 @@ export function usePersistence({ projectId, data, enabled }: UsePersistenceOptio
     };
   }, []);
 
-  return { saveStatus, saveNow, lastSavedAt, isDirty };
+  return { saveStatus, saveNow, markSaved, lastSavedAt, isDirty };
 }

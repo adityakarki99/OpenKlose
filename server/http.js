@@ -153,6 +153,7 @@ function createRepoEvents(root) {
   }
 
   return {
+    close: stop,
     add(res) {
       clients.add(res);
       if (!start()) arm();
@@ -210,7 +211,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
 
     if (only('feedback') && req.method === 'GET') {
       const projectId = url.searchParams.get('project') || undefined;
-      const feedback = await store.listFeedback(root, { projectId });
+      const feedback = await store.listFeedback(root, { projectId, includeResolved: url.searchParams.get('all') === '1' });
       sendJson(res, 200, { count: feedback.length, feedback });
       return true;
     }
@@ -247,6 +248,12 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       }
       if (!id && req.method === 'POST') {
         const body = await readBody(req);
+        // "Try an example": the same live demo sketch `klose init` seeds.
+        if (body.example === true) {
+          const { project } = await store.seedDemoProject(root);
+          sendJson(res, 201, present(await store.getProject(root, project.id)));
+          return true;
+        }
         sendJson(res, 201, await store.createProject(root, body.name));
         return true;
       }
@@ -339,5 +346,8 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     }
   });
 
+  server.on('close', () => {
+    for (const channel of events.values()) channel.close();
+  });
   return server;
 }

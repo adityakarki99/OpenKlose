@@ -281,8 +281,11 @@ keep in mind.
 
 Select a sketch and write in the **feedback tray** on the right, or hit **Comment** in the toolbar
 above the sketch and click a specific button or heading in the preview to pin your feedback to it.
-**Copy feedback for agent** formats everything — including the targeted elements — as text you paste
-straight back into the chat.
+Each comment is **New** until you hand it to the agent: run `/klose` and it reads open comments
+straight from the repo, or use **Copy new comments for agent** to paste them into the chat, which
+marks them **Sent**. When the agent addresses one it runs `klose resolve`, and the canvas badges the
+sketch it changed, tells you what happened, and moves the comment to **Resolved** with the agent's
+note. Reopen it if the fix isn't right.
 
 <div align="center">
 <img src="docs/images/inspector.png" alt="A selected sketch with its toolbar and a numbered comment pin, and the feedback tray listing its comments" width="900">
@@ -371,8 +374,18 @@ the frame to the preview's source: the exact code the sandbox renders, with a co
 
 Leave freeform feedback on any sketch in the feedback tray. Switch it between **This sketch** and
 **All sketches**, and **Copy feedback for agent** formats those comments — plus names and IDs — into a
-tidy block you paste back into Claude Code, which reads it as instructions and clears the ones it
-handles. Collapse the tray to a thin strip when you need the room; it remembers how you left it.
+tidy block you paste back into Claude Code. A copy carries only the comments the agent hasn't seen
+yet, and marks them **Sent**; with nothing new, it re-sends everything still open. The agent resolves
+what it fixes (`klose resolve`), those comments move to a **Resolved** section with its note, and
+they stop being sent. Collapse the tray to a thin strip when you need the room; it remembers how you
+left it.
+
+### Canvas navigation
+
+⌘/Ctrl + scroll (or a trackpad pinch) zooms at the pointer; ⌘ + / ⌘ − / ⌘ 0 step and reset; ⇧1 fits
+every sketch and ⇧2 the selected one. The zoom bar in the corner does the same, and a minimap appears
+once there's more than one sketch. With a sketch selected, arrows nudge it, **C** starts a comment,
+⌘D duplicates and Delete removes it (with **Undo** in the toast). Press **?** for the full list.
 
 ### Element-scoped comments
 
@@ -516,7 +529,8 @@ klose project delete <id>                         Delete a project
 klose project add-node <id> <json|@file.json>     Add a sketch node to a project's canvas
 klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (its code, comments, or mark it built)
 klose project export <id> [--out=<dir>] [--json]  Save a project into the repo as files (README + one .tsx per sketch)
-klose feedback [--project=<id>]                   Read all pending feedback as structured JSON
+klose feedback [--project=<id>] [--all]           Read open feedback as structured JSON (--all adds resolved)
+klose resolve <id> <nodeId> [commentId...] [--note=…]   Mark comments addressed (all open ones if no ids)
 ```
 
 Any `<json>` argument can instead be `@path/to/file.json` — handy for a sketch's multi-line preview

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
+import { Comment, ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
 import {
   CANVAS_WIDTH,
@@ -15,7 +15,7 @@ import {
 import SketchNode from '../components/Canvas/SketchNode';
 import ZoomControl from '../components/Canvas/ZoomControl';
 import VerticalNavigationBar from '../components/Canvas/VerticalNavigationBar';
-import SketchInspector from '../components/Sidebar/SketchInspector';
+import { FeedbackTray, TRAY_COLLAPSED_WIDTH, TRAY_OPEN_WIDTH, TrayScope } from '../components/Sidebar/FeedbackTray';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
 import { Loader2, X } from 'lucide-react';
 import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
@@ -39,6 +39,17 @@ const FRAME_LIMITS = {
   minHeight: MIN_NODE_HEIGHT,
   grid: GRID_SIZE,
 };
+
+const TRAY_STORAGE_KEY = 'klose.feedbackTray';
+
+/** Whether the feedback tray was left open. Remembered per browser, not per project. */
+function readTrayOpen(): boolean {
+  try {
+    return window.localStorage.getItem(TRAY_STORAGE_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
 
 const CanvasPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -69,13 +80,33 @@ const CanvasPage: React.FC = () => {
   const [isContextPopUpOpen, setIsContextPopUpOpen] = useState(false);
 
   // Element targeting: clicking an element in a live preview captures it as the
-  // target for the next comment. Two things turn it on — the frame's own toggle
+  // target for the next comment. Two things turn it on — the toolbar's Comment button
   // (`inspectingNodeId`), and simply focusing the comment composer
   // (`composerNodeId`), so the common case needs no mode switch at all.
   const [inspectingNodeId, setInspectingNodeId] = useState<string | null>(null);
   const [composerNodeId, setComposerNodeId] = useState<string | null>(null);
   const [pendingElement, setPendingElement] = useState<SelectedElementInfo | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // The feedback tray on the right, and the comment highlighted from a pin or
+  // from the tray. With the tray collapsed, the highlighted comment opens as a
+  // popup next to its pin instead.
+  const [trayOpen, setTrayOpenState] = useState<boolean>(readTrayOpen);
+  const [trayScope, setTrayScope] = useState<TrayScope>('sketch');
+  const [activeComment, setActiveComment] = useState<{ nodeId: string; commentId: string } | null>(null);
+  const trayWidth = trayOpen ? TRAY_OPEN_WIDTH : TRAY_COLLAPSED_WIDTH;
+
+  const setTrayOpen = (open: boolean) => {
+    setTrayOpenState(open);
+    // A comment highlighted in the tray shouldn't pop up on the canvas the
+    // moment the tray is collapsed.
+    if (!open) setActiveComment(null);
+    try {
+      window.localStorage.setItem(TRAY_STORAGE_KEY, open ? 'open' : 'collapsed');
+    } catch {
+      // Storage can be unavailable (private mode); the tray still works.
+    }
+  };
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -234,17 +265,52 @@ const CanvasPage: React.FC = () => {
 
   const handleInspectElement = (info: SelectedElementInfo) => {
     setPendingElement(info);
-    // The frame toggle is a one-shot pick; composer focus keeps targeting live.
+    // The toolbar's Comment button is a one-shot pick; composer focus keeps targeting live.
     setInspectingNodeId(null);
+    // The composer lives in the tray, so the tray has to be open to type in it.
+    setTrayOpen(true);
     // Clicking inside the preview moved focus into its iframe. Hand it back to
     // the composer so the comment can be typed straight away — this is what
     // makes "pick an element" end where the writing happens.
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
-  const handleToggleInspect = (id: string) => {
+  /** The toolbar's Comment button: pick an element, then write about it. */
+  const handleStartComment = (id: string) => {
     setSelectedNodeId(id);
-    setInspectingNodeId((prev) => (prev === id ? null : id));
+    setInspectingNodeId(id);
+    setTrayOpen(true);
+  };
+
+  const handleAddComment = (nodeId: string, text: string, element: SelectedElementInfo | null) => {
+    const comment: Comment = {
+      id: Math.random().toString(36).substring(7),
+      text,
+      createdAt: Date.now(),
+      ...(element ? { element } : {}),
+    };
+    setNodes((prev) =>
+      prev.map((n) => (n.id === nodeId ? { ...n, comments: [...(n.comments || []), comment], updatedAt: Date.now() } : n))
+    );
+    if (element) setPendingElement(null);
+    setActiveComment({ nodeId, commentId: comment.id });
+  };
+
+  const handleDeleteComment = (nodeId: string, commentId: string) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId ? { ...n, comments: (n.comments || []).filter((c) => c.id !== commentId), updatedAt: Date.now() } : n
+      )
+    );
+    setActiveComment((prev) => (prev?.commentId === commentId ? null : prev));
+  };
+
+  /** A pin was clicked: show its comment in the tray, or next to the pin if the tray is collapsed. */
+  const handlePinClick = (nodeId: string, commentId: string) => {
+    const comment = nodes.find((n) => n.id === nodeId)?.comments?.find((c) => c.id === commentId);
+    // A comment on the whole sketch has no element to put a popup next to.
+    if (!trayOpen && comment && !comment.element) setTrayOpen(true);
+    setActiveComment((prev) => (prev?.commentId === commentId && !trayOpen ? null : { nodeId, commentId }));
   };
 
   // Reset targeting/pending-element state whenever the selected sketch changes.
@@ -252,6 +318,7 @@ const CanvasPage: React.FC = () => {
     setInspectingNodeId(null);
     setComposerNodeId(null);
     setPendingElement(null);
+    setActiveComment((prev) => (prev && prev.nodeId === selectedNodeId ? prev : null));
   }, [selectedNodeId]);
 
   const handleDeleteNode = (id: string) => {
@@ -480,7 +547,11 @@ const CanvasPage: React.FC = () => {
           handleDeleteNode(selectedNodeId);
         }
       }
-      if (e.key === 'Escape') setSelectedNodeId(null);
+      if (e.key === 'Escape') {
+        // Escape closes the innermost thing first: a comment popup, then the selection.
+        if (activeComment) setActiveComment(null);
+        else setSelectedNodeId(null);
+      }
 
       if ((e.metaKey || e.ctrlKey) && !document.querySelector('input:focus') && !document.querySelector('textarea:focus')) {
         if (e.key === 'z') {
@@ -491,7 +562,7 @@ const CanvasPage: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, canUndo, canRedo, undo, redo]);
+  }, [selectedNodeId, activeComment, canUndo, canRedo, undo, redo]);
 
   // --- Loading / Error States ---
   if (pageLoading) {
@@ -560,7 +631,8 @@ const CanvasPage: React.FC = () => {
 
         <div
           ref={canvasRef}
-          className={`w-full h-full overflow-auto canvas-scroll relative ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
+          className={`absolute inset-y-0 left-0 overflow-auto canvas-scroll ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
+          style={{ right: trayWidth }}
           onPointerDown={handleCanvasPointerDown}
         >
           <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }} className="relative">
@@ -603,7 +675,15 @@ const CanvasPage: React.FC = () => {
                   isSelected={selectedNodeId === node.id}
                   isTargeting={targetingNodeId === node.id}
                   targetingReason={targetingNodeId === node.id ? targetingWhy : null}
-                  onToggleInspect={handleToggleInspect}
+                  onComment={handleStartComment}
+                  draftElement={selectedNodeId === node.id ? pendingElement : null}
+                  activeCommentId={activeComment?.nodeId === node.id ? activeComment.commentId : null}
+                  showThread={!trayOpen}
+                  onUpdate={handleUpdateNode}
+                  onResize={handleResizeNode}
+                  onPinClick={handlePinClick}
+                  onOpenInTray={() => setTrayOpen(true)}
+                  onDeleteComment={handleDeleteComment}
                   zoom={zoom}
                   isGesturing={isGesturing}
                   isResizing={resizeState.isResizing && resizeState.nodeId === node.id}
@@ -641,20 +721,29 @@ const CanvasPage: React.FC = () => {
         </div>
       </div>
 
-      {selectedNode && projectId && (
-        <SketchInspector
-          node={selectedNode}
+      {projectId && (
+        <FeedbackTray
+          open={trayOpen}
+          onOpenChange={setTrayOpen}
+          scope={trayScope}
+          onScopeChange={setTrayScope}
+          nodes={nodes}
+          selectedNode={selectedNode}
           projectId={projectId}
           projectName={projectName}
-          isTargeting={targetingNodeId === selectedNode.id}
+          activeComment={activeComment}
+          onSelectComment={(nodeId, commentId) => {
+            handleSelectFromList(nodeId);
+            setActiveComment({ nodeId, commentId });
+          }}
+          onSelectNode={handleSelectFromList}
+          onDeleteComment={handleDeleteComment}
+          onAddComment={handleAddComment}
+          isTargeting={!!selectedNode && targetingNodeId === selectedNode.id}
           pendingElement={pendingElement}
-          composerRef={composerRef}
-          onComposerFocusChange={(focused) => setComposerNodeId(focused ? selectedNode.id : null)}
           onClearPendingElement={() => setPendingElement(null)}
-          onConsumePendingElement={() => setPendingElement(null)}
-          onClose={() => setSelectedNodeId(null)}
-          onUpdate={handleUpdateNode}
-          onResize={handleResizeNode}
+          composerRef={composerRef}
+          onComposerFocusChange={(focused) => setComposerNodeId(focused && selectedNode ? selectedNode.id : null)}
         />
       )}
     </div>

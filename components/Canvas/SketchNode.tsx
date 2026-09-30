@@ -1,34 +1,47 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { Trash2, Copy, FileCode2, MessageSquare, Code2, Eye, Camera, Scan, Crosshair, Loader2 } from 'lucide-react';
-import { ComponentNode, SelectedElementInfo } from '../../types';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Crosshair, FileCode2, MessageSquare } from 'lucide-react';
+import { ComponentNode, PinPosition, SelectedElementInfo } from '../../types';
 import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
 import Preview, { PreviewHandle } from '../Runtime/Preview';
 import CodeView from './CodeView';
+import { SketchToolbar } from './SketchToolbar';
+import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
 
 interface SketchNodeProps {
   node: ComponentNode;
   isSelected: boolean;
   /** True while this sketch's preview is accepting element picks. */
   isTargeting?: boolean;
-  /** Why it is: the frame's own toggle, or the comment composer having focus. */
+  /** Why it is: the toolbar's Comment button, or the comment composer having focus. */
   targetingReason?: 'pinned' | 'composer' | null;
-  /** Canvas zoom, so resize handles can keep a constant on-screen size. */
+  /** Canvas zoom, so handles, pins and the toolbar keep a constant on-screen size. */
   zoom: number;
   /** True while a drag/resize/pan is in progress anywhere on the canvas. */
   isGesturing?: boolean;
   /** True while this node in particular is being resized. */
   isResizing?: boolean;
+  /** The element picked for the comment being written, when this sketch is selected. */
+  draftElement?: SelectedElementInfo | null;
+  /** The comment highlighted from its pin or from the feedback tray. */
+  activeCommentId?: string | null;
+  /** Show the active comment as a popup by its pin (the feedback tray is collapsed). */
+  showThread?: boolean;
   onSelect: (id: string, e: React.MouseEvent) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDragStart: (id: string, e: React.PointerEvent) => void;
   onResizeStart: (id: string, handle: string, e: React.PointerEvent) => void;
   onInspectElement?: (info: SelectedElementInfo) => void;
-  /** Toggles this frame's "comment on an element" mode. */
-  onToggleInspect?: (id: string) => void;
+  /** The toolbar's Comment button: start picking an element for a new comment. */
+  onComment?: (id: string) => void;
   /** Resize this node so the preview fits exactly, with sizes already in canvas units. */
   onFitToContent?: (id: string, width: number, height: number) => void;
+  onUpdate: (id: string, updates: Partial<ComponentNode>) => void;
+  onResize: (id: string, size: { width?: number; height?: number }) => void;
+  onPinClick: (nodeId: string, commentId: string) => void;
+  onOpenInTray: () => void;
+  onDeleteComment: (nodeId: string, commentId: string) => void;
 }
 
 const HANDLES: { key: string; left: string; top: string; cursor: string; label: string }[] = [
@@ -52,17 +65,26 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   zoom,
   isGesturing = false,
   isResizing = false,
+  draftElement = null,
+  activeCommentId = null,
+  showThread = false,
   onSelect,
   onDelete,
   onDuplicate,
   onDragStart,
   onResizeStart,
   onInspectElement,
-  onToggleInspect,
+  onComment,
   onFitToContent,
+  onUpdate,
+  onResize,
+  onPinClick,
+  onOpenInTray,
+  onDeleteComment,
 }) => {
   const isBuilt = node.status === 'built';
-  const commentCount = node.comments?.length || 0;
+  const comments = node.comments || [];
+  const commentCount = comments.length;
   const hasPreview = !!node.code;
 
   const previewRef = useRef<PreviewHandle>(null);
@@ -72,11 +94,36 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   const [capture, setCapture] = useState<CaptureState>('idle');
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [canFit, setCanFit] = useState(false);
+  const [headerHeight, setHeaderHeight] = useState(41);
+  const [pinPositions, setPinPositions] = useState<PinPosition[]>([]);
+
+  // Pins sit below the header, so its height is tracked rather than read once:
+  // the app's styles compile at runtime and can land after the first layout.
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const measure = () => setHeaderHeight(header.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   const handleContentSize = useCallback((size: { width: number; height: number }) => {
     contentSizeRef.current = size;
     setCanFit(size.width > 0 && size.height > 0);
   }, []);
+
+  // Pins are only drawn on the selected sketch, so only it asks the sandbox
+  // where its commented elements are.
+  const pinTargets = useMemo(() => {
+    if (!isSelected) return [];
+    const targets = comments
+      .filter((c) => c.element)
+      .map((c) => ({ id: c.id, element: c.element as SelectedElementInfo }));
+    if (draftElement) targets.push({ id: DRAFT_PIN_ID, element: draftElement });
+    return targets;
+  }, [isSelected, comments, draftElement]);
 
   const handleFit = () => {
     const size = contentSizeRef.current;
@@ -107,6 +154,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
 
   const handleSize = RESIZE_HANDLE_SIZE / zoom;
   const hitSize = RESIZE_HANDLE_HIT_SIZE / zoom;
+  const showPins = isSelected && hasPreview && !showCode && !isGesturing;
 
   return (
     <div
@@ -117,97 +165,57 @@ const SketchNode: React.FC<SketchNodeProps> = ({
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
         e.stopPropagation();
-        // Header buttons and the code panel handle their own pointers; only a
-        // primary press on the frame itself starts a drag.
+        // Toolbar buttons, pins and the code panel handle their own pointers;
+        // only a primary press on the frame itself starts a drag.
         if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
         onDragStart(node.id, e);
       }}
       onClick={(e) => onSelect(node.id, e)}
     >
-      <div ref={headerRef} className="flex items-center justify-between gap-2 border-b border-app-border px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={`h-2 w-2 flex-shrink-0 rounded-full ${isBuilt ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isBuilt ? 'Built' : 'Sketch'} />
-          <span className="truncate text-sm font-semibold text-app-primary">{node.name || 'Untitled sketch'}</span>
-        </div>
-        <div className="flex flex-shrink-0 items-center gap-1">
-          {commentCount > 0 && (
-            <span
-              className="flex items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[10px] font-medium text-app-subtle"
-              title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
-            >
-              <MessageSquare size={11} /> {commentCount}
-            </span>
-          )}
-          {hasPreview && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowCode((v) => !v); }}
-              className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary ${showCode ? 'text-blue-400' : 'text-app-subtle'}`}
-              aria-label={showCode ? 'Show live preview' : 'Show preview code'}
-              aria-pressed={showCode}
-              title={showCode ? 'Back to the live preview' : 'View the code behind this preview'}
-            >
-              {showCode ? <Eye size={14} /> : <Code2 size={14} />}
-            </button>
-          )}
-          {hasPreview && isSelected && (
+      {isSelected && !isGesturing && (
+        <SketchToolbar
+          node={node}
+          zoom={zoom}
+          hasPreview={hasPreview}
+          showCode={showCode}
+          canFit={canFit}
+          capture={capture}
+          onToggleCode={() => setShowCode((v) => !v)}
+          onComment={() => {
+            setShowCode(false);
+            onComment?.(node.id);
+          }}
+          onScreenshot={handleScreenshot}
+          onFit={handleFit}
+          onDuplicate={() => onDuplicate(node.id)}
+          onDelete={() => onDelete(node.id)}
+          onUpdate={onUpdate}
+          onResize={onResize}
+        />
+      )}
+
+      <div ref={headerRef} className="flex items-center gap-2 border-b border-app-border px-4 py-2.5">
+        <span className={`h-2 w-2 flex-shrink-0 rounded-full ${isBuilt ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isBuilt ? 'Built' : 'Sketch'} />
+        <span className="flex-shrink-0 truncate text-sm font-semibold text-app-primary" style={{ maxWidth: '60%' }}>
+          {node.name || 'Untitled sketch'}
+        </span>
+        {/* The built path lives in the header, so it never covers the preview. */}
+        <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] text-emerald-400" title={node.builtFilePath}>
+          {isBuilt && node.builtFilePath && (
             <>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleScreenshot(e.altKey || e.shiftKey); }}
-                disabled={capture === 'working'}
-                className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary disabled:opacity-60 ${
-                  capture === 'error' ? 'text-red-400' : capture === 'done' ? 'text-emerald-400' : 'text-app-subtle'
-                }`}
-                aria-label="Screenshot this preview"
-                title="Screenshot the preview (hold Alt to copy to the clipboard instead)"
-              >
-                {capture === 'working' ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleFit(); }}
-                disabled={!canFit}
-                className="rounded-md p-1 text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary disabled:opacity-40"
-                aria-label="Fit frame to the preview"
-                title="Resize this frame to fit its preview exactly"
-              >
-                <Scan size={14} />
-              </button>
-              {/*
-                Targeting starts here, on the frame, rather than from a button
-                further down the inspector: this is where you are looking when
-                you decide a particular element needs a comment.
-              */}
-              <button
-                onClick={(e) => { e.stopPropagation(); onToggleInspect?.(node.id); }}
-                className={`rounded-md p-1 hover:bg-app-surface-muted/10 hover:text-app-primary ${
-                  targetingReason === 'pinned' ? 'bg-blue-500/15 text-blue-300' : 'text-app-subtle'
-                }`}
-                aria-label="Comment on an element"
-                aria-pressed={targetingReason === 'pinned'}
-                title="Comment on an element — click one in the preview"
-              >
-                <Crosshair size={14} />
-              </button>
+              <FileCode2 size={12} className="flex-shrink-0" />
+              <span className="truncate">{node.builtFilePath}</span>
             </>
           )}
-          {isSelected && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDuplicate(node.id); }}
-                className="rounded-md p-1 text-app-subtle hover:bg-app-surface-muted/10 hover:text-app-primary"
-                aria-label="Duplicate sketch"
-              >
-                <Copy size={14} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
-                className="rounded-md p-1 text-app-subtle hover:bg-red-500/10 hover:text-red-400"
-                aria-label="Delete sketch"
-              >
-                <Trash2 size={14} />
-              </button>
-            </>
-          )}
-        </div>
+        </span>
+        {commentCount > 0 && (
+          <span
+            className="flex flex-shrink-0 items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[11px] font-medium text-app-secondary"
+            title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
+          >
+            <MessageSquare size={11} /> {commentCount}
+          </span>
+        )}
       </div>
       {node.code ? (
         <div
@@ -227,6 +235,8 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             isInspecting={isTargeting}
             onElementSelect={onInspectElement}
             onContentSize={handleContentSize}
+            pinTargets={pinTargets}
+            onPins={setPinPositions}
           />
           {showCode && (
             <CodeView
@@ -237,35 +247,53 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             />
           )}
           {isTargeting && !showCode && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 border-t border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-[11px] font-medium text-blue-200">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 border-t border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-medium text-blue-200">
               <Crosshair size={12} className="flex-shrink-0" />
               {targetingReason === 'pinned'
-                ? 'Pick an element to comment on'
-                : 'Writing a comment — click an element to attach it'}
+                ? 'Click an element to comment on it'
+                : 'Writing a comment: click an element to attach it'}
             </div>
           )}
           {captureError && (
-            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-lg border border-red-500/40 bg-app-surface-elevated/95 px-2 py-1 text-[11px] text-red-300 shadow">
+            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-lg border border-red-500/40 bg-app-surface-elevated/95 px-2 py-1 text-xs text-red-300 shadow">
               {captureError}
-            </div>
-          )}
-          {isBuilt && node.builtFilePath && !showCode && !captureError && !isTargeting && (
-            <div className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-app-surface-elevated/90 px-2 py-1 text-[11px] font-medium text-emerald-300 shadow">
-              <FileCode2 size={12} /> {node.builtFilePath}
             </div>
           )}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-app-secondary">
-            {node.description || 'No description yet — select this sketch to add one.'}
+            {node.description || 'No description yet. Select this sketch and open Details to add one.'}
           </p>
-          {isBuilt && node.builtFilePath && (
-            <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
-              <FileCode2 size={12} /> {node.builtFilePath}
-            </div>
-          )}
         </div>
+      )}
+
+      {showPins && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ top: headerHeight }}>
+          <div className="pointer-events-auto">
+            <CommentPins
+              comments={comments}
+              positions={pinPositions}
+              draftElement={draftElement}
+              areaWidth={node.width - 2}
+              areaHeight={node.height - headerHeight - 2}
+              zoom={zoom}
+              activeCommentId={activeCommentId}
+              showThread={showThread}
+              onPinClick={(commentId) => onPinClick(node.id, commentId)}
+              onOpenInTray={onOpenInTray}
+              onDeleteComment={(commentId) => onDeleteComment(node.id, commentId)}
+            />
+          </div>
+        </div>
+      )}
+      {isSelected && !isGesturing && (
+        <SketchWidePins
+          comments={comments}
+          zoom={zoom}
+          activeCommentId={activeCommentId}
+          onPinClick={(commentId) => onPinClick(node.id, commentId)}
+        />
       )}
 
       {/* Live size readout, so a resize can hit an exact number instead of being eyeballed. */}

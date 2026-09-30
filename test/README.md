@@ -22,6 +22,8 @@ in ways a diff won't show you.
 | `root.test.js` | `server/root.js` — which folder a command run from a subfolder acts on |
 | `skills.test.js` | `server/skills.js` — skill installs that replace Klose's own copies but not the user's edits |
 | `cli.test.js` | `bin/klose.js` as a subprocess — help, `init` from a subfolder, and `serve --detach` / `status` / `stop`, which bind `--port=0` |
+| `feedback.test.js` | `lib/feedback.js` — the text "Copy feedback for agent" produces, for one sketch and for several |
+| `pins.test.js` | `lib/pins.js` — element locators, and matching an older comment's element when it has none |
 | `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
 
 `server/` and the CLI are covered. The React canvas under `components/` and `pages/` has

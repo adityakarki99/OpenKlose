@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Comment, ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
+import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
 import {
   CANVAS_WIDTH,
@@ -27,8 +27,9 @@ import { targetedNodeId, targetingReason } from '../lib/targeting.js';
 import { boundsOf, fitView, isEditableTarget, stepZoom, zoomAround } from '../lib/viewport.js';
 import { changeBadge, diffSketches, summarizeChanges } from '../lib/changes.js';
 import { markSent } from '../lib/feedback.js';
+import { mergeSketches } from '../lib/merge.js';
 import { useHistory } from '../hooks/useHistory';
-import { usePersistence } from '../hooks/usePersistence';
+import { usePersistence, PersistenceData } from '../hooks/usePersistence';
 
 /** The subset of a pointer event the drag/resize math needs. */
 interface PointerSample {
@@ -56,6 +57,16 @@ function readTrayOpen(): boolean {
   } catch {
     return true;
   }
+}
+
+/** The fields of a project this page edits and autosaves, in one shape. */
+function toSaveData(project: Project): PersistenceData {
+  return {
+    name: project.name,
+    nodes: project.nodes || [],
+    designSystemPrompt: project.designSystemPrompt || '',
+    projectContext: project.projectContext || DEFAULT_PROJECT_CONTEXT,
+  };
 }
 
 const CanvasPage: React.FC = () => {
@@ -88,6 +99,7 @@ const CanvasPage: React.FC = () => {
     state: nodes,
     setState: setNodes,
     setTransient: setNodesTransient,
+    reset: resetNodes,
     commitToHistory,
     undo,
     redo,
@@ -138,10 +150,19 @@ const CanvasPage: React.FC = () => {
     [projectName, nodes, designSystemPrompt, projectContext]
   );
 
-  const { saveStatus, saveNow, isDirty } = usePersistence({
+  const saveDataRef = useRef(saveData);
+  saveDataRef.current = saveData;
+  // What this tab last knew to be on disk: its load, its last save, or the
+  // last version it took in from the agent. Merges are three-way against it.
+  const baseRef = useRef<PersistenceData | null>(null);
+
+  const { saveStatus, saveNow, markSaved, isDirty } = usePersistence({
     projectId: projectId || null,
     data: saveData,
     enabled: !pageLoading,
+    onSaved: (saved) => {
+      baseRef.current = saved;
+    },
   });
 
   const isSaving = saveStatus === 'saving';
@@ -149,14 +170,8 @@ const CanvasPage: React.FC = () => {
   // Tells the file bar that project data on disk may have changed, so it
   // re-reads each open file's name, comment count and repo state.
   const [filesRefreshKey, setFilesRefreshKey] = useState(0);
-  const ownWritesRef = useRef<string[]>([]);
   useEffect(() => {
     if (saveStatus === 'saved') setFilesRefreshKey((k) => k + 1);
-    // Remember what this tab is writing, so the file watcher's echo of our own
-    // save isn't mistaken for the agent (or allowed to undo newer edits).
-    if (saveStatus === 'saving') {
-      ownWritesRef.current = [...ownWritesRef.current.slice(-4), JSON.stringify(nodesRef.current)];
-    }
   }, [saveStatus]);
 
   const dragStartNodesRef = useRef<ComponentNode[]>([]);
@@ -203,10 +218,15 @@ const CanvasPage: React.FC = () => {
     const loadProject = async () => {
       try {
         const project = await getProject(projectId);
-        setProjectName(project.name);
-        setNodes(() => project.nodes || []);
-        setDesignSystemPrompt(project.designSystemPrompt || '');
-        setProjectContext(project.projectContext || DEFAULT_PROJECT_CONTEXT);
+        const loaded = toSaveData(project);
+        setProjectName(loaded.name);
+        // A fresh history: undo must not walk back past the load to an empty canvas.
+        resetNodes(loaded.nodes);
+        setDesignSystemPrompt(loaded.designSystemPrompt);
+        setProjectContext(loaded.projectContext);
+        // What was just read is what's on disk, so opening a file saves nothing.
+        baseRef.current = loaded;
+        markSaved(loaded);
         setPageLoading(false);
       } catch (err) {
         console.error('Failed to load project:', err);
@@ -226,12 +246,30 @@ const CanvasPage: React.FC = () => {
       setFilesRefreshKey((k) => k + 1);
       getProject(projectId)
         .then((project) => {
-          const incoming = project.nodes || [];
-          const json = JSON.stringify(incoming);
-          if (json === JSON.stringify(nodesRef.current) || ownWritesRef.current.includes(json)) return;
-          const changes = diffSketches(nodesRef.current, incoming);
-          setNodes(() => incoming);
-          if (changes.length) announceRef.current(changes);
+          const base = baseRef.current;
+          if (!base) return;
+          const incoming = toSaveData(project);
+          // Our own save coming back, or nothing new.
+          if (JSON.stringify(incoming) === JSON.stringify(base)) return;
+
+          const local = saveDataRef.current;
+          const { nodes: merged, kept } = mergeSketches({ base: base.nodes, local: local.nodes, incoming: incoming.nodes });
+          // Project-level fields: the incoming value, unless edited here since.
+          const pick = <K extends keyof PersistenceData>(key: K): PersistenceData[K] =>
+            JSON.stringify(local[key]) === JSON.stringify(base[key]) ? incoming[key] : local[key];
+          const changes = diffSketches(local.nodes, merged);
+
+          baseRef.current = incoming;
+          // Disk now holds `incoming`; whatever was kept from here still
+          // differs from it, so autosave writes just that back.
+          markSaved(incoming);
+          // The agent's version replaces history: undo must not quietly
+          // revert what it wrote (and autosave the revert).
+          resetNodes(merged);
+          setProjectName(pick('name'));
+          setDesignSystemPrompt(pick('designSystemPrompt'));
+          setProjectContext(pick('projectContext'));
+          if (changes.length || kept.length) announceRef.current(changes, kept.length);
         })
         .catch(() => {
           // Ignore — the next successful poll/save will reconcile.
@@ -528,7 +566,15 @@ const CanvasPage: React.FC = () => {
     const el = canvasRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if (!e.ctrlKey && !e.metaKey) {
+        // A plain scroll handed back by a preview (see Preview.tsx) is synthetic,
+        // so the browser won't scroll for it: pan by hand.
+        if (!e.isTrusted) {
+          const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+          el.scrollBy(e.deltaX * unit, e.deltaY * unit);
+        }
+        return;
+      }
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const delta = Math.max(-30, Math.min(30, e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY));
@@ -541,7 +587,7 @@ const CanvasPage: React.FC = () => {
   }, [pageLoading]);
 
   // The canvas's size changes with the window, the tray, and once more when the
-  // runtime-compiled styles land after first paint, so it is observed, not read once.
+  // web fonts land after first paint, so it is observed, not read once.
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
@@ -552,8 +598,8 @@ const CanvasPage: React.FC = () => {
 
   // When the agent writes a sketch: badge the ones it touched for a few
   // seconds, and say what happened with a way to go and look.
-  const announceRef = useRef<(changes: ReturnType<typeof diffSketches>) => void>(() => {});
-  announceRef.current = (changes) => {
+  const announceRef = useRef<(changes: ReturnType<typeof diffSketches>, kept: number) => void>(() => {});
+  announceRef.current = (changes, kept) => {
     const ids = changes.map((c) => c.id);
     setAgentBadges((prev) => ({ ...prev, ...Object.fromEntries(changes.map((c) => [c.id, changeBadge(c)])) }));
     window.setTimeout(() => {
@@ -563,8 +609,9 @@ const CanvasPage: React.FC = () => {
         return next;
       });
     }, 8000);
+    const keptNote = kept ? `Kept your unsaved edits on ${kept} sketch${kept === 1 ? '' : 'es'}.` : '';
     showToast({
-      message: summarizeChanges(changes),
+      message: [summarizeChanges(changes), keptNote].filter(Boolean).join(' · '),
       tone: 'agent',
       action: {
         label: 'Show',

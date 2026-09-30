@@ -103,7 +103,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   const [pinPositions, setPinPositions] = useState<PinPosition[]>([]);
 
   // Pins sit below the header, so its height is tracked rather than read once:
-  // the app's styles compile at runtime and can land after the first layout.
+  // fonts and the preview's own layout can change it after the first paint.
   useLayoutEffect(() => {
     const header = headerRef.current;
     if (!header) return;

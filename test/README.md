@@ -4,8 +4,13 @@
 npm test        # node --test test/*.test.js — no watch mode, no config, a few seconds
 ```
 
-CI runs this on Node 18, 20 and 22 (`.github/workflows/ci.yml`), plus `npm run
-build` on 22. Both gate pull requests into `main`.
+CI runs this on Node 18, 20 and 22 (`.github/workflows/ci.yml`). On 22 it also
+runs `npm run typecheck`, `npm run build`, and the browser tests against the
+build with Playwright + Chromium. All of it gates pull requests into `main`.
+
+To run the browser tests locally: `npm run build`, then
+`npm install --no-save playwright@1.56.1 && npx playwright install chromium`,
+then `node --test test/browser-*.test.js`. Without both they skip.
 
 This file exists because agents change this repo. If you are an agent adding or
 editing a test, read the conventions below first — most of them are load-bearing
@@ -27,10 +32,13 @@ in ways a diff won't show you.
 | `changes.test.js` | `lib/changes.js` — which differences from disk count as the agent changing a sketch, and how they're summarised |
 | `pins.test.js` | `lib/pins.js` — element locators, and matching an older comment's element when it has none |
 | `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
+| `browser-canvas.test.js` | The built canvas in headless Chromium: opening saves nothing, the agent's writes merge with unsaved edits and can't be undone, copy → sent → resolved, delete + Undo, zoom (keys, and a wheel over a preview), light-theme contrast. Same skip rule |
+| `merge.test.js` | `lib/merge.js` — merging the agent's version with edits not saved yet |
 
 `server/` and the CLI are covered. The React canvas under `components/` and `pages/` has
-no tests and no test runner configured for it — don't add a React test to this
-suite expecting it to run.
+no component-level test runner: test it end to end in `browser-canvas.test.js`,
+and put logic worth testing on its own in `lib/` as plain JS (as `lib/merge.js`,
+`lib/viewport.js` and `lib/feedback.js` are).
 
 ## Conventions
 

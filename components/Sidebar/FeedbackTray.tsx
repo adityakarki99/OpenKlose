@@ -403,7 +403,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
             {pendingElement && (
               <div className="flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 py-1 pl-2 pr-1 font-mono text-[11px] text-blue-200">
                 <span className="min-w-0 flex-1 truncate">{describeElement(pendingElement)}</span>
-                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-white" aria-label="Don't attach this element">
+                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-app-primary" aria-label="Don't attach this element">
                   <X size={12} />
                 </button>
               </div>

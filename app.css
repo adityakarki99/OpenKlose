@@ -1,0 +1,37 @@
+/*
+ * The canvas app's styles, compiled at build time by @tailwindcss/vite.
+ * (Previews are different: they style code the agent writes on the fly, so
+ * preview-runtime.tsx still compiles Tailwind in the browser.)
+ * Colour tokens and theme overrides live in index.html.
+ */
+@import "tailwindcss";
+
+/* Design docs and demo sketches aren't part of the app. */
+@source not "./docs";
+@source not "./preview";
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-logo: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+  --color-ceko-bg: rgb(var(--ceko-bg));
+  --color-ceko-surface: rgb(var(--ceko-surface));
+  --color-ceko-accent: rgb(var(--app-accent));
+  --color-app-bg: rgb(var(--app-bg));
+  --color-app-surface: rgb(var(--app-surface));
+  --color-app-surface-soft: rgb(var(--app-surface-soft));
+  --color-app-surface-elevated: rgb(var(--app-surface-elevated));
+  --color-app-surface-muted: rgb(var(--app-surface-muted));
+  --color-app-border: rgb(var(--app-border));
+  --color-app-border-strong: rgb(var(--app-border-strong));
+  --color-app-primary: rgb(var(--app-text-primary));
+  --color-app-secondary: rgb(var(--app-text-secondary));
+  --color-app-muted: rgb(var(--app-text-muted));
+  --color-app-subtle: rgb(var(--app-text-subtle));
+  --color-app-accent: rgb(var(--app-accent));
+  --color-app-grid: rgb(var(--app-grid-dot));
+  --color-app-canvas-empty: rgb(var(--app-canvas-empty));
+  --animate-spin-slow: spin 120s linear infinite;
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-glow: glow 2s ease-in-out infinite;
+}

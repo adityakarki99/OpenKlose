@@ -45,6 +45,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test test/*.test.js",
+    "typecheck": "tsc --noEmit -p .",
     "smoke": "node scripts/smoke-pack.mjs",
     "prepare": "node scripts/prepare.mjs",
     "prepublishOnly": "npm test && npm run build"
@@ -52,14 +53,18 @@
   "devDependencies": {
     "@babel/standalone": "^7.28.4",
     "@tailwindcss/browser": "^4.1.13",
+    "@tailwindcss/vite": "^4.1.13",
     "@types/babel__standalone": "^7.1.9",
     "@types/node": "^22.19.15",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2",
     "recharts": "^3.2.1",
+    "tailwindcss": "^4.1.13",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   },

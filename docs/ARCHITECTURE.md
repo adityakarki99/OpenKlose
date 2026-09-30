@@ -86,8 +86,11 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 
 ## Theme Tokens
 
-`index.html` declares the palette in a Tailwind v4 `@theme` block
-(`--color-app-surface-elevated`, `--color-app-border-strong`, …), and utilities must spell the token
+`app.css` declares the palette in a Tailwind v4 `@theme` block (`--color-app-surface-elevated`,
+`--color-app-border-strong`, …) whose values are the RGB tokens in `index.html`, redefined there for
+the light theme. The app's CSS is compiled at build time by `@tailwindcss/vite`; only the preview
+sandbox still compiles Tailwind in the browser, since it styles code the agent writes on the fly.
+Utilities must spell the token
 exactly: `bg-app-surface-elevated`, not `bg-app-surfaceElevated`. A camelCase name generates no CSS at
 all and the element silently renders with no background or border colour — which is what had happened
 to every elevated surface on the canvas (the feedback tray, the sketch frames, the nav rail).
@@ -141,11 +144,16 @@ to every elevated surface on the canvas (the feedback tray, the sketch frames, t
   resolves with `klose resolve` (`store.resolveComments`); resolved comments stay on the node but
   drop out of pins, counts, `klose feedback`, the copied text and the exported README. Pins, the
   tray and the copied text all number comments by their place among the *open* ones.
-- When the live-update stream brings in a version of the project this tab didn't write (its own
-  saves are remembered and ignored), `lib/changes.js` diffs it against what's on screen: new
-  sketches, new code/notes/status, newly resolved comments. Moves and resizes don't count. Changed
-  frames wear a badge for a few seconds and a toast says what happened, with a button to fit them
-  into view.
+- When the live-update stream brings in a version of the project this tab didn't write, the canvas
+  merges it three ways (`lib/merge.js`) against the version it last knew was on disk (its load,
+  last save, or last merge): a sketch edited here since keeps the local version, every other one
+  takes the incoming version, and autosave writes back only what was kept. The merged state
+  replaces the undo history, so ⌘Z can't quietly revert the agent's work and autosave the revert.
+  `lib/changes.js` then diffs the result against what was on screen: new sketches, new
+  code/notes/status, newly resolved comments. Moves and resizes don't count. Changed frames wear a
+  badge for a few seconds and a toast says what happened, with a button to fit them into view.
+- Autosave (`hooks/usePersistence.ts`) has no baseline until the page has loaded and called
+  `markSaved`, so opening a file never writes it.
 - **Viewport** math lives in `lib/viewport.js`: zoom steps, zooming around a point (⌘/Ctrl +
   wheel, pinch), and fitting a rect into view. A zoom change resizes the scroll content, so the
   canvas applies the matching scroll position in a layout effect after the new size is laid out.

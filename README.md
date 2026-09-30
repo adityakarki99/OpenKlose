@@ -461,6 +461,27 @@ starting a second server, so `/klose` works in a repo that has never seen `klose
 hub hasn't noticed (no agent has been there) can be listed with `klose hub add`. Per-repo
 `klose serve` keeps working exactly as before if you'd rather not run a hub.
 
+### In the menu bar (macOS)
+
+```bash
+npx klose tray        # starts the hub if needed, then puts Klose in the menu bar
+```
+
+The icon carries a dot: **blue** while an agent is working, **amber** when comments are waiting in a
+repo no agent is busy in — feedback someone has to hand over. Click it for a popover of your repos
+(agents first, with their waiting comments); clicking a repo opens its canvas in your browser.
+Right-click for **Open Canvas**, **Start at Login** and **Quit**.
+
+The app is a thin shell around the hub: everything it shows comes from the hub's `/tray` page and
+`/api/tray`, and it restarts the hub if it finds it down. It ships as one Objective-C file and is
+compiled on your machine the first time you run `klose tray` (a few seconds; needs Apple's command
+line tools — `xcode-select --install`). **Start at Login** adds a LaunchAgent at
+`~/Library/LaunchAgents/dev.klose.tray.plist`; turning it off removes it. `npx klose tray stop`
+quits the app and leaves the hub running.
+
+macOS only for now. On other platforms the same popover is a page — `http://localhost:<port>/tray`
+on the hub — and the hub itself works everywhere.
+
 ---
 
 ## CLI reference
@@ -479,6 +500,9 @@ klose hub status [--json]                         Whether the hub is running, an
 klose hub stop                                    Stop the hub
 klose hub add [path]                              List a repo the hub hasn't noticed (default: this one)
 klose init --global                               Install the klose skills for every repo (~/.claude/skills)
+klose tray [--open]                               macOS: put the hub in the menu bar (starts the hub if needed)
+klose tray status [--json]                        Whether the menu bar app and the hub are running
+klose tray stop                                   Quit the menu bar app (the hub keeps running)
 klose update [--force]                            Upgrade the klose package and refresh installed skill files
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)

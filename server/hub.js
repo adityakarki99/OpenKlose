@@ -188,6 +188,25 @@ export async function listRepos(options = defaultHubOptions()) {
 }
 
 /**
+ * The whole machine in one glance — what the menu bar icon and its popover
+ * show. `state` picks the icon's dot:
+ *
+ *   feedback  comments are waiting in a repo where no agent is busy: someone
+ *             needs to hand them over
+ *   working   an agent is busy somewhere (and nothing is waiting unattended)
+ *   idle      agents are open but none is busy
+ *   none      no agents at all
+ */
+export function trayState(repos) {
+  const live = repos.filter((r) => r.agent);
+  const working = live.filter((r) => r.agent === 'working').length;
+  const comments = repos.reduce((sum, r) => sum + r.comments, 0);
+  const unattended = repos.some((r) => r.comments > 0 && r.agent !== 'working');
+  const state = unattended ? 'feedback' : working ? 'working' : live.length ? 'idle' : 'none';
+  return { state, agents: live.length, working, comments, repos };
+}
+
+/**
  * Turns repo ids from requests back into roots. Lookups are cached; a miss
  * re-runs discovery once, so a repo that appeared since the last look is found.
  */

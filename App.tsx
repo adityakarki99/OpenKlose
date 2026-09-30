@@ -9,6 +9,7 @@ import ComponentsPage from './pages/ComponentsPage';
 import CanvasPage from './pages/CanvasPage';
 import SettingsPage from './pages/SettingsPage';
 import HubHomePage from './pages/HubHomePage';
+import TrayPage from './pages/TrayPage';
 import { getRepo, getServerInfo } from './services/hubService';
 import { HUB_HOME, REPO_ID, ROUTER_BASENAME } from './lib/repoScope';
 
@@ -40,11 +41,9 @@ const App: React.FC = () => {
   if (mode === 'loading') return <div className="h-screen w-screen bg-app-bg" />;
 
   if (mode === 'hub') {
-    return (
-      <SettingsProvider>
-        <HubHomePage />
-      </SettingsProvider>
-    );
+    // /tray is the menu bar popover's content; it also works in a browser tab.
+    const isTray = window.location.pathname.replace(/\/+$/, '') === '/tray';
+    return <SettingsProvider>{isTray ? <TrayPage /> : <HubHomePage />}</SettingsProvider>;
   }
 
   return (

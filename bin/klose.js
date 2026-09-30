@@ -11,6 +11,7 @@ import { rankComponents, JEV_DEFAULT_BASE_URL, MAX_CANDIDATES } from '../server/
 import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
+import { exportProject } from '../server/export.js';
 import {
   DEFAULT_PORT,
   displayUrl,
@@ -122,9 +123,17 @@ Prints all pending comments as structured JSON.`,
   delete <id>                                Delete a project
   add-node <id> <json|@file.json>            Add a sketch to a project's canvas
   update-node <id> <nodeId> <json|@file.json>   Update a sketch (code, comments, status)
+  export <id> [--out=<dir>] [--json]         Write the sketches into the repo as files
 
 Any <json> argument can be @path/to/file.json instead — easier for multi-line
-preview code than a shell argument.`,
+preview code than a shell argument.
+
+export writes one .tsx per sketch (its preview code, with a header naming the
+sketch and project) plus a README.md carrying descriptions, notes, status and
+pending comments — a planning doc you can commit and build from. Defaults to
+the folder it was last saved to, else docs/klose/<project-slug>/; --out is
+relative to where you run the command. The canvas shows each project as Saved,
+Changed since, or not in the repo yet, and its "Save to repo" does the same.`,
 };
 
 function printJson(value) {
@@ -551,6 +560,19 @@ async function cmdProject(args) {
       const [id, nodeId, json] = rest;
       if (!id || !nodeId || !json) fail('usage: klose project update-node <id> <nodeId> <json|@file.json>');
       return printJson(await store.updateNode(root, id, nodeId, await parseJsonArg(json)));
+    }
+    case 'export': {
+      const id = rest.find((a) => !a.startsWith('--'));
+      if (!id) fail('usage: klose project export <id> [--out=<dir>] [--json]');
+      const outArg = rest.find((a) => a.startsWith('--out='));
+      const outDir = outArg ? path.resolve(invokedFrom, outArg.slice('--out='.length)) : undefined;
+      const result = await exportProject(root, id, outDir);
+      const rel = path.relative(invokedFrom, result.dir) || '.';
+      if (hasFlag(rest, '--json')) return printJson({ ...result, dir: rel });
+      const n = result.files.length - 1;
+      console.log(`Exported ${n} sketch${n === 1 ? '' : 'es'} to ${rel}/`);
+      for (const f of result.files) console.log(`  ${f}`);
+      return;
     }
     default:
       fail(`${sub ? `unknown project subcommand "${sub}"` : 'missing project subcommand'}\n\n${COMMAND_HELP.project}`);

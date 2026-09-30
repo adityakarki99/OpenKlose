@@ -228,3 +228,33 @@ test('GET /api/theme returns the repo tokens as Tailwind CSS', async () => {
   assert.equal(res.body.tokenCount, 1);
   assert.deepEqual(res.body.sources, [{ file: path.join('src', 'globals.css'), kind: 'css', count: 1 }]);
 });
+
+test('projects carry their repo state, and POST …/export saves them into the repo', async () => {
+  const created = await request('POST', '/api/projects', { name: 'Save me' });
+  const id = created.body.id;
+  await request('POST', `/api/projects/${id}/nodes`, { name: 'Card', code: 'export default () => null' });
+
+  const before = await request('GET', `/api/projects/${id}`);
+  assert.equal(before.body.repo.state, 'canvas');
+  assert.equal(before.body.savedToRepo, undefined);
+
+  const saved = await request('POST', `/api/projects/${id}/export`, {});
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.dir, 'docs/klose/save-me');
+  assert.deepEqual(saved.body.files, ['README.md', 'card.tsx']);
+  assert.equal(saved.body.repo.state, 'saved');
+
+  const listed = (await request('GET', '/api/projects')).body.find((p) => p.id === id);
+  assert.equal(listed.repo.state, 'saved');
+  assert.equal(listed.savedToRepo, undefined);
+
+  // The canvas autosave sends the project back; it must not disturb the record.
+  await request('PATCH', `/api/projects/${id}`, { name: 'Save me', repo: { state: 'canvas' }, savedToRepo: null });
+  assert.equal((await request('GET', `/api/projects/${id}`)).body.repo.state, 'saved');
+
+  await request('PATCH', `/api/projects/${id}`, { description: 'Now with a description' });
+  assert.equal((await request('GET', `/api/projects/${id}`)).body.repo.state, 'changed');
+
+  const missing = await request('POST', '/api/projects/00000000-0000-4000-8000-000000000000/export', {});
+  assert.equal(missing.status, 404);
+});

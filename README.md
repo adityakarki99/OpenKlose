@@ -420,6 +420,21 @@ ready-made reuse note.
 No login, no cloud, no keys. Projects are plain JSON under `.klose/projects/` in your repo — commit
 them as design history or `.gitignore` them; your call. Manage as many projects as you like.
 
+### Klose files: many per repo, saved as planning docs
+
+A repo can hold as many canvases as you like. The **Files** page lists them like files — sketches,
+how many are built, pending comments, and whether each one's copy in the repo is up to date — and
+the canvas keeps the ones you have open as tabs.
+
+**Save to repo** (the button, `⌘S` / `Ctrl+S` on a canvas, or `klose project export <id>`) writes
+the file into `docs/klose/<name>/`: a `README.md` with every sketch's description, notes, status
+and pending feedback, plus one `.tsx` per sketch holding its preview code. Commit that folder and
+the plan travels with the code — readable in review, and something the agent can be pointed at later
+("build the sketches in `docs/klose/billing/`"). Klose tracks each file as **Saved**, **Changed**
+(the canvas moved on since the last save) or not in the repo yet; rearranging sketches on the board
+doesn't count as a change. Saved sketches are marked so your type-checker, linter and Klose's own
+component index skip them.
+
 ---
 
 ## CLI reference
@@ -445,6 +460,7 @@ klose project update <id> <json|@file.json>       Merge fields into a project
 klose project delete <id>                         Delete a project
 klose project add-node <id> <json|@file.json>     Add a sketch node to a project's canvas
 klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (its code, comments, or mark it built)
+klose project export <id> [--out=<dir>] [--json]  Save a project into the repo as files (README + one .tsx per sketch)
 klose feedback [--project=<id>]                   Read all pending feedback as structured JSON
 ```
 

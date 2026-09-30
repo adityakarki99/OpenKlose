@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest } from './errors.js';
+import { SKETCH_MARKER } from './export.js';
 
 /**
  * Scans the host repository for real UI components so Klose can search them and
@@ -158,6 +159,9 @@ function categoryFor(relPath) {
 }
 
 function parseFile(relPath, source) {
+  // A sketch saved into the repo by `klose project export` is a picture of a
+  // component, not one the app can import — listing it would invite reuse.
+  if (source.slice(0, 400).includes(SKETCH_MARKER)) return [];
   if (!looksLikeComponentFile(source)) return [];
   const lines = source.split('\n');
   const found = new Map(); // name -> component

@@ -6,6 +6,7 @@ import path from 'node:path';
 import * as store from './store.js';
 import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
 import { loadTheme } from './theme.js';
+import { exportProject, repoState } from './export.js';
 import { HttpError } from './errors.js';
 
 const MIME = {
@@ -110,6 +111,10 @@ async function serveStatic(res, publicDir, urlPath) {
 export function createKloseServer({ cwd = process.cwd(), publicDir, version = null } = {}) {
   const sseClients = new Set();
 
+  // What the canvas sees of a project: the stored record, with the save
+  // bookkeeping replaced by its answer ("is the repo copy up to date?").
+  const present = ({ savedToRepo, ...project }) => ({ ...project, repo: repoState(cwd, { ...project, savedToRepo }) });
+
   const notify = () => {
     for (const res of sseClients) res.write('event: update\ndata: {}\n\n');
   };
@@ -171,22 +176,35 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
 
       if (parts[0] === 'api' && parts[1] === 'projects') {
         const id = parts[2];
-        const sub = parts[3]; // 'nodes'
+        const sub = parts[3]; // 'nodes' | 'export'
         const nodeId = parts[4];
 
         if (!id && req.method === 'GET') {
-          return sendJson(res, 200, await store.listProjects(cwd));
+          // The list leaves out fields a save writes (context, design notes),
+          // so each project is read in full to judge its repo copy.
+          const projects = await store.listProjects(cwd);
+          const repos = await Promise.all(
+            projects.map(async (p) => repoState(cwd, await store.getProject(cwd, p.id)))
+          );
+          return sendJson(res, 200, projects.map(({ savedToRepo, ...p }, i) => ({ ...p, repo: repos[i] })));
         }
         if (!id && req.method === 'POST') {
           const body = await readBody(req);
           return sendJson(res, 201, await store.createProject(cwd, body.name));
         }
         if (id && !sub && req.method === 'GET') {
-          return sendJson(res, 200, await store.getProject(cwd, id));
+          return sendJson(res, 200, present(await store.getProject(cwd, id)));
         }
         if (id && !sub && req.method === 'PATCH') {
-          const body = await readBody(req);
-          return sendJson(res, 200, await store.updateProject(cwd, id, body));
+          const { repo: _computed, ...body } = await readBody(req);
+          return sendJson(res, 200, present(await store.updateProject(cwd, id, body)));
+        }
+        // Save this project into the repo as files. The folder is never taken
+        // from the request: it is the one recorded by the last save, or the
+        // default under docs/klose/.
+        if (id && sub === 'export' && !nodeId && req.method === 'POST') {
+          const result = await exportProject(cwd, id);
+          return sendJson(res, 200, { dir: result.repo.dir, files: result.files, repo: result.repo });
         }
         if (id && !sub && req.method === 'DELETE') {
           await store.deleteProject(cwd, id);

@@ -149,6 +149,20 @@ export interface ProjectContext {
   productInfo: string;
 }
 
+/**
+ * Whether a project's folder in the repo matches the canvas. Computed by the
+ * server on every read (see server/export.js), never stored by the client.
+ */
+export interface RepoSave {
+  /** 'canvas' = not in the repo yet; 'saved' = repo copy is current; 'changed' = canvas moved on since. */
+  state: 'canvas' | 'saved' | 'changed';
+  /** Repo-relative folder the project saves to, once it has been saved. */
+  dir: string | null;
+  savedAt: string | null;
+  /** How many files the last save wrote (README + one per sketch). */
+  files: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -159,6 +173,7 @@ export interface Project {
   /** Freeform notes about the project's design system (tokens, references, conventions) — read by the agent, not consumed by Klose itself. */
   designSystemPrompt?: string;
   projectContext?: ProjectContext;
+  repo?: RepoSave;
 }
 
 export interface UserSettings {

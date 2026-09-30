@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { watch } from 'node:fs';
+import { mkdirSync, watch } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -119,10 +119,16 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     for (const res of sseClients) res.write('event: update\ndata: {}\n\n');
   };
 
+  // Every write to a project (this server's, or the agent's CLI) lands in this
+  // folder, so watching it is how open canvases hear about changes. It has to
+  // exist first: watching a missing folder fails, and nothing retried, so a repo
+  // whose first project was created after `serve` never got live updates.
+  let watcher = null;
   try {
-    watch(store.projectsWatchDir(cwd), { persistent: false }, () => notify());
+    mkdirSync(store.projectsWatchDir(cwd), { recursive: true });
+    watcher = watch(store.projectsWatchDir(cwd), { persistent: false }, () => notify());
   } catch {
-    // Directory may not exist yet; created lazily on first write.
+    // Unwritable repo: the canvas still works, just without live updates.
   }
 
   const server = createServer(async (req, res) => {
@@ -240,5 +246,6 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     }
   });
 
+  server.on('close', () => watcher?.close());
   return server;
 }

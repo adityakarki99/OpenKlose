@@ -8,33 +8,6 @@
       content="A local, no-login design canvas for coding agents. Sketch components against your repo's real design system, point at the exact element that is wrong, and let the agent build it."
     />
     <title>Klose — Design canvas for coding agents</title>
-    <style type="text/tailwindcss">
-      @theme {
-        --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
-        --font-logo: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
-        --color-ceko-bg: rgb(var(--ceko-bg));
-        --color-ceko-surface: rgb(var(--ceko-surface));
-        --color-ceko-accent: rgb(var(--app-accent));
-        --color-app-bg: rgb(var(--app-bg));
-        --color-app-surface: rgb(var(--app-surface));
-        --color-app-surface-soft: rgb(var(--app-surface-soft));
-        --color-app-surface-elevated: rgb(var(--app-surface-elevated));
-        --color-app-surface-muted: rgb(var(--app-surface-muted));
-        --color-app-border: rgb(var(--app-border));
-        --color-app-border-strong: rgb(var(--app-border-strong));
-        --color-app-primary: rgb(var(--app-text-primary));
-        --color-app-secondary: rgb(var(--app-text-secondary));
-        --color-app-muted: rgb(var(--app-text-muted));
-        --color-app-subtle: rgb(var(--app-text-subtle));
-        --color-app-accent: rgb(var(--app-accent));
-        --color-app-grid: rgb(var(--app-grid-dot));
-        --color-app-canvas-empty: rgb(var(--app-canvas-empty));
-        --animate-spin-slow: spin 120s linear infinite;
-        --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        --animate-float: float 6s ease-in-out infinite;
-        --animate-glow: glow 2s ease-in-out infinite;
-      }
-    </style>
     <style>
       :root {
         --ceko-bg: 2 6 23;
@@ -146,7 +119,9 @@
         animation: pencilWriting 0.6s ease-in-out infinite;
       }
 
-      :root[data-theme="light"] .text-white,
+      /* .text-white is deliberately not here: every use of it sits on a
+         saturated fill (buttons, comment pins, badges), where it must stay
+         white in both themes. */
       :root[data-theme="light"] .text-zinc-100,
       :root[data-theme="light"] .text-slate-100,
       :root[data-theme="light"] .text-\[\#F4F4F5\] {

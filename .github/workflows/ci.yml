@@ -58,10 +58,27 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The canvas is TypeScript that Vite compiles without checking types, so
+      # nothing else would catch a type error before it ships.
+      - name: Typecheck
+        run: npm run typecheck
+
       # The canvas UI is packaged into web/dist and published from there, so a
       # build break is a release break even when every test passes.
       - name: Build
         run: npm run build
+
+      # The browser tests (test/browser-*.test.js) drive the built canvas and
+      # preview sandbox in Chromium, and skip without them. Playwright stays out
+      # of package.json on purpose (see test/README.md), so it is added here
+      # only, pinned so a new release can't change the browser under us.
+      - name: Install Playwright + Chromium
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: node --test test/browser-*.test.js
 
       # Installs the packed tarball into an empty repo and walks a first run
       # (init, serve, load the canvas, status, stop) — the path a new user

@@ -33,6 +33,12 @@ export interface Comment {
   createdAt: number;
   /** When set, this comment targets a specific element inside the sketch's live preview. */
   element?: SelectedElementInfo;
+  /** When the canvas last copied this comment for the agent. Unset = new. */
+  sentAt?: number;
+  /** When the comment was marked addressed (by the agent via `klose resolve`, or by the user). */
+  resolvedAt?: number;
+  /** What the agent said it changed, when it resolved the comment. */
+  resolution?: string;
 }
 
 /** A DOM element picked from a sketch's live preview, used to scope a comment to it. */

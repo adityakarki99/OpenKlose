@@ -133,7 +133,23 @@ to every elevated surface on the canvas (the feedback tray, the sketch frames, t
   button. Its open/collapsed state is remembered in `localStorage`, and the canvas scroll area stops
   at its edge so it never covers a frame. "Copy for agent" formats comments (with the sketch's name
   and the project/node ids) via `lib/feedback.js` as text meant to be pasted straight into the coding
-  agent's chat. The selected sketch's name, status, description, notes and frame size live in a
+  agent's chat.
+- **Comments have a lifecycle**, derived from two optional timestamps (`lib/feedback.js`,
+  `commentStatus`): *new* (neither set), *sent* (`sentAt`: a copy handed it to the agent) and
+  *resolved* (`resolvedAt`, with an optional `resolution` note). A copy carries only new comments
+  when there are any, else everything open, and stamps `sentAt` on what it carried. The agent
+  resolves with `klose resolve` (`store.resolveComments`); resolved comments stay on the node but
+  drop out of pins, counts, `klose feedback`, the copied text and the exported README. Pins, the
+  tray and the copied text all number comments by their place among the *open* ones.
+- When the live-update stream brings in a version of the project this tab didn't write (its own
+  saves are remembered and ignored), `lib/changes.js` diffs it against what's on screen: new
+  sketches, new code/notes/status, newly resolved comments. Moves and resizes don't count. Changed
+  frames wear a badge for a few seconds and a toast says what happened, with a button to fit them
+  into view.
+- **Viewport** math lives in `lib/viewport.js`: zoom steps, zooming around a point (⌘/Ctrl +
+  wheel, pinch), and fitting a rect into view. A zoom change resizes the scroll content, so the
+  canvas applies the matching scroll position in a layout effect after the new size is laid out.
+  `isEditableTarget` there decides when canvas shortcuts must leave a key to a text field. The selected sketch's name, status, description, notes and frame size live in a
   **toolbar above the frame** (`SketchToolbar.tsx`: Details, Comment, code, and a ⋯ menu with
   screenshot, fit, duplicate and delete).
 - A comment can optionally carry an `element` (`SelectedElementInfo`): the sandbox reports the

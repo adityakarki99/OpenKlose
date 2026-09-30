@@ -49,7 +49,8 @@
         --app-text-primary: 248 250 252;
         --app-text-secondary: 203 213 225;
         --app-text-muted: 148 163 184;
-        --app-text-subtle: 100 116 139;
+        /* Lightest text still meets WCAG AA (4.5:1) on every dark surface. */
+        --app-text-subtle: 125 138 160;
         --app-grid-dot: 55 65 81;
         --app-canvas-empty: 9 9 11;
         --app-accent: 59 130 246;
@@ -68,8 +69,9 @@
         --app-border-strong: 148 163 184;
         --app-text-primary: 15 23 42;
         --app-text-secondary: 51 65 85;
-        --app-text-muted: 100 116 139;
-        --app-text-subtle: 148 163 184;
+        /* Muted and subtle both meet WCAG AA (4.5:1) on white and on --app-bg. */
+        --app-text-muted: 71 85 105;
+        --app-text-subtle: 100 116 139;
         --app-grid-dot: 148 163 184;
         --app-canvas-empty: 255 255 255;
         --app-accent: 37 99 235;
@@ -197,6 +199,30 @@
 
       :root[data-theme="light"] .hover\:bg-white\/10:hover {
         background-color: rgb(var(--app-surface-muted) / 0.1) !important;
+      }
+
+      /* Pastel accent text is tuned for the dark theme; on white it needs the
+         deep end of the same hue to stay readable. */
+      :root[data-theme="light"] .text-amber-300,
+      :root[data-theme="light"] .text-amber-400,
+      :root[data-theme="light"] .text-amber-500 {
+        color: rgb(180 83 9) !important;
+      }
+      :root[data-theme="light"] .text-emerald-300,
+      :root[data-theme="light"] .text-emerald-400 {
+        color: rgb(4 120 87) !important;
+      }
+      :root[data-theme="light"] .text-blue-200,
+      :root[data-theme="light"] .text-blue-300,
+      :root[data-theme="light"] .text-blue-400 {
+        color: rgb(29 78 216) !important;
+      }
+      :root[data-theme="light"] .text-violet-300 {
+        color: rgb(109 40 217) !important;
+      }
+      :root[data-theme="light"] .text-red-300,
+      :root[data-theme="light"] .text-red-400 {
+        color: rgb(185 28 28) !important;
       }
     </style>
   </head>

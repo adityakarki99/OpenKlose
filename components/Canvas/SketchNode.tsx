@@ -7,6 +7,7 @@ import Preview, { PreviewHandle } from '../Runtime/Preview';
 import CodeView from './CodeView';
 import { SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
+import { openComments } from '../../lib/feedback.js';
 
 interface SketchNodeProps {
   node: ComponentNode;
@@ -42,6 +43,8 @@ interface SketchNodeProps {
   onPinClick: (nodeId: string, commentId: string) => void;
   onOpenInTray: () => void;
   onDeleteComment: (nodeId: string, commentId: string) => void;
+  /** Set for a few seconds after the agent changed this sketch, e.g. "Updated by agent". */
+  agentBadge?: string | null;
 }
 
 const HANDLES: { key: string; left: string; top: string; cursor: string; label: string }[] = [
@@ -81,9 +84,11 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   onPinClick,
   onOpenInTray,
   onDeleteComment,
+  agentBadge = null,
 }) => {
   const isBuilt = node.status === 'built';
-  const comments = node.comments || [];
+  // Resolved comments are history: no pins, not counted. Numbers match the tray's.
+  const comments = useMemo(() => openComments(node.comments), [node.comments]);
   const commentCount = comments.length;
   const hasPreview = !!node.code;
 
@@ -160,7 +165,13 @@ const SketchNode: React.FC<SketchNodeProps> = ({
     <div
       data-node-id={node.id}
       className={`absolute flex flex-col rounded-2xl border bg-app-surface-elevated shadow-lg transition-colors ${
-        isTargeting ? 'border-blue-500 ring-2 ring-blue-500/40' : isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-app-border hover:border-app-border-strong'
+        isTargeting
+          ? 'border-blue-500 ring-2 ring-blue-500/40'
+          : isSelected
+            ? 'border-blue-500 ring-2 ring-blue-500/30'
+            : agentBadge
+              ? 'border-violet-400 ring-4 ring-violet-400/30'
+              : 'border-app-border hover:border-app-border-strong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
@@ -194,13 +205,29 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         />
       )}
 
+      {/* The toolbar takes this spot on the selected sketch. */}
+      {agentBadge && !isSelected && (
+        <div
+          className="pointer-events-none absolute left-3 flex items-center gap-1.5 rounded-full bg-violet-600 px-2.5 py-0.5 text-[11px] font-semibold text-violet-50 shadow-lg animate-in fade-in duration-200"
+          style={{ bottom: '100%', marginBottom: 8 / zoom, transform: `scale(${1 / zoom})`, transformOrigin: '0 100%' }}
+          role="status"
+        >
+          {agentBadge}
+        </div>
+      )}
       <div ref={headerRef} className="flex items-center gap-2 border-b border-app-border px-4 py-2.5">
-        <span className={`h-2 w-2 flex-shrink-0 rounded-full ${isBuilt ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isBuilt ? 'Built' : 'Sketch'} />
+        <span
+          className={`flex-shrink-0 rounded-md px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide ${
+            isBuilt ? 'bg-emerald-400/15 text-emerald-300' : 'bg-amber-400/15 text-amber-300'
+          }`}
+        >
+          {isBuilt ? 'Built' : 'Sketch'}
+        </span>
         <span className="flex-shrink-0 truncate text-sm font-semibold text-app-primary" style={{ maxWidth: '60%' }}>
           {node.name || 'Untitled sketch'}
         </span>
         {/* The built path lives in the header, so it never covers the preview. */}
-        <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[11px] text-emerald-400" title={node.builtFilePath}>
+        <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-xs text-emerald-300" title={node.builtFilePath}>
           {isBuilt && node.builtFilePath && (
             <>
               <FileCode2 size={12} className="flex-shrink-0" />
@@ -211,7 +238,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         {commentCount > 0 && (
           <span
             className="flex flex-shrink-0 items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[11px] font-medium text-app-secondary"
-            title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
+            title={`${commentCount} open comment${commentCount === 1 ? '' : 's'}`}
           >
             <MessageSquare size={11} /> {commentCount}
           </span>

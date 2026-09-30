@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { User, FolderOpen, Settings, Moon, Sun, Blocks } from 'lucide-react';
+import { FolderOpen, Settings, Moon, Sun, Blocks } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 
 const Navbar: React.FC = () => {
   const { settings, updateSettings } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const isLightMode = settings.themeMode === 'light';
 
   const navItems = [
@@ -57,33 +56,20 @@ const Navbar: React.FC = () => {
         >
           {isLightMode ? <Moon size={18} /> : <Sun size={18} />}
         </button>
+        {/* Klose has no accounts, so this is Settings rather than a user menu. */}
         <button
-          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface hover:bg-app-surface-soft text-app-secondary hover:text-app-primary transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-          aria-label="User menu"
+          type="button"
+          onClick={() => navigate('/settings')}
+          className={`flex h-10 w-10 items-center justify-center rounded-full border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+            location.pathname === '/settings'
+              ? 'border-indigo-500/30 bg-indigo-600/20 text-indigo-300'
+              : 'border-app-border bg-app-surface text-app-secondary hover:bg-app-surface-soft hover:text-app-primary'
+          }`}
+          aria-label="Settings"
+          title="Settings"
         >
-          <User size={20} />
+          <Settings size={18} />
         </button>
-
-        {isDropdownOpen && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setIsDropdownOpen(false)} />
-            <div className={`absolute ${settings.cssLogicalProperties ? 'end-0' : 'right-0'} z-40 mt-2 w-64 origin-top-right overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-xl animate-in fade-in zoom-in-95 duration-200`}>
-              <div className="space-y-1.5 p-1.5">
-                <button
-                  onClick={() => {
-                    navigate('/settings');
-                    setIsDropdownOpen(false);
-                  }}
-                  className="group flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-app-secondary transition-colors hover:bg-app-surface-soft hover:text-app-primary"
-                >
-                  <Settings size={16} className="transition-transform group-hover:-translate-x-0.5" />
-                  Settings
-                </button>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

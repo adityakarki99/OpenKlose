@@ -258,3 +258,11 @@ test('projects carry their repo state, and POST …/export saves them into the r
   const missing = await request('POST', '/api/projects/00000000-0000-4000-8000-000000000000/export', {});
   assert.equal(missing.status, 404);
 });
+
+test('POST /api/projects with example: true creates a file with the demo sketch', async () => {
+  const res = await request('POST', '/api/projects', { example: true });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.nodes.length, 1);
+  assert.ok(res.body.nodes[0].code, 'the example sketch has a live preview');
+  assert.equal(res.body.repo.state, 'canvas');
+});

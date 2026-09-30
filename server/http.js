@@ -157,7 +157,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
 
       if (url.pathname === '/api/feedback' && req.method === 'GET') {
         const projectId = url.searchParams.get('project') || undefined;
-        const feedback = await store.listFeedback(cwd, { projectId });
+        const feedback = await store.listFeedback(cwd, { projectId, includeResolved: url.searchParams.get('all') === '1' });
         return sendJson(res, 200, { count: feedback.length, feedback });
       }
 
@@ -190,6 +190,11 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
         }
         if (!id && req.method === 'POST') {
           const body = await readBody(req);
+          // "Try an example": the same live demo sketch `klose init` seeds.
+          if (body.example === true) {
+            const { project } = await store.seedDemoProject(cwd);
+            return sendJson(res, 201, present(await store.getProject(cwd, project.id)));
+          }
           return sendJson(res, 201, await store.createProject(cwd, body.name));
         }
         if (id && !sub && req.method === 'GET') {

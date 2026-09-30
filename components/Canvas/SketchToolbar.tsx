@@ -211,7 +211,7 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
           Details
         </button>
         {hasPreview && (
-          <button type="button" className={btn} onClick={onComment} title="Click an element in the preview to attach your comment to it">
+          <button type="button" className={btn} onClick={onComment} title="Click an element in the preview to attach your comment to it (C)">
             <MessageSquarePlus size={15} /> Comment
           </button>
         )}

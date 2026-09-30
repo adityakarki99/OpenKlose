@@ -1,4 +1,4 @@
-import { Project, ComponentNode, ProjectContext } from '../types';
+import { Project, ComponentNode, ProjectContext, RepoSave } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -32,6 +32,16 @@ export const saveProject = (
 
 export const deleteProject = (id: string): Promise<void> =>
   request(`/projects/${id}`, { method: 'DELETE' });
+
+/** Writes the project into the repo as files (README + one .tsx per sketch). */
+export const saveProjectToRepo = (id: string): Promise<{ dir: string; files: string[]; repo: RepoSave }> =>
+  request(`/projects/${id}/export`, { method: 'POST', body: '{}' });
+
+/** Folder name of the repo this canvas server is running for. */
+export const getRepoName = async (): Promise<string> => {
+  const { root } = await request<{ root: string }>('/health');
+  return root.split(/[\\/]/).filter(Boolean).pop() || root;
+};
 
 export const addNode = (projectId: string, node: Partial<ComponentNode>): Promise<ComponentNode> =>
   request(`/projects/${projectId}/nodes`, { method: 'POST', body: JSON.stringify(node) });

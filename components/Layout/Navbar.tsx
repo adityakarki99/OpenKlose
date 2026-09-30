@@ -11,7 +11,7 @@ const Navbar: React.FC = () => {
   const isLightMode = settings.themeMode === 'light';
 
   const navItems = [
-    { label: 'Projects', path: '/projects', icon: FolderOpen },
+    { label: 'Files', path: '/projects', icon: FolderOpen },
     { label: 'Components', path: '/components', icon: Blocks },
   ];
 

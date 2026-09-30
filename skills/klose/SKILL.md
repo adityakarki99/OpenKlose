@@ -185,6 +185,21 @@ confirmed) so the canvas doesn't keep showing stale feedback — comments are ju
 npx klose project update-node <projectId> <nodeId> '{"comments":[]}'
 ```
 
+## Saving a project into the repo as files
+
+When a project should outlive the canvas — as a planning doc, or so the preview code sits next to
+the source it will become — export it:
+
+```
+npx klose project export <projectId>              # → docs/klose/<project-slug>/
+npx klose project export <projectId> --out=plans/hub
+```
+
+This writes one `.tsx` per sketch (the preview code, with a header naming the sketch and project)
+plus a `README.md` with each sketch's description, notes, status, built path and pending comments.
+Re-run it after changing sketches; it overwrites the same files. Read the README first when you're
+asked to build from an exported project — the notes are the spec, the `.tsx` is the look.
+
 ## Comments: the user's other way of talking to you
 
 The feedback tray's "Copy feedback for agent" button formats `comments` (plus sketch names and the

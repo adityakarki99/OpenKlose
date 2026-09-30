@@ -15,6 +15,7 @@ import {
 import SketchNode from '../components/Canvas/SketchNode';
 import ZoomControl from '../components/Canvas/ZoomControl';
 import VerticalNavigationBar from '../components/Canvas/VerticalNavigationBar';
+import { FileBar, FILE_BAR_HEIGHT } from '../components/Canvas/FileBar';
 import { FeedbackTray, TRAY_COLLAPSED_WIDTH, TRAY_OPEN_WIDTH, TrayScope } from '../components/Sidebar/FeedbackTray';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
 import { Loader2, X } from 'lucide-react';
@@ -123,6 +124,13 @@ const CanvasPage: React.FC = () => {
 
   const isSaving = saveStatus === 'saving';
 
+  // Tells the file bar that project data on disk may have changed, so it
+  // re-reads each open file's name, comment count and repo state.
+  const [filesRefreshKey, setFilesRefreshKey] = useState(0);
+  useEffect(() => {
+    if (saveStatus === 'saved') setFilesRefreshKey((k) => k + 1);
+  }, [saveStatus]);
+
   const dragStartNodesRef = useRef<ComponentNode[]>([]);
   // Pointer moves fire far faster than the canvas can lay out a frame full of
   // iframes, so they are coalesced onto animation frames instead of each one
@@ -187,6 +195,7 @@ const CanvasPage: React.FC = () => {
     if (!projectId) return;
     const source = new EventSource('/api/events');
     source.addEventListener('update', () => {
+      setFilesRefreshKey((k) => k + 1);
       getProject(projectId)
         .then((project) => {
           setNodes(() => project.nodes || []);
@@ -352,11 +361,17 @@ const CanvasPage: React.FC = () => {
     await saveNow();
   };
 
-  const handleBackToProjects = async () => {
+  const handleNavigate = async (path: string) => {
     if (projectId && isDirty) {
       await saveNow();
     }
-    navigate('/projects');
+    navigate(path);
+  };
+
+  const handleBackToProjects = () => handleNavigate('/projects');
+
+  const handleFlush = async () => {
+    if (isDirty) await saveNow();
   };
 
   const handleSelectFromList = (id: string) => {
@@ -590,7 +605,18 @@ const CanvasPage: React.FC = () => {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-app-bg text-app-primary font-sans selection:bg-blue-500/30">
       <div className="absolute inset-0 overflow-hidden flex flex-col">
-        <div className="absolute top-6 left-6 z-30 pointer-events-auto">
+        {projectId && (
+          <FileBar
+            projectId={projectId}
+            projectName={projectName}
+            refreshKey={filesRefreshKey}
+            onFlush={handleFlush}
+            onNavigate={handleNavigate}
+            style={{ right: trayWidth }}
+          />
+        )}
+
+        <div className="absolute left-6 z-30 pointer-events-auto" style={{ top: FILE_BAR_HEIGHT + 24 }}>
           <VerticalNavigationBar
             onBack={handleBackToProjects}
             onUndo={undo}
@@ -610,7 +636,10 @@ const CanvasPage: React.FC = () => {
         </div>
 
         {isContextPopUpOpen && (
-          <div className="absolute left-24 top-6 z-[100] flex h-[600px] max-h-[80vh] w-[400px] flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl animate-in fade-in slide-in-from-left-4 duration-300">
+          <div
+            className="absolute left-24 z-[100] flex h-[600px] max-h-[80vh] w-[400px] flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl animate-in fade-in slide-in-from-left-4 duration-300"
+            style={{ top: FILE_BAR_HEIGHT + 24 }}
+          >
             <div className="flex items-center justify-between border-b border-app-border bg-app-surface-soft/60 px-4 py-3">
               <span className="text-xs font-bold uppercase tracking-widest text-app-muted">Project Context</span>
               <button
@@ -631,8 +660,8 @@ const CanvasPage: React.FC = () => {
 
         <div
           ref={canvasRef}
-          className={`absolute inset-y-0 left-0 overflow-auto canvas-scroll ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
-          style={{ right: trayWidth }}
+          className={`absolute bottom-0 left-0 overflow-auto canvas-scroll ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
+          style={{ top: FILE_BAR_HEIGHT, right: trayWidth }}
           onPointerDown={handleCanvasPointerDown}
         >
           <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }} className="relative">
@@ -750,4 +779,12 @@ const CanvasPage: React.FC = () => {
   );
 };
 
-export default CanvasPage;
+// Keyed by project so switching files from the file bar starts from a clean
+// slate (undo history, selection, autosave baseline) instead of carrying the
+// previous file's state into the next one.
+const CanvasRoute: React.FC = () => {
+  const { projectId } = useParams<{ projectId: string }>();
+  return <CanvasPage key={projectId} />;
+};
+
+export default CanvasRoute;

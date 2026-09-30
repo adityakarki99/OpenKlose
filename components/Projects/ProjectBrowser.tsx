@@ -1,64 +1,67 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Project } from '../../types';
-import { listProjects, createProject, deleteProject, saveProject } from '../../services/projectService';
-import { Plus, Trash2, FolderOpen, Clock, Layers, Loader2, Pencil, X, Check } from 'lucide-react';
+import { Project, RepoSave } from '../../types';
+import { listProjects, createProject, deleteProject, saveProject, saveProjectToRepo, getRepoName } from '../../services/projectService';
+import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot } from 'lucide-react';
 import { Button } from '../DesignSystem/Button';
 import { Card } from '../DesignSystem/Card';
 import { Input } from '../DesignSystem/Input';
 
-// --- Types ---
-
-type ThumbnailVariant = 'layers' | 'single-rect' | 'double-rect';
-
 // --- Components ---
 
-const Thumbnail = ({ variant }: { variant: ThumbnailVariant }) => {
-    const isContent = variant === 'single-rect' || variant === 'double-rect';
+// One column template shared by the header and every row, so the numbers line up.
+const COLUMNS = 'grid grid-cols-[minmax(0,1fr)_64px_96px_56px_140px_72px_48px] items-center gap-x-3';
 
-    return (
-        <div className="flex h-20 w-24 items-center justify-center">
-            <div
-                className={`
-          relative flex h-16 w-12 flex-col gap-1.5 overflow-hidden rounded-[4px] border 
-          bg-app-surface p-1.5 shadow-sm transition-all duration-300 
-          group-hover:-translate-y-2 group-hover:rotate-1 group-hover:shadow-lg 
-          ${isContent
-                        ? 'border-app-border-strong group-hover:border-ceko-accent/50 group-hover:shadow-ceko-accent/10'
-                        : 'border-app-border opacity-60 group-hover:opacity-100 group-hover:border-app-border-strong'}
-        `}
+/**
+ * The "In repo" cell: whether this file's folder in the repo matches the
+ * canvas, and the one action that fixes it when it doesn't.
+ */
+const RepoCell = ({ repo, isSaving, onSave }: { repo?: RepoSave; isSaving: boolean; onSave: (e: React.MouseEvent) => void }) => {
+    if (isSaving) {
+        return (
+            <span className="flex items-center gap-1.5 text-xs text-app-muted">
+                <Loader2 size={12} className="animate-spin" />
+                Saving…
+            </span>
+        );
+    }
+    if (repo?.state === 'saved') {
+        return (
+            <span className="flex items-center gap-1 text-xs text-emerald-400" title={`Saved to ${repo.dir}`}>
+                <Check size={13} />
+                Saved
+            </span>
+        );
+    }
+    if (repo?.state === 'changed') {
+        return (
+            <button
+                onClick={onSave}
+                title={`The canvas changed since it was saved to ${repo.dir}`}
+                className="flex items-center gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-500 transition-colors hover:bg-amber-400/25"
             >
-                {/* Header line simulating title */}
-                <div className={`h-0.5 rounded-full bg-app-subtle transition-colors group-hover:bg-ceko-accent/60 ${isContent ? 'w-2/3' : 'w-1/3 opacity-50'}`} />
-
-                {/* Content Wireframes */}
-                {variant === 'single-rect' && (
-                    <div className="flex-1 rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
-                )}
-
-                {variant === 'double-rect' && (
-                    <div className="flex flex-1 flex-col gap-1">
-                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
-                        <div className="h-1/2 w-full rounded-[2px] border border-dashed border-app-border-strong bg-app-surface-soft transition-colors group-hover:border-ceko-accent/30" />
-                    </div>
-                )}
-
-                {/* Empty State visual enhancement */}
-                {!isContent && (
-                    <div className="mt-2 flex flex-col gap-1.5 opacity-20">
-                        <div className="h-0.5 w-full rounded-full bg-app-subtle" />
-                        <div className="h-0.5 w-3/4 rounded-full bg-app-subtle" />
-                        <div className="h-0.5 w-full rounded-full bg-app-subtle" />
-                    </div>
-                )}
-            </div>
-        </div>
+                <CircleDot size={11} />
+                Changed · Save
+            </button>
+        );
+    }
+    return (
+        <button
+            onClick={onSave}
+            title="Write this file into the repo: a README plus one .tsx per sketch"
+            className="flex items-center gap-1.5 rounded-md border border-dashed border-app-border-strong px-2 py-1 text-xs font-medium text-app-secondary transition-colors hover:border-ceko-accent/60 hover:text-app-primary"
+        >
+            <FolderDown size={11} />
+            Save to repo
+        </button>
     );
 };
 
-interface ProjectCardProps {
+interface FileRowProps {
     project: Project;
     onClick: () => void;
     onDelete: (e: React.MouseEvent) => void;
+    onSaveToRepo: (e: React.MouseEvent) => void;
+    isSavingToRepo: boolean;
     timeAgo: string;
     isRenaming: boolean;
     renameValue: string;
@@ -68,10 +71,12 @@ interface ProjectCardProps {
     onRenameCancel: () => void;
 }
 
-const ProjectCard = ({
+const FileRow = ({
     project,
     onClick,
     onDelete,
+    onSaveToRepo,
+    isSavingToRepo,
     timeAgo,
     isRenaming,
     renameValue,
@@ -79,8 +84,11 @@ const ProjectCard = ({
     onRenameChange,
     onRenameSubmit,
     onRenameCancel
-}: ProjectCardProps) => {
-    const componentCount = project.nodes ? project.nodes.length : 0;
+}: FileRowProps) => {
+    const nodes = project.nodes || [];
+    const built = nodes.filter(n => n.status === 'built').length;
+    const comments = nodes.reduce((sum, n) => sum + (n.comments?.length || 0), 0);
+    const inRepo = project.repo && project.repo.state !== 'canvas';
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -89,14 +97,6 @@ const ProjectCard = ({
             inputRef.current.select();
         }
     }, [isRenaming]);
-
-    let thumbnailVariant: ThumbnailVariant = 'layers';
-    if (componentCount === 1) thumbnailVariant = 'single-rect';
-    if (componentCount > 1) thumbnailVariant = 'double-rect';
-
-    const handleInputClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-    };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
@@ -113,65 +113,82 @@ const ProjectCard = ({
     return (
         <div
             onClick={onClick}
-            className="group relative flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-transparent p-4 transition-all duration-200 hover:border-app-border hover:bg-app-surface"
+            className={`group ${COLUMNS} cursor-pointer rounded-xl border border-app-border bg-app-surface px-4 py-2.5 transition-colors duration-200 hover:border-app-border-strong`}
         >
-            {/* Delete Button (Show on Hover) */}
-            <button
-                onClick={onDelete}
-                className="absolute right-2 top-2 z-10 p-1.5 text-app-subtle opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
-                title="Delete project"
-            >
-                <Trash2 size={14} />
-            </button>
-
-            {/* Icon Area */}
-            <div className="transform transition-transform duration-300 group-hover:scale-105">
-                <Thumbnail variant={thumbnailVariant} />
-            </div>
-
-            {/* Content Area */}
-            <div className="flex flex-col items-center text-center w-full">
-                {isRenaming ? (
-                    <div className="flex items-center gap-1 w-full max-w-[150px]">
+            <div className="flex min-w-0 items-center gap-3">
+                <FileText size={16} className={`shrink-0 ${inRepo ? 'text-ceko-accent' : 'text-app-subtle'}`} />
+                <div className="min-w-0">
+                    {isRenaming ? (
                         <input
                             ref={inputRef}
                             type="text"
                             value={renameValue}
                             onChange={(e) => onRenameChange(e.target.value)}
-                            onClick={handleInputClick}
+                            onClick={(e) => e.stopPropagation()}
                             onKeyDown={handleKeyDown}
                             onBlur={() => onRenameSubmit()}
-                            className="w-full rounded border border-ceko-accent/50 bg-app-bg px-1 py-0.5 text-center text-sm text-app-primary focus:outline-none"
+                            className="w-full max-w-xs rounded border border-ceko-accent/50 bg-app-bg px-1 py-0.5 text-sm text-app-primary focus:outline-none"
                         />
-                    </div>
-                ) : (
-                    <div className="group/title flex items-center gap-1.5 max-w-full justify-center relative">
-                        <h3 className="max-w-[140px] truncate text-sm font-medium text-app-secondary transition-colors duration-200 group-hover:text-ceko-accent">
-                            {project.name}
-                        </h3>
-                        <button
-                            onClick={onRenameStart}
-                            className="p-1 text-app-subtle opacity-0 transition-opacity hover:text-ceko-accent group-hover/title:opacity-100"
-                            title="Rename project"
-                        >
-                            <Pencil size={10} />
-                        </button>
-                    </div>
-                )}
-
-                <div className="flex items-center gap-3 text-[11px] font-medium text-[#58606e] opacity-0 transition-opacity duration-200 group-hover:opacity-100 mt-1.5">
-                    <div className="flex items-center gap-1">
-                        <Layers className="h-3 w-3" />
-                        <span>
-                            {componentCount}
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>{timeAgo}</span>
+                    ) : (
+                        <h3 className="truncate text-sm font-semibold text-app-primary">{project.name}</h3>
+                    )}
+                    <div className="truncate font-mono text-[11px] text-app-subtle">
+                        {inRepo ? `${project.repo!.dir}/` : 'not in the repo yet'}
                     </div>
                 </div>
             </div>
+
+            <span className="flex items-center justify-end gap-1 text-xs tabular-nums text-app-muted">
+                <Layers size={12} className="text-app-subtle" />
+                {nodes.length}
+            </span>
+
+            <span className="flex items-center justify-end gap-2" title={`${built} of ${nodes.length} sketches built`}>
+                <span className="h-1 w-8 overflow-hidden rounded-full bg-app-surface-soft">
+                    <span
+                        className="block h-full rounded-full bg-emerald-400"
+                        style={{ width: nodes.length ? `${(built / nodes.length) * 100}%` : 0 }}
+                    />
+                </span>
+                <span className="text-[11px] tabular-nums text-app-subtle">{built}/{nodes.length}</span>
+            </span>
+
+            <span className="flex justify-end">
+                {comments > 0 ? (
+                    <span
+                        className="flex items-center gap-1 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-500"
+                        title={`${comments} pending comment${comments === 1 ? '' : 's'}`}
+                    >
+                        <MessageSquare size={11} />
+                        {comments}
+                    </span>
+                ) : (
+                    <span className="text-xs text-app-subtle">—</span>
+                )}
+            </span>
+
+            <span>
+                <RepoCell repo={project.repo} isSaving={isSavingToRepo} onSave={onSaveToRepo} />
+            </span>
+
+            <span className="text-right text-xs tabular-nums text-app-subtle">{timeAgo}</span>
+
+            <span className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <button
+                    onClick={onRenameStart}
+                    className="rounded p-1 text-app-subtle transition-colors hover:text-ceko-accent"
+                    title="Rename file"
+                >
+                    <Pencil size={13} />
+                </button>
+                <button
+                    onClick={onDelete}
+                    className="rounded p-1 text-app-subtle transition-colors hover:text-red-400"
+                    title="Delete file"
+                >
+                    <Trash2 size={13} />
+                </button>
+            </span>
         </div>
     );
 };
@@ -186,6 +203,8 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
     const [isLoading, setIsLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [repoName, setRepoName] = useState<string | null>(null);
+    const [savingId, setSavingId] = useState<string | null>(null);
 
     // Create Modal State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -195,14 +214,14 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
 
-    const fetchProjects = async () => {
+    const fetchProjects = async ({ quiet = false } = {}) => {
         try {
-            setIsLoading(true);
+            if (!quiet) setIsLoading(true);
             setError(null);
             const data = await listProjects();
             setProjects(data);
         } catch (err) {
-            setError('Failed to load projects');
+            setError('Failed to load files');
             console.error(err);
         } finally {
             setIsLoading(false);
@@ -211,6 +230,14 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
 
     useEffect(() => {
         fetchProjects();
+        getRepoName().then(setRepoName).catch(() => { /* the heading still reads fine without it */ });
+    }, []);
+
+    // Files the agent creates or edits show up here without a reload.
+    useEffect(() => {
+        const source = new EventSource('/api/events');
+        source.addEventListener('update', () => fetchProjects({ quiet: true }));
+        return () => source.close();
     }, []);
 
     const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -222,22 +249,39 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
             setCreateName('Untitled Project');
             onOpenProject(project);
         } catch (err) {
-            setError('Failed to create project');
+            setError('Failed to create file');
             console.error(err);
         } finally {
             setIsCreating(false);
         }
     };
 
-    const handleDelete = async (e: React.MouseEvent, id: string) => {
+    const handleDelete = async (e: React.MouseEvent, project: Project) => {
         e.stopPropagation();
-        if (!confirm('Delete this project? This cannot be undone.')) return;
+        const kept = project.repo && project.repo.state !== 'canvas'
+            ? ` The copy saved in ${project.repo.dir}/ stays in the repo.`
+            : '';
+        if (!confirm(`Delete "${project.name}" from the canvas? This cannot be undone.${kept}`)) return;
         try {
-            await deleteProject(id);
-            setProjects(prev => prev.filter(p => p.id !== id));
+            await deleteProject(project.id);
+            setProjects(prev => prev.filter(p => p.id !== project.id));
         } catch (err) {
-            setError('Failed to delete project');
+            setError('Failed to delete file');
             console.error(err);
+        }
+    };
+
+    const handleSaveToRepo = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        try {
+            setSavingId(id);
+            const { repo } = await saveProjectToRepo(id);
+            setProjects(prev => prev.map(p => (p.id === id ? { ...p, repo } : p)));
+        } catch (err) {
+            setError(err instanceof Error ? `Couldn't save to the repo: ${err.message}` : "Couldn't save to the repo");
+            console.error(err);
+        } finally {
+            setSavingId(null);
         }
     };
 
@@ -265,8 +309,8 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
             await saveProject(renamingId, { name: renameValue });
             setRenamingId(null);
         } catch (err) {
-            console.error('Failed to rename project:', err);
-            setError('Failed to rename project');
+            console.error('Failed to rename file:', err);
+            setError('Failed to rename file');
             fetchProjects(); // Revert on error
         }
     };
@@ -289,10 +333,11 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
     return (
         <div className="flex h-full flex-col overflow-hidden bg-app-bg font-sans text-app-primary selection:bg-ceko-accent/30">
             {/* Page Header */}
-            <div className="w-full px-8 md:px-12 pt-8 pb-4 flex items-center justify-between">
+            <div className="w-full px-8 md:px-12 pt-8 pb-4 flex items-end justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-app-primary">Projects</h1>
-                    <p className="mt-1 text-sm text-app-muted">Your saved workspaces</p>
+                    {repoName && <div className="mb-1 text-xs font-medium text-app-muted">{repoName}</div>}
+                    <h1 className="text-2xl font-bold tracking-tight text-app-primary">Klose files</h1>
+                    <p className="mt-1 text-sm text-app-muted">One file per canvas. Save one to the repo to keep it as a planning doc.</p>
                 </div>
                 <Button
                     variant="primary"
@@ -300,13 +345,13 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                     onClick={() => setShowCreateModal(true)}
                     leftIcon={<Plus size={16} strokeWidth={2.5} />}
                 >
-                    New Project
+                    New file
                 </Button>
             </div>
 
             {/* Content */}
-            <div className="relative z-10 flex-1 overflow-y-auto p-8 md:p-12 canvas-scroll">
-                <div className="mx-auto max-w-7xl">
+            <div className="relative z-10 flex-1 overflow-auto px-8 pb-12 pt-4 md:px-12 canvas-scroll">
+                <div className="mx-auto min-w-[680px] max-w-5xl">
                     {error && (
                         <div className="mb-6 p-4 rounded-xl text-sm flex items-center justify-between border border-red-500/20 bg-red-500/10 text-red-400" role="alert">
                             <span>{error}</span>
@@ -315,19 +360,19 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                     )}
 
                     {isLoading ? (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                            {[1, 2, 3, 4, 5].map(i => (
-                                <div key={i} className="h-44 rounded-xl bg-ceko-surface animate-pulse" />
+                        <div className="space-y-1.5">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="h-[58px] rounded-xl bg-ceko-surface animate-pulse" />
                             ))}
                         </div>
                     ) : projects.length === 0 ? (
                         <Card variant="ghost" className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
                             <div className="mb-6 flex flex-col items-center gap-4">
-                                <div className="flex h-24 w-24 items-center justify-center rounded-3xl border border-app-border bg-app-surface">
-                                    <Thumbnail variant="layers" />
+                                <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-app-border bg-app-surface">
+                                    <FileText size={24} className="text-app-subtle" />
                                 </div>
                                 <div>
-                                    <h2 className="mb-1 text-lg font-semibold text-app-primary">You don&apos;t have any projects yet.</h2>
+                                    <h2 className="mb-1 text-lg font-semibold text-app-primary">No Klose files in this repo yet.</h2>
                                     <p className="max-w-md text-sm text-app-muted">
                                         Start a canvas, sketch your first component, then use <code>/klose</code> in your coding
                                         agent to ideate the details and build it into your repo.
@@ -343,27 +388,45 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                                 isLoading={isCreating}
                                 leftIcon={!isCreating && <Plus size={16} />}
                             >
-                                Create your first project
+                                Create your first file
                             </Button>
                         </Card>
                     ) : (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                            {projects.map(project => (
-                                <ProjectCard
-                                    key={project.id}
-                                    project={project}
-                                    onClick={() => onOpenProject(project)}
-                                    onDelete={(e) => handleDelete(e, project.id)}
-                                    timeAgo={formatDate(project.updated_at)}
-                                    isRenaming={renamingId === project.id}
-                                    renameValue={renameValue}
-                                    onRenameStart={(e) => handleRenameStart(e, project)}
-                                    onRenameChange={setRenameValue}
-                                    onRenameSubmit={handleRenameSubmit}
-                                    onRenameCancel={() => setRenamingId(null)}
-                                />
-                            ))}
-                        </div>
+                        <>
+                            <div className={`${COLUMNS} px-4 pb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-app-subtle`}>
+                                <span>File</span>
+                                <span className="text-right">Sketches</span>
+                                <span className="text-right">Built</span>
+                                <span className="text-right">Notes</span>
+                                <span>In repo</span>
+                                <span className="text-right">Edited</span>
+                                <span />
+                            </div>
+                            <div className="space-y-1.5">
+                                {projects.map(project => (
+                                    <FileRow
+                                        key={project.id}
+                                        project={project}
+                                        onClick={() => onOpenProject(project)}
+                                        onDelete={(e) => handleDelete(e, project)}
+                                        onSaveToRepo={(e) => handleSaveToRepo(e, project.id)}
+                                        isSavingToRepo={savingId === project.id}
+                                        timeAgo={formatDate(project.updated_at)}
+                                        isRenaming={renamingId === project.id}
+                                        renameValue={renameValue}
+                                        onRenameStart={(e) => handleRenameStart(e, project)}
+                                        onRenameChange={setRenameValue}
+                                        onRenameSubmit={handleRenameSubmit}
+                                        onRenameCancel={() => setRenamingId(null)}
+                                    />
+                                ))}
+                            </div>
+                            <p className="mt-4 rounded-lg border border-app-border px-3 py-2 text-xs leading-relaxed text-app-muted">
+                                Saving writes <code className="font-mono text-app-secondary">README.md</code> (notes, status, feedback) and
+                                one <code className="font-mono text-app-secondary">.tsx</code> per sketch into the file's folder. The canvas
+                                itself stays in <code className="font-mono text-app-secondary">.klose/projects/</code>.
+                            </p>
+                        </>
                     )}
                 </div>
             </div>
@@ -372,15 +435,15 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
             {showCreateModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ceko-bg/80 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
                     <Card variant="default" className="w-full max-w-md p-6 scale-100 animate-in zoom-in-95 duration-200">
-                        <h2 id="create-project-title" className="text-xl font-bold mb-4 text-white">New Project</h2>
+                        <h2 id="create-project-title" className="text-xl font-bold mb-4 text-app-primary">New file</h2>
                         <form onSubmit={handleCreateSubmit}>
                             <div className="space-y-4">
                                 <Input
-                                    label="Project Name"
+                                    label="File name"
                                     type="text"
                                     value={createName}
                                     onChange={(e) => setCreateName(e.target.value)}
-                                    placeholder="e.g. Portfolio Website"
+                                    placeholder="e.g. Billing page"
                                     autoFocus
                                 />
                                 <div className="flex items-center gap-3 pt-2">
@@ -399,7 +462,7 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                                         disabled={isCreating || !createName.trim()}
                                         isLoading={isCreating}
                                     >
-                                        Create Project
+                                        Create file
                                     </Button>
                                 </div>
                             </div>

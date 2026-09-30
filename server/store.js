@@ -60,13 +60,14 @@ export async function listProjects(cwd) {
   );
   return projects
     .filter(Boolean)
-    .map(({ id, name, description, nodes, created_at, updated_at }) => ({
+    .map(({ id, name, description, nodes, created_at, updated_at, savedToRepo }) => ({
       id,
       name,
       description,
       nodes,
       created_at,
       updated_at,
+      ...(savedToRepo ? { savedToRepo } : {}),
     }))
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
 }
@@ -99,11 +100,25 @@ export async function createProject(cwd, name = 'Untitled Project') {
   return project;
 }
 
+// `savedToRepo` is bookkeeping owned by setSavedToRepo: a caller round-tripping
+// a project it read earlier must not be able to put a stale copy back.
 export async function updateProject(cwd, id, updates) {
   const existing = await readProjectFile(cwd, id);
-  const merged = { ...existing, ...updates, id, updated_at: new Date().toISOString() };
+  const { savedToRepo: _ignored, ...rest } = updates || {};
+  const merged = { ...existing, ...rest, id, updated_at: new Date().toISOString() };
   await writeProjectFile(cwd, merged);
   return merged;
+}
+
+/**
+ * Records where a project was last saved into the repo (see server/export.js).
+ * Deliberately leaves `updated_at` alone — saving isn't an edit.
+ */
+export async function setSavedToRepo(cwd, id, savedToRepo) {
+  const project = await readProjectFile(cwd, id);
+  project.savedToRepo = savedToRepo;
+  await writeProjectFile(cwd, project);
+  return project;
 }
 
 export async function deleteProject(cwd, id) {

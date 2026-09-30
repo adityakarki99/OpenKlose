@@ -24,6 +24,7 @@ import {
   repoUrl,
   writeHubInfo,
 } from '../server/hub.js';
+import { buildTray, findTray, removeTrayInfo, trayBinary } from '../server/tray.js';
 import {
   DEFAULT_PORT,
   displayUrl,
@@ -55,6 +56,8 @@ Getting started
 One canvas for every repo
   hub           Start (or check, stop) a machine-wide canvas that finds your
                 repos from Claude Code's sessions — nothing to set up per repo
+  tray          Put the hub in the macOS menu bar: a dot when an agent is
+                working or feedback is waiting, and a popover of your repos
 
 Canvas data
   project       List, create, read and edit projects and their sketches
@@ -122,6 +125,26 @@ repo's .klose/ once you sketch there — never before. It listens on 127.0.0.1.
 While the hub is up, "klose status" and "klose serve" in any repo point at it
 instead of starting a second server. "klose init --global" installs the
 /klose skill for every repo, so there is nothing left to do per repo.`,
+  tray: `Usage: klose tray [start] [--open] [--port=N]
+       klose tray status [--json]
+       klose tray stop
+
+Puts Klose in the macOS menu bar. The icon carries a dot — blue while an agent
+is working, amber when comments are waiting in a repo no agent is busy in —
+and clicking it opens a popover of your repos; clicking a repo opens its
+canvas in your browser. Right-click for Open Canvas, Start at Login and Quit.
+
+  start    (default) Start the hub if it isn't running, then the menu bar app.
+           The first run compiles the app (a few seconds; needs Apple's
+           command line tools: xcode-select --install). --open shows the
+           popover straight away.
+  status   Whether the menu bar app and the hub are running.
+  stop     Quit the menu bar app. The hub keeps running; stop it with
+           "klose hub stop".
+
+The app is a thin shell: everything it shows comes from the hub, and it
+restarts the hub if it finds it down. macOS only for now — the hub itself
+("klose hub") works everywhere.`,
   stop: `Usage: klose stop
 
 Stops this repo's canvas server, whether it was started with --detach or not.`,
@@ -685,6 +708,102 @@ async function hubAdd(args) {
   console.log(hub.state === 'running' ? `Its canvas: ${repoUrl(hub.url, dir)}` : 'Start the hub with: npx klose hub --detach');
 }
 
+// ------------------------------------------------------------------ tray
+
+async function trayStart(args) {
+  if (process.platform !== 'darwin') {
+    fail('the menu bar app is macOS-only for now. The hub works everywhere: npx klose hub --detach --open');
+  }
+  const running = await findTray();
+  if (running.state === 'running') {
+    console.log(`The Klose menu bar app is already running (pid ${running.pid}).`);
+    return;
+  }
+
+  // The app shows the hub; bring that up first so its first look succeeds.
+  const showPopover = hasFlag(args, '--open');
+  if ((await findHub()).state !== 'running') await startHubDetached(args.filter((a) => a !== '--open'), false);
+
+  let built;
+  try {
+    const alreadyBuilt = existsSync(trayBinary(packageRoot, VERSION));
+    if (!alreadyBuilt) console.log('Building the menu bar app (first run only, a few seconds)…');
+    built = await buildTray(packageRoot, VERSION);
+  } catch (err) {
+    fail(err.message);
+  }
+
+  const home = kloseHome();
+  const log = openSync(path.join(home, 'tray.log'), 'a');
+  const appArgs = ['--home', home, '--node', process.execPath, '--cli', __filename, ...(showPopover ? ['--show'] : [])];
+  const child = spawn(built.binary, appArgs, {
+    detached: true,
+    stdio: ['ignore', log, log],
+  });
+  let exited = null;
+  child.on('exit', (code) => {
+    exited = code ?? 1;
+  });
+  child.unref();
+
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline && exited === null) {
+    const found = await findTray();
+    if (found.state === 'running' && found.pid === child.pid) {
+      console.log(`Klose is in your menu bar (pid ${found.pid}). Right-click it for Start at Login and Quit.`);
+      console.log('Stop it with: npx klose tray stop');
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  fail(`the menu bar app didn't start. See ${path.join(home, 'tray.log')}`);
+}
+
+async function trayStatus(args) {
+  const [tray, hub] = await Promise.all([findTray(), findHub()]);
+  const running = tray.state === 'running';
+  if (hasFlag(args, '--json')) {
+    return printJson({
+      running,
+      ...(running ? { pid: tray.pid } : {}),
+      hub: hub.state === 'running' ? { running: true, url: hub.url } : { running: false },
+    });
+  }
+  console.log(running ? `The Klose menu bar app is running (pid ${tray.pid}).` : 'The Klose menu bar app is not running. Start it with: npx klose tray');
+  console.log(hub.state === 'running' ? `The hub is running at ${hub.url}` : 'The hub is not running.');
+  if (!running) process.exit(1);
+}
+
+async function trayStop() {
+  const tray = await findTray();
+  if (tray.state !== 'running') {
+    await removeTrayInfo();
+    console.log('The Klose menu bar app is not running.');
+    return;
+  }
+  try {
+    process.kill(tray.pid, 'SIGTERM');
+  } catch (err) {
+    fail(`could not stop pid ${tray.pid}: ${err.message}`);
+  }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline && (await findTray()).state === 'running') {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  // SIGTERM doesn't give the app a chance to tidy up after itself.
+  await removeTrayInfo();
+  console.log('Quit the Klose menu bar app. The hub is still running; stop it with: npx klose hub stop');
+}
+
+async function cmdTray(args) {
+  const sub = args.find((a) => !a.startsWith('--'));
+  const rest = args.filter((a) => a !== sub);
+  if (!sub || sub === 'start') return trayStart(rest);
+  if (sub === 'status') return trayStatus(rest);
+  if (sub === 'stop') return trayStop();
+  fail(`unknown tray subcommand "${sub}"\n\n${COMMAND_HELP.tray}`);
+}
+
 async function cmdHub(args) {
   const sub = args.find((a) => !a.startsWith('--'));
   const rest = args.filter((a) => a !== sub);
@@ -948,6 +1067,7 @@ const COMMANDS = {
   status: cmdStatus,
   stop: cmdStop,
   hub: cmdHub,
+  tray: cmdTray,
   update: cmdUpdate,
   cleanup: cmdCleanup,
   project: cmdProject,
@@ -973,7 +1093,7 @@ async function main() {
 
   root = command === 'init' && hasFlag(args, '--here') ? invokedFrom : resolveRoot(invokedFrom);
   // The hub and a global init aren't about this repo, so which root was picked is noise.
-  const machineWide = command === 'hub' || (command === 'init' && hasFlag(args, '--global'));
+  const machineWide = command === 'hub' || command === 'tray' || (command === 'init' && hasFlag(args, '--global'));
   if (root !== invokedFrom && !machineWide) process.stderr.write(`klose: using repo root ${root}\n`);
   return run(args);
 }

@@ -206,6 +206,16 @@ export interface HubRepo {
   comments: number;
 }
 
+/** The machine at a glance, for the menu bar popover (server/hub.js trayState). */
+export interface TrayState {
+  /** Picks the menu bar dot: amber for 'feedback', blue for 'working', none otherwise. */
+  state: 'feedback' | 'working' | 'idle' | 'none';
+  agents: number;
+  working: number;
+  comments: number;
+  repos: HubRepo[];
+}
+
 export interface UserSettings {
   themeMode: ThemeMode;
   cssLogicalProperties: boolean;

@@ -1,4 +1,4 @@
-import { HubRepo } from '../types';
+import { HubRepo, TrayState } from '../types';
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -16,6 +16,8 @@ export const getServerInfo = (): Promise<{ hub?: boolean; root: string | null; v
 
 /** Every repo the hub sees: agents first, then most recently used. */
 export const listRepos = async (): Promise<HubRepo[]> => (await get<{ repos: HubRepo[] }>('/api/repos')).repos;
+
+export const getTray = (): Promise<TrayState> => get('/api/tray');
 
 export const getRepo = (id: string): Promise<HubRepo> => get(`/api/repos/${id}`);
 

@@ -7,7 +7,7 @@ import * as store from './store.js';
 import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
 import { loadTheme } from './theme.js';
 import { exportProject, repoState } from './export.js';
-import { createRepoIndex, listRepos } from './hub.js';
+import { createRepoIndex, listRepos, trayState } from './hub.js';
 import { HttpError } from './errors.js';
 
 const MIME = {
@@ -308,6 +308,10 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       }
 
       if (isApi && hub) {
+        // Everything the menu bar icon and its popover need, in one request.
+        if (parts[1] === 'tray' && !parts[2] && req.method === 'GET') {
+          return sendJson(res, 200, trayState(await listRepos(hub)));
+        }
         if (parts[1] !== 'repos') {
           return sendJson(res, 400, { error: 'This is a Klose hub: address a repo as /api/repos/<id>/…', code: 'REPO_REQUIRED' });
         }

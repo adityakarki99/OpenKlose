@@ -78,7 +78,8 @@ function contextBlock(project) {
 }
 
 function commentsBlock(node) {
-  const comments = node.comments || [];
+  // Resolved comments are done; the README only carries what's still open.
+  const comments = (node.comments || []).filter((c) => !c.resolvedAt);
   if (!comments.length) return '';
   const items = comments.map((c, i) => {
     const el = c.element;

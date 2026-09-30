@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, RepoSave } from '../../types';
-import { listProjects, createProject, deleteProject, saveProject, saveProjectToRepo, getRepoName } from '../../services/projectService';
-import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot } from 'lucide-react';
+import { listProjects, createProject, createExampleProject, deleteProject, saveProject, saveProjectToRepo, getRepoName } from '../../services/projectService';
+import { openComments } from '../../lib/feedback.js';
+import { boundsOf } from '../../lib/viewport.js';
+import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot, Sparkles } from 'lucide-react';
 import { Button } from '../DesignSystem/Button';
 import { Card } from '../DesignSystem/Card';
 import { Input } from '../DesignSystem/Input';
@@ -37,7 +39,7 @@ const RepoCell = ({ repo, isSaving, onSave }: { repo?: RepoSave; isSaving: boole
             <button
                 onClick={onSave}
                 title={`The canvas changed since it was saved to ${repo.dir}`}
-                className="flex items-center gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-500 transition-colors hover:bg-amber-400/25"
+                className="flex items-center gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-400/25"
             >
                 <CircleDot size={11} />
                 Changed · Save
@@ -53,6 +55,43 @@ const RepoCell = ({ repo, isSaving, onSave }: { repo?: RepoSave; isSaving: boole
             <FolderDown size={11} />
             Save to repo
         </button>
+    );
+};
+
+/**
+ * A tiny map of the file's canvas: where its sketches sit, built ones in green.
+ * Enough to tell files apart at a glance without rendering any previews.
+ */
+const SketchThumb = ({ project }: { project: Project }) => {
+    const W = 44;
+    const H = 30;
+    const nodes = project.nodes || [];
+    const bounds = boundsOf(nodes);
+    if (!bounds) {
+        return (
+            <span className="grid h-[30px] w-[44px] shrink-0 place-items-center rounded-md border border-dashed border-app-border text-app-muted" aria-hidden="true">
+                <FileText size={13} />
+            </span>
+        );
+    }
+    const pad = 3;
+    const scale = Math.min((W - pad * 2) / Math.max(1, bounds.width), (H - pad * 2) / Math.max(1, bounds.height));
+    const ox = (W - bounds.width * scale) / 2;
+    const oy = (H - bounds.height * scale) / 2;
+    return (
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 rounded-md border border-app-border bg-app-bg" aria-hidden="true">
+            {nodes.map((n) => (
+                <rect
+                    key={n.id}
+                    x={ox + (n.x - bounds.x) * scale}
+                    y={oy + (n.y - bounds.y) * scale}
+                    width={Math.max(2, n.width * scale)}
+                    height={Math.max(2, n.height * scale)}
+                    rx={1}
+                    className={n.status === 'built' ? 'fill-emerald-400/60' : 'fill-app-secondary/35'}
+                />
+            ))}
+        </svg>
     );
 };
 
@@ -87,7 +126,7 @@ const FileRow = ({
 }: FileRowProps) => {
     const nodes = project.nodes || [];
     const built = nodes.filter(n => n.status === 'built').length;
-    const comments = nodes.reduce((sum, n) => sum + (n.comments?.length || 0), 0);
+    const comments = nodes.reduce((sum, n) => sum + openComments(n.comments).length, 0);
     const inRepo = project.repo && project.repo.state !== 'canvas';
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -116,7 +155,7 @@ const FileRow = ({
             className={`group ${COLUMNS} cursor-pointer rounded-xl border border-app-border bg-app-surface px-4 py-2.5 transition-colors duration-200 hover:border-app-border-strong`}
         >
             <div className="flex min-w-0 items-center gap-3">
-                <FileText size={16} className={`shrink-0 ${inRepo ? 'text-ceko-accent' : 'text-app-subtle'}`} />
+                <SketchThumb project={project} />
                 <div className="min-w-0">
                     {isRenaming ? (
                         <input
@@ -132,14 +171,14 @@ const FileRow = ({
                     ) : (
                         <h3 className="truncate text-sm font-semibold text-app-primary">{project.name}</h3>
                     )}
-                    <div className="truncate font-mono text-[11px] text-app-subtle">
+                    <div className="truncate font-mono text-xs text-app-muted">
                         {inRepo ? `${project.repo!.dir}/` : 'not in the repo yet'}
                     </div>
                 </div>
             </div>
 
             <span className="flex items-center justify-end gap-1 text-xs tabular-nums text-app-muted">
-                <Layers size={12} className="text-app-subtle" />
+                <Layers size={12} className="text-app-muted" />
                 {nodes.length}
             </span>
 
@@ -150,20 +189,20 @@ const FileRow = ({
                         style={{ width: nodes.length ? `${(built / nodes.length) * 100}%` : 0 }}
                     />
                 </span>
-                <span className="text-[11px] tabular-nums text-app-subtle">{built}/{nodes.length}</span>
+                <span className="text-xs tabular-nums text-app-muted">{built}/{nodes.length}</span>
             </span>
 
             <span className="flex justify-end">
                 {comments > 0 ? (
                     <span
-                        className="flex items-center gap-1 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-500"
-                        title={`${comments} pending comment${comments === 1 ? '' : 's'}`}
+                        className="flex items-center gap-1 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-amber-300"
+                        title={`${comments} open comment${comments === 1 ? '' : 's'}`}
                     >
                         <MessageSquare size={11} />
                         {comments}
                     </span>
                 ) : (
-                    <span className="text-xs text-app-subtle">—</span>
+                    <span className="text-xs text-app-muted">—</span>
                 )}
             </span>
 
@@ -171,20 +210,22 @@ const FileRow = ({
                 <RepoCell repo={project.repo} isSaving={isSavingToRepo} onSave={onSaveToRepo} />
             </span>
 
-            <span className="text-right text-xs tabular-nums text-app-subtle">{timeAgo}</span>
+            <span className="text-right text-xs tabular-nums text-app-muted">{timeAgo}</span>
 
             <span className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                 <button
                     onClick={onRenameStart}
-                    className="rounded p-1 text-app-subtle transition-colors hover:text-ceko-accent"
+                    className="rounded p-1 text-app-muted transition-colors hover:text-ceko-accent"
                     title="Rename file"
+                    aria-label={`Rename ${project.name}`}
                 >
                     <Pencil size={13} />
                 </button>
                 <button
                     onClick={onDelete}
-                    className="rounded p-1 text-app-subtle transition-colors hover:text-red-400"
+                    className="rounded p-1 text-app-muted transition-colors hover:text-red-400"
                     title="Delete file"
+                    aria-label={`Delete ${project.name}`}
                 >
                     <Trash2 size={13} />
                 </button>
@@ -209,6 +250,10 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
     // Create Modal State
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createName, setCreateName] = useState('Untitled Project');
+
+    // Delete confirmation: which file, and whether the delete is in flight.
+    const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Rename State
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -256,18 +301,35 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
         }
     };
 
-    const handleDelete = async (e: React.MouseEvent, project: Project) => {
+    const handleDelete = (e: React.MouseEvent, project: Project) => {
         e.stopPropagation();
-        const kept = project.repo && project.repo.state !== 'canvas'
-            ? ` The copy saved in ${project.repo.dir}/ stays in the repo.`
-            : '';
-        if (!confirm(`Delete "${project.name}" from the canvas? This cannot be undone.${kept}`)) return;
+        setPendingDelete(project);
+    };
+
+    const confirmDelete = async () => {
+        if (!pendingDelete) return;
         try {
-            await deleteProject(project.id);
-            setProjects(prev => prev.filter(p => p.id !== project.id));
+            setIsDeleting(true);
+            await deleteProject(pendingDelete.id);
+            setProjects(prev => prev.filter(p => p.id !== pendingDelete.id));
+            setPendingDelete(null);
         } catch (err) {
             setError('Failed to delete file');
             console.error(err);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleCreateExample = async () => {
+        try {
+            setIsCreating(true);
+            onOpenProject(await createExampleProject());
+        } catch (err) {
+            setError("Couldn't create the example file");
+            console.error(err);
+        } finally {
+            setIsCreating(false);
         }
     };
 
@@ -369,31 +431,43 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                         <Card variant="ghost" className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
                             <div className="mb-6 flex flex-col items-center gap-4">
                                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-app-border bg-app-surface">
-                                    <FileText size={24} className="text-app-subtle" />
+                                    <FileText size={24} className="text-app-muted" />
                                 </div>
                                 <div>
                                     <h2 className="mb-1 text-lg font-semibold text-app-primary">No Klose files in this repo yet.</h2>
-                                    <p className="max-w-md text-sm text-app-muted">
-                                        Start a canvas, sketch your first component, then use <code>/klose</code> in your coding
-                                        agent to ideate the details and build it into your repo.
+                                    <p className="max-w-md text-sm text-app-secondary">
+                                        The quickest start is to run <code className="font-mono text-app-primary">/klose</code> in Claude Code and
+                                        describe a component: the agent creates the file and its sketches show up here. Or look around an
+                                        example first.
                                     </p>
                                 </div>
                             </div>
 
-                            <Button
-                                variant="primary"
-                                size="lg"
-                                onClick={() => setShowCreateModal(true)}
-                                disabled={isCreating}
-                                isLoading={isCreating}
-                                leftIcon={!isCreating && <Plus size={16} />}
-                            >
-                                Create your first file
-                            </Button>
+                            <div className="flex flex-wrap items-center justify-center gap-3">
+                                <Button
+                                    variant="primary"
+                                    size="lg"
+                                    onClick={handleCreateExample}
+                                    disabled={isCreating}
+                                    isLoading={isCreating}
+                                    leftIcon={!isCreating && <Sparkles size={16} />}
+                                >
+                                    Open an example
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    size="lg"
+                                    onClick={() => setShowCreateModal(true)}
+                                    disabled={isCreating}
+                                    leftIcon={<Plus size={16} />}
+                                >
+                                    Blank file
+                                </Button>
+                            </div>
                         </Card>
                     ) : (
                         <>
-                            <div className={`${COLUMNS} px-4 pb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-app-subtle`}>
+                            <div className={`${COLUMNS} px-4 pb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-app-muted`}>
                                 <span>File</span>
                                 <span className="text-right">Sketches</span>
                                 <span className="text-right">Built</span>
@@ -430,6 +504,51 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
                     )}
                 </div>
             </div>
+
+            {/* Delete confirmation */}
+            {pendingDelete && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-ceko-bg/80 p-4 backdrop-blur-sm animate-in fade-in duration-200"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="delete-file-title"
+                    aria-describedby="delete-file-desc"
+                    onKeyDown={(e) => { if (e.key === 'Escape' && !isDeleting) setPendingDelete(null); }}
+                >
+                    <div className="w-full max-w-md rounded-2xl border border-app-border bg-app-surface-elevated p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <h2 id="delete-file-title" className="mb-2 text-lg font-bold text-app-primary">Delete "{pendingDelete.name}"?</h2>
+                        <div id="delete-file-desc" className="space-y-2 text-sm leading-relaxed text-app-secondary">
+                            <p>
+                                The canvas and its {(pendingDelete.nodes || []).length} sketch{(pendingDelete.nodes || []).length === 1 ? '' : 'es'} will be
+                                removed from <code className="font-mono text-xs">.klose/projects/</code>. This can't be undone from Klose.
+                            </p>
+                            {pendingDelete.repo && pendingDelete.repo.state !== 'canvas' && (
+                                <p className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs">
+                                    The copy saved in <code className="font-mono">{pendingDelete.repo.dir}/</code> stays in the repo.
+                                </p>
+                            )}
+                            {(pendingDelete.nodes || []).some((n) => n.builtFilePath) && (
+                                <p className="text-xs text-app-muted">Components already built into your source tree are not touched.</p>
+                            )}
+                        </div>
+                        <div className="mt-5 flex items-center gap-3">
+                            <Button type="button" variant="secondary" className="flex-1" onClick={() => setPendingDelete(null)} disabled={isDeleting} autoFocus>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                className="flex-1"
+                                onClick={confirmDelete}
+                                isLoading={isDeleting}
+                                disabled={isDeleting}
+                            >
+                                Delete file
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Create Project Modal */}
             {showCreateModal && (

@@ -31,6 +31,37 @@ test('klose feedback prints stable JSON without clipboard handoff', async () => 
   }
 });
 
+test('klose resolve marks comments addressed and feedback stops listing them', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'klose-cli-test-'));
+  try {
+    const project = await store.createProject(cwd, 'CLI');
+    const node = await store.addNode(cwd, project.id, {
+      name: 'Button',
+      comments: [
+        { id: 'c1', text: 'Increase contrast', createdAt: 1 },
+        { id: 'c2', text: 'Rounder', createdAt: 1 },
+      ],
+    });
+    const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf-8' });
+
+    const resolved = run('resolve', project.id, node.id, 'c1', '--note=Raised contrast');
+    assert.equal(resolved.status, 0, resolved.stderr);
+    assert.deepEqual(JSON.parse(resolved.stdout), { resolved: ['c1'], open: 1 });
+
+    const open = JSON.parse(run('feedback', `--project=${project.id}`).stdout);
+    assert.deepEqual(open.feedback.map((f) => f.commentId), ['c2']);
+    const all = JSON.parse(run('feedback', `--project=${project.id}`, '--all').stdout);
+    assert.equal(all.feedback.find((f) => f.commentId === 'c1').resolution, 'Raised contrast');
+
+    const missing = run('resolve', project.id);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /project id and a node id/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
 
 function klose(cwd, ...args) {

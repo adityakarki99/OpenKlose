@@ -43,6 +43,7 @@ Getting started
 Canvas data
   project       List, create, read and edit projects and their sketches
   feedback      Read pending comments as JSON
+  resolve       Mark comments as addressed, so the canvas shows them done
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
 
@@ -111,9 +112,16 @@ Options
 Shows the design tokens found in this repo (Tailwind config, @theme blocks,
 :root custom properties) that every preview is rendered with. --css prints the
 exact stylesheet the sandbox receives.`,
-  feedback: `Usage: klose feedback [--project=<id>]
+  feedback: `Usage: klose feedback [--project=<id>] [--all]
 
-Prints all pending comments as structured JSON.`,
+Prints open comments as structured JSON. Each has a status: "new" (the user
+hasn't copied it for an agent yet) or "sent". --all includes resolved ones.`,
+  resolve: `Usage: klose resolve <projectId> <nodeId> [commentId...] [--note="what changed"]
+
+Marks comments on a sketch as addressed. With no comment ids, resolves every
+open comment on that sketch. The canvas shows them as resolved (the user can
+reopen one), and they drop out of "klose feedback" and out of what the canvas
+copies for the agent. --note is shown to the user next to each comment.`,
   project: `Usage: klose project <subcommand>
 
   list                                       List projects
@@ -692,10 +700,19 @@ async function cmdTheme(args) {
 async function cmdFeedback(args) {
   const projectArg = args.find((arg) => arg.startsWith('--project='));
   const projectId = projectArg ? projectArg.slice('--project='.length) : undefined;
-  const feedback = await store.listFeedback(root, { projectId });
+  const feedback = await store.listFeedback(root, { projectId, includeResolved: hasFlag(args, '--all') });
   // JSON is the default: this command is primarily an agent integration
   // surface, and stable structured output is safer than parsing prose.
   return printJson({ count: feedback.length, feedback });
+}
+
+async function cmdResolve(args) {
+  const noteArg = args.find((arg) => arg.startsWith('--note='));
+  const note = noteArg ? noteArg.slice('--note='.length).trim() : undefined;
+  const [projectId, nodeId, ...commentIds] = args.filter((arg) => !arg.startsWith('--'));
+  if (!projectId || !nodeId) fail(`resolve needs a project id and a node id\n\n${COMMAND_HELP.resolve}`);
+  const result = await store.resolveComments(root, projectId, nodeId, commentIds, { note });
+  return printJson(result);
 }
 
 // ------------------------------------------------------------------ main
@@ -711,6 +728,7 @@ const COMMANDS = {
   components: cmdComponents,
   theme: cmdTheme,
   feedback: cmdFeedback,
+  resolve: cmdResolve,
 };
 
 async function main() {

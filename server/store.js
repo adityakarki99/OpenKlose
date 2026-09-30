@@ -125,9 +125,36 @@ export async function deleteProject(cwd, id) {
   await unlink(projectFile(cwd, id));
 }
 
+// Where a sketch lands when whoever adds it (usually the agent) doesn't say:
+// in a row to the right of the existing ones, top-aligned with them.
+const DEFAULT_NODE = { width: 480, height: 360 };
+const NODE_GAP = 80;
+const FIRST_NODE_AT = { x: 200, y: 160 };
+
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+export function placeNode(existing, node) {
+  const width = isNum(node.width) ? node.width : DEFAULT_NODE.width;
+  const height = isNum(node.height) ? node.height : DEFAULT_NODE.height;
+  if (isNum(node.x) && isNum(node.y)) return { x: node.x, y: node.y, width, height };
+  const placed = existing.filter((n) => isNum(n.x) && isNum(n.y));
+  if (!placed.length) return { ...FIRST_NODE_AT, width, height };
+  const right = Math.max(...placed.map((n) => n.x + (isNum(n.width) ? n.width : DEFAULT_NODE.width)));
+  const top = Math.min(...placed.map((n) => n.y));
+  return { x: right + NODE_GAP, y: top, width, height };
+}
+
 export async function addNode(cwd, id, node) {
   const project = await readProjectFile(cwd, id);
-  const newNode = { id: randomUUID(), status: 'sketch', ...node };
+  const now = Date.now();
+  const newNode = {
+    id: randomUUID(),
+    status: 'sketch',
+    createdAt: now,
+    updatedAt: now,
+    ...node,
+    ...placeNode(project.nodes || [], node),
+  };
   project.nodes = [...(project.nodes || []), newNode];
   project.updated_at = new Date().toISOString();
   await writeProjectFile(cwd, project);
@@ -152,11 +179,13 @@ export async function updateNode(cwd, id, nodeId, updates) {
  * Return pending feedback in a stable, agent-friendly shape. This avoids
  * making an agent scrape every project/node or depend on clipboard text.
  */
-export async function listFeedback(cwd, { projectId } = {}) {
+export async function listFeedback(cwd, { projectId, includeResolved = false } = {}) {
   const projects = projectId ? [await getProject(cwd, projectId)] : await listProjects(cwd);
   return projects.flatMap((project) =>
     (project.nodes || []).flatMap((node) =>
-      (node.comments || []).map((comment) => ({
+      (node.comments || [])
+        .filter((comment) => includeResolved || !comment.resolvedAt)
+        .map((comment) => ({
         projectId: project.id,
         projectName: project.name,
         nodeId: node.id,
@@ -166,9 +195,41 @@ export async function listFeedback(cwd, { projectId } = {}) {
         text: comment.text,
         createdAt: comment.createdAt,
         element: comment.element || null,
+        status: comment.resolvedAt ? 'resolved' : comment.sentAt ? 'sent' : 'new',
+        ...(comment.resolvedAt ? { resolvedAt: comment.resolvedAt, resolution: comment.resolution || null } : {}),
       }))
     )
   );
+}
+
+/**
+ * Mark comments on a sketch as addressed. With no ids, resolves every open
+ * comment on it. Resolved comments stay on the node (the canvas shows them
+ * struck through, and the user can reopen one), but drop out of `listFeedback`
+ * and out of what the canvas copies for the agent.
+ */
+export async function resolveComments(cwd, id, nodeId, commentIds = [], { note, now = Date.now() } = {}) {
+  const project = await readProjectFile(cwd, id);
+  const node = (project.nodes || []).find((n) => n.id === nodeId);
+  if (!node) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');
+  const comments = node.comments || [];
+  const wanted = commentIds.length ? new Set(commentIds) : null;
+  if (wanted) {
+    const missing = [...wanted].filter((cid) => !comments.some((c) => c.id === cid));
+    if (missing.length) throw notFound(`Comment ${missing.join(', ')} not found on node ${nodeId}`, 'COMMENT_NOT_FOUND');
+  }
+  const resolved = [];
+  node.comments = comments.map((c) => {
+    if (c.resolvedAt || (wanted && !wanted.has(c.id))) return c;
+    resolved.push(c.id);
+    return { ...c, resolvedAt: now, ...(note ? { resolution: note } : {}) };
+  });
+  if (resolved.length) {
+    node.updatedAt = now;
+    project.updated_at = new Date(now).toISOString();
+    await writeProjectFile(cwd, project);
+  }
+  return { resolved, open: node.comments.filter((c) => !c.resolvedAt).length };
 }
 
 export function projectsWatchDir(cwd) {

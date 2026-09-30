@@ -22,7 +22,9 @@ in ways a diff won't show you.
 | `root.test.js` | `server/root.js` — which folder a command run from a subfolder acts on |
 | `skills.test.js` | `server/skills.js` — skill installs that replace Klose's own copies but not the user's edits |
 | `cli.test.js` | `bin/klose.js` as a subprocess — help, `init` from a subfolder, and `serve --detach` / `status` / `stop`, which bind `--port=0` |
-| `feedback.test.js` | `lib/feedback.js` — the text "Copy feedback for agent" produces, for one sketch and for several |
+| `feedback.test.js` | `lib/feedback.js` — the text "Copy feedback for agent" produces, and the new → sent → resolved comment lifecycle |
+| `viewport.test.js` | `lib/viewport.js` — zoom steps, zooming around a point, fit-to-view, and which key targets are text fields |
+| `changes.test.js` | `lib/changes.js` — which differences from disk count as the agent changing a sketch, and how they're summarised |
 | `pins.test.js` | `lib/pins.js` — element locators, and matching an older comment's element when it has none |
 | `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
 

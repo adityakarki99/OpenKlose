@@ -50,9 +50,11 @@ npx klose project create "<name>"
 
 Note the returned project `id` — every subsequent command needs it.
 
-Once you have it, check for pending feedback: `npx klose project get <id>` and look at each node's
-`comments`. If any sketch has comments, that's often *why* the user opened `/klose` — lead with
-addressing that feedback rather than waiting to be asked.
+Once you have it, check for open feedback: `npx klose feedback --project=<id>`. It lists every
+comment not yet resolved, each with a `status` of `new` (the user hasn't sent it anywhere yet) or
+`sent` (they copied it for an agent). If there is any, that's often *why* the user opened `/klose` —
+lead with addressing that feedback rather than waiting to be asked. You don't need the user to paste
+it: the comments are on disk.
 
 ## 3. Ground yourself in the REAL design system
 
@@ -178,12 +180,17 @@ Then mark the sketch as built so the canvas reflects reality:
 npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
 ```
 
-If this build was in response to comments, clear the ones you addressed (or all of them, once
-confirmed) so the canvas doesn't keep showing stale feedback — comments are just another field:
+If this build was in response to comments, **resolve** the ones you addressed, so the canvas shows
+them as done instead of as stale feedback:
 
 ```
-npx klose project update-node <projectId> <nodeId> '{"comments":[]}'
+npx klose resolve <projectId> <nodeId> <commentId> [<commentId>...] --note="Widened the card, raised contrast"
+npx klose resolve <projectId> <nodeId>                 # every open comment on that sketch
 ```
+
+The note is shown to the user next to each resolved comment; keep it to what you changed. Don't
+clear `comments` with `update-node` any more: resolving keeps the history, and the user can reopen
+a comment you got wrong.
 
 ## Saving a project into the repo as files
 
@@ -208,14 +215,16 @@ project/node ids) as text for the user to paste into this chat — so a pasted b
 section per sketch) is a comment dump, not a fresh request. Comment numbers count within each
 sketch and match the pins the user sees on its preview. Treat it as feedback on those specific
 sketches: read the sketch's current `code`/`notes` first, apply the feedback, update it
-(step 5's `update-node`, or step 6 if it's ready to build), and clear the addressed comments as above.
+(step 5's `update-node`, or step 6 if it's ready to build), and resolve the addressed comments as
+above. Each pasted comment ends with `[comment <id>]` — that is the id `klose resolve` takes.
 
 A comment can be **scoped to a specific element** the user clicked in the live preview. In that case
 the pasted block carries a `↳ targets element:` line naming the element's tag, visible text, DOM
 path, and Tailwind classes — use it to locate exactly which part of the preview `code` the feedback
 is about, rather than guessing. On the stored node, such a comment has an `element` field with the
 same info, plus a `locator` (an nth-child path the canvas uses to place the comment's pin). Keep
-`element` as it is when you rewrite a node's comments; you never need to write a `locator` yourself.
+`element`, `sentAt`, `resolvedAt` and `resolution` as they are if you ever rewrite a node's comments;
+you never need to write a `locator` yourself.
 
 ## Notes
 

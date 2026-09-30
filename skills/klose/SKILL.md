@@ -147,8 +147,13 @@ npx klose project add-node <projectId> @/tmp/sketch.json
   don't fall back to generic defaults when the repo already has a design language. Contract for this
   code (it runs in an isolated sandbox, not the real app):
   - A single self-contained file: one default-exported function component, no props required to render.
-  - Only `react`, `lucide-react`, and `recharts` are available via `require(...)` / `import` — no other
-    imports, no fetch/network calls (the sandbox blocks them).
+  - Only `react`, `lucide-react`, `recharts`, and GitHub's Primer (`@primer/react`,
+    `@primer/react/experimental`, `@primer/octicons-react`) are available via `require(...)` / `import`
+    — no other imports, no fetch/network calls (the sandbox blocks them).
+  - If the repo uses Primer, render real Primer components: wrap the sketch in
+    `<ThemeProvider><BaseStyles>…</BaseStyles></ThemeProvider>`, paint a background with
+    `var(--bgColor-default)` (the frame behind it is dark), and style anything custom with Primer's
+    token variables (`var(--fgColor-muted)`, `var(--borderColor-default)`, …) rather than hex values.
   - Style with Tailwind utility classes. The sandbox compiles Tailwind locally and loads **the repo's
     own tokens** — its `tailwind.config.*` theme, `@theme` blocks and `:root` CSS variables — so use
     the repo's class names (`bg-primary`, `text-brand-500`, `rounded-card`) and `var(--...)`s rather

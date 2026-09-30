@@ -547,7 +547,7 @@ The server pushes live updates over SSE, but if a change doesn't appear within a
 refresh the tab.
 
 **A preview shows a spinner or stays blank.**
-Live previews use the React, Babel, Tailwind, icon, and chart runtimes bundled with Klose; they do not
+Live previews use the React, Babel, Tailwind, icon, chart and Primer runtimes bundled with Klose; they do not
 need internet access. Rebuild or reinstall Klose if the local runtime fails to load. Repo components
 with relative imports are intentionally not executed in isolation: use a self-contained sketch until
 safe project-aware bundling is available.

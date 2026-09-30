@@ -13,12 +13,16 @@ let inspecting = false;
 // when they change, so the repo's tokens land here and utilities rebuild.
 const themeStyle = document.querySelector('style[type="text/tailwindcss"]') as HTMLStyleElement | null;
 
-// Recharts and Lucide are most of what a preview would otherwise parse before
-// it can render, and most sketches use neither — so they're separate chunks,
-// loaded only when the compiled code actually requires them.
+// Recharts, Lucide and Primer are most of what a preview would otherwise parse
+// before it can render, and most sketches use none of them — so they're
+// separate chunks, loaded only when the compiled code actually requires them.
 const lazyModules: Record<string, () => Promise<unknown>> = {
   'lucide-react': () => import('lucide-react'),
   recharts: () => import('recharts'),
+  '@primer/react': () => import('./preview/primer'),
+  // Experimental components still need Primer's token stylesheets.
+  '@primer/react/experimental': () => import('./preview/primer').then(() => import('@primer/react/experimental')),
+  '@primer/octicons-react': () => import('@primer/octicons-react'),
 };
 const loadedModules = new Map<string, unknown>([['react', React]]);
 let renderSeq = 0;

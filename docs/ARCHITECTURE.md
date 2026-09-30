@@ -105,7 +105,8 @@ to every elevated surface on the canvas (the inspector, the sketch frames, the n
   notes the agent reads) all work exactly as before — none of that logic depended on AI.
 - A node can optionally carry `code`: self-contained React/TSX written by the agent, rendered live in
   a sandboxed iframe (`components/Runtime/Preview.tsx` + `sandboxBootstrap.ts`) via Babel-in-browser
-  transpilation, with only `react`, `lucide-react`, and `recharts` available inside the sandbox (all
+  transpilation, with only `react`, `lucide-react`, `recharts`, and Primer (`@primer/react`, its experimental entry and
+  `@primer/octicons-react`, plus `@primer/primitives` token CSS) available inside the sandbox (all
   loaded from esm.sh inside the iframe — no dependency on Klose's own bundle). The sandbox runs with
   `sandbox="allow-scripts"` (no `allow-same-origin`) and a `connect-src 'none'` CSP, so agent-written
   code can't reach the parent page's storage or the network. A node with no `code` just shows its

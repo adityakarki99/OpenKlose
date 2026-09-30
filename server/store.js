@@ -100,12 +100,22 @@ export async function createProject(cwd, name = 'Untitled Project') {
   return project;
 }
 
+/**
+ * The timestamp an edit stamps on a project. Always later than the one it
+ * replaces, even when two writes land in the same millisecond, so "has this
+ * changed since?" comparisons can trust it.
+ */
+function nextUpdatedAt(previous, now = Date.now()) {
+  const before = Date.parse(previous);
+  return new Date(Number.isFinite(before) && before >= now ? before + 1 : now).toISOString();
+}
+
 // `savedToRepo` is bookkeeping owned by setSavedToRepo: a caller round-tripping
 // a project it read earlier must not be able to put a stale copy back.
 export async function updateProject(cwd, id, updates) {
   const existing = await readProjectFile(cwd, id);
   const { savedToRepo: _ignored, ...rest } = updates || {};
-  const merged = { ...existing, ...rest, id, updated_at: new Date().toISOString() };
+  const merged = { ...existing, ...rest, id, updated_at: nextUpdatedAt(existing.updated_at) };
   await writeProjectFile(cwd, merged);
   return merged;
 }
@@ -156,7 +166,7 @@ export async function addNode(cwd, id, node) {
     ...placeNode(project.nodes || [], node),
   };
   project.nodes = [...(project.nodes || []), newNode];
-  project.updated_at = new Date().toISOString();
+  project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
   return newNode;
 }
@@ -170,7 +180,7 @@ export async function updateNode(cwd, id, nodeId, updates) {
     return updatedNode;
   });
   if (!updatedNode) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');
-  project.updated_at = new Date().toISOString();
+  project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
   return updatedNode;
 }
@@ -226,7 +236,7 @@ export async function resolveComments(cwd, id, nodeId, commentIds = [], { note, 
   });
   if (resolved.length) {
     node.updatedAt = now;
-    project.updated_at = new Date(now).toISOString();
+    project.updated_at = nextUpdatedAt(project.updated_at, now);
     await writeProjectFile(cwd, project);
   }
   return { resolved, open: node.comments.filter((c) => !c.resolvedAt).length };
@@ -312,7 +322,7 @@ export async function cleanup(cwd, { built = true, emptyProjects = true, apply =
       );
       if (apply) {
         project.nodes = nodes;
-        project.updated_at = new Date().toISOString();
+        project.updated_at = nextUpdatedAt(project.updated_at);
         await writeProjectFile(cwd, project);
       }
     }

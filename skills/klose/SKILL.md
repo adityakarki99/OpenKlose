@@ -187,17 +187,20 @@ npx klose project update-node <projectId> <nodeId> '{"comments":[]}'
 
 ## Comments: the user's other way of talking to you
 
-The inspector panel's "Copy for agent" button formats a sketch's `comments` (plus its name and the
+The feedback tray's "Copy feedback for agent" button formats `comments` (plus sketch names and the
 project/node ids) as text for the user to paste into this chat — so a pasted block that starts with
-"Feedback on the ... sketch" is a comment dump, not a fresh request. Treat it as feedback on that
-specific sketch: read the sketch's current `code`/`notes` first, apply the feedback, update it
+"Feedback on the ... sketch" (one sketch) or "Feedback on N sketches" (a `## "name" (node id)`
+section per sketch) is a comment dump, not a fresh request. Comment numbers count within each
+sketch and match the pins the user sees on its preview. Treat it as feedback on those specific
+sketches: read the sketch's current `code`/`notes` first, apply the feedback, update it
 (step 5's `update-node`, or step 6 if it's ready to build), and clear the addressed comments as above.
 
 A comment can be **scoped to a specific element** the user clicked in the live preview. In that case
 the pasted block carries a `↳ targets element:` line naming the element's tag, visible text, DOM
 path, and Tailwind classes — use it to locate exactly which part of the preview `code` the feedback
 is about, rather than guessing. On the stored node, such a comment has an `element` field with the
-same info.
+same info, plus a `locator` (an nth-child path the canvas uses to place the comment's pin). Keep
+`element` as it is when you rewrite a node's comments; you never need to write a `locator` yourself.
 
 ## Notes
 

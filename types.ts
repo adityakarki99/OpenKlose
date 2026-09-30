@@ -44,6 +44,22 @@ export interface SelectedElementInfo {
   classes: string;
   /** Short ancestor breadcrumb of tag names, e.g. "div > div > button". */
   path: string;
+  /**
+   * nth-child path from the preview root, e.g. "1>3>2" — lets the canvas put
+   * the comment's pin back on this exact element. Absent on older comments.
+   */
+  locator?: string;
+}
+
+/** Where a commented element sits inside its sketch's preview, in preview pixels. */
+export interface PinPosition {
+  /** The comment id (or "draft" for the element picked for the next comment). */
+  id: string;
+  found: boolean;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
 }
 
 /** A prop pulled from a component's `NameProps` interface/type by the scanner. */

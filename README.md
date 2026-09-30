@@ -279,12 +279,13 @@ keep in mind.
 
 ### 4. Leave feedback
 
-Select a sketch to open its inspector. Add a comment, or hit **Point to an element** and click a
-specific button or heading in the preview to scope your feedback to it. **Copy for agent** formats
-everything — including the targeted element — as text you paste straight back into the chat.
+Select a sketch and write in the **feedback tray** on the right, or hit **Comment** in the toolbar
+above the sketch and click a specific button or heading in the preview to pin your feedback to it.
+**Copy feedback for agent** formats everything — including the targeted elements — as text you paste
+straight back into the chat.
 
 <div align="center">
-<img src="docs/images/inspector.png" alt="The sketch inspector — name, description, agent notes, and comments including an element-scoped one" width="900">
+<img src="docs/images/inspector.png" alt="A selected sketch with its toolbar and a numbered comment pin, and the feedback tray listing its comments" width="900">
 </div>
 
 ### 5. Build it for real
@@ -354,31 +355,33 @@ be useful, but when it has it, you see the actual thing, interactive.
 ### Resize, screenshot, and read the code
 
 Drag any frame handle to resize a sketch — edges snap to the grid, **Shift** on a corner keeps the
-ratio, **Alt** ignores the grid, and a live readout shows the exact size. The inspector takes exact
-width/height values and a few device presets, and the frame's **fit** button snaps it to the size its
-preview actually wants.
+ratio, **Alt** ignores the grid, and a live readout shows the exact size. **Details** in the
+sketch's toolbar takes exact width/height values and a few device presets, and **Fit to preview**
+snaps the frame to the size its preview actually wants.
 
-The camera button saves a 2× PNG of the preview (hold **Alt** to copy it to the clipboard instead) —
-taken inside the sandbox, so nothing leaves your machine. The `</>` button flips the frame to the
-preview's source: the exact code the sandbox renders, with a copy button.
+**Screenshot** in the toolbar's ⋯ menu saves a 2× PNG of the preview (hold **Alt** to copy it to the
+clipboard instead) — taken inside the sandbox, so nothing leaves your machine. The `</>` button flips
+the frame to the preview's source: the exact code the sandbox renders, with a copy button.
 
 ### Comments & "Copy for agent"
 
 <div align="center">
-<img src="docs/images/inspector.png" alt="Comments on a sketch, with a Copy for agent button" width="760">
+<img src="docs/images/inspector.png" alt="Comments on a sketch in the feedback tray, with a Copy feedback for agent button" width="760">
 </div>
 
-Leave freeform feedback on any sketch. **Copy for agent** formats all of a sketch's comments — plus
-its name and IDs — into a tidy block you paste back into Claude Code, which reads it as instructions
-and clears the ones it handles.
+Leave freeform feedback on any sketch in the feedback tray. Switch it between **This sketch** and
+**All sketches**, and **Copy feedback for agent** formats those comments — plus names and IDs — into a
+tidy block you paste back into Claude Code, which reads it as instructions and clears the ones it
+handles. Collapse the tray to a thin strip when you need the room; it remembers how you left it.
 
 ### Element-scoped comments
 
-Click the **target** button on the frame — it sits with the code and camera buttons, where you are
-already looking — then click an element in the live preview. Or skip the button: while the comment
-box has focus the preview is already targetable, so you can start typing, click the thing you mean,
-and carry on. Either way the element lands as a token on the comment's own input line, and the agent
-gets the exact tag, text, classes and DOM path — so "make this bigger" is unambiguous.
+Click **Comment** in the sketch's toolbar, then click an element in the live preview. Or skip the
+button: while the comment box has focus the preview is already targetable, so you can start typing,
+click the thing you mean, and carry on. Either way the element lands as a token on the comment's own
+input line, and the agent gets the exact tag, text, classes and DOM path — so "make this bigger" is
+unambiguous. Each element comment shows as a numbered **pin** on the element itself; click a pin to
+find its comment in the tray, or to read it in place when the tray is collapsed.
 
 ### Grounded in your design system
 

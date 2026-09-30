@@ -90,7 +90,7 @@ The skill (see `skills/klose/SKILL.md`) instructs the agent to:
 (`--color-app-surface-elevated`, `--color-app-border-strong`, …), and utilities must spell the token
 exactly: `bg-app-surface-elevated`, not `bg-app-surfaceElevated`. A camelCase name generates no CSS at
 all and the element silently renders with no background or border colour — which is what had happened
-to every elevated surface on the canvas (the inspector, the sketch frames, the nav rail).
+to every elevated surface on the canvas (the feedback tray, the sketch frames, the nav rail).
 
 ## The Canvas UI
 
@@ -126,18 +126,30 @@ to every elevated surface on the canvas (the inspector, the sketch frames, the n
   the minimum frame size. The canvas drives it with pointer events coalesced onto animation frames,
   and switches every preview to `pointer-events: none` for the duration of a gesture — an interactive
   iframe otherwise swallows the moves the moment the cursor crosses it.
-- A node can also carry `comments`: freeform feedback left in the `SketchInspector` panel — docked
-  bottom-right, titled by the sketch's own name and description, and opening on the comment thread
-  with description, notes, frame size and status folded away behind disclosures, so the panel is as
-  tall as the work needs rather than as tall as the window. The composer is pinned below the thread.
-  Comments also show as a small count badge on the card. "Copy for agent" formats them (with the sketch's name and the
-  project/node ids) as text meant to be pasted straight into the coding agent's chat. A comment can
-  optionally carry an `element` (`SelectedElementInfo`): the sandbox reports the clicked element's
-  tag/text/classes/DOM-path via postMessage, and the next comment is scoped to it — so the agent
-  knows exactly which part of the preview the feedback targets.
+- A node can also carry `comments`: freeform feedback, written and read in the **feedback tray**
+  (`components/Sidebar/FeedbackTray.tsx`) docked on the right of the canvas. Open (380px) it lists
+  the comments of the selected sketch or of every sketch, holds the composer, and copies feedback for
+  the agent; collapsed (64px) it is a strip with the comment count, one entry per sketch and a copy
+  button. Its open/collapsed state is remembered in `localStorage`, and the canvas scroll area stops
+  at its edge so it never covers a frame. "Copy for agent" formats comments (with the sketch's name
+  and the project/node ids) via `lib/feedback.js` as text meant to be pasted straight into the coding
+  agent's chat. The selected sketch's name, status, description, notes and frame size live in a
+  **toolbar above the frame** (`SketchToolbar.tsx`: Details, Comment, code, and a ⋯ menu with
+  screenshot, fit, duplicate and delete).
+- A comment can optionally carry an `element` (`SelectedElementInfo`): the sandbox reports the
+  clicked element's tag/text/classes/DOM-path — plus a `locator`, its nth-child path from the preview
+  root — via postMessage, and the next comment is scoped to it, so the agent knows exactly which part
+  of the preview the feedback targets. **Element comments are drawn as numbered pins on the preview**
+  (`CommentPins.tsx`): the canvas sends the selected sketch's commented elements to the sandbox
+  (`locate`), and the sandbox answers with their boxes (`pins`) after every render, resize and
+  scroll. It finds each element by its locator, or, for older comments without one, by the best
+  text/classes/breadcrumb match (`lib/pins.js`, which refuses to pin on a breadcrumb match alone).
+  Pin numbers match the tray and the copied text. Clicking a pin highlights its comment in the tray,
+  or opens it as a popup by the pin when the tray is collapsed. Comments on the whole sketch pin to
+  the frame's right edge.
 - **Targeting an element has two entry points, and `lib/targeting.js` decides which frame accepts a
-  pick.** The frame's own toggle (next to the code and camera buttons) pins targeting to that sketch
-  for one pick; focusing the comment composer targets the selected sketch for as long as it holds
+  pick.** The toolbar's Comment button pins targeting to that sketch for one pick (and opens the
+  tray); focusing the comment composer targets the selected sketch for as long as it holds
   focus, so the common case needs no mode switch. A pick moves focus into the preview's iframe, so
   the composer's blur handler ignores a blur that landed on a preview (`focusMovedIntoPreview`) and
   the canvas hands focus back to the composer once the element arrives — the draft survives, and

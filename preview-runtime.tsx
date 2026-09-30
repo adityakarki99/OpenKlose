@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Babel from '@babel/standalone';
 import { capture } from './preview/screenshot';
+import { locatorFor, pickBestCandidate, resolveLocator } from './lib/pins.js';
 import '@tailwindcss/browser';
 
 const rootElement = document.getElementById('root');
@@ -60,7 +61,39 @@ function elementInfo(element: HTMLElement) {
     text: (element.innerText || element.textContent || '').trim().slice(0, 100),
     classes: (typeof element.className === 'string' ? element.className : '').trim().slice(0, 200),
     path: describePath(element),
+    locator: locatorFor(element, rootElement),
   };
+}
+
+/** Comments whose elements should carry pins, as last sent by the canvas. */
+let pinTargets: Array<{ id: string; element: ReturnType<typeof elementInfo> }> = [];
+let pinTimer: ReturnType<typeof setTimeout> | undefined;
+
+function findElement(info: ReturnType<typeof elementInfo>): Element | null {
+  const byLocator = resolveLocator(rootElement, info.locator || '') as Element | null;
+  if (byLocator && byLocator.tagName.toLowerCase() === info.tagName) return byLocator;
+  if (!info.tagName || !/^[a-z][a-z0-9-]*$/.test(info.tagName)) return null;
+  const elements = Array.from(rootElement!.querySelectorAll(info.tagName)) as HTMLElement[];
+  const index = pickBestCandidate(elements.map((el) => elementInfo(el)), info);
+  return index >= 0 ? elements[index] : null;
+}
+
+/**
+ * Tells the canvas where each commented element is, in this frame's own
+ * pixels, so it can draw the pins over the iframe. Debounced like the content
+ * size, and for the same reason: a throttled frame may never paint.
+ */
+function reportPins() {
+  clearTimeout(pinTimer);
+  pinTimer = setTimeout(() => {
+    const pins = pinTargets.map(({ id, element }) => {
+      const el = findElement(element);
+      if (!el) return { id, found: false };
+      const rect = el.getBoundingClientRect();
+      return { id, found: true, x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    });
+    post({ type: 'pins', pins });
+  }, 60);
 }
 
 function isComponent(value: unknown): boolean {
@@ -113,7 +146,10 @@ async function renderCode(code: string, exportName?: string) {
  * Reports how much room the rendered component actually wants, so the canvas can
  * offer "fit the frame to the preview" instead of making the user eyeball it.
  */
-const contentObserver = new ResizeObserver(() => postContentSize());
+const contentObserver = new ResizeObserver(() => {
+  postContentSize();
+  reportPins();
+});
 let contentTimer: ReturnType<typeof setTimeout> | undefined;
 
 function postContentSize() {
@@ -137,7 +173,11 @@ function observeContent() {
   const content = rootElement.firstElementChild;
   if (content) contentObserver.observe(content);
   postContentSize();
+  reportPins();
 }
+
+window.addEventListener('resize', reportPins);
+document.addEventListener('scroll', reportPins, true);
 
 async function handleCapture(id: unknown, scale: unknown) {
   try {
@@ -186,6 +226,10 @@ window.addEventListener('message', (event) => {
     document.body.style.backgroundColor = surfaceColor;
   }
   if (data.type === 'capture') handleCapture(data.id, data.scale);
+  if (data.type === 'locate' && Array.isArray(data.targets)) {
+    pinTargets = data.targets.filter((t: { id?: unknown; element?: unknown }) => typeof t?.id === 'string' && t.element && typeof t.element === 'object');
+    reportPins();
+  }
   if (data.type === 'setInspecting') {
     inspecting = !!data.value;
     document.body.classList.toggle('sb-inspecting', inspecting);

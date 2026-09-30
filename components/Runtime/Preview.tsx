@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import * as LucideReact from 'lucide-react';
-import type { SelectedElementInfo } from '../../types';
+import type { PinPosition, SelectedElementInfo } from '../../types';
 
 interface PreviewProps {
   code: string;
@@ -26,6 +26,10 @@ interface PreviewProps {
   onElementSelect?: (info: SelectedElementInfo) => void;
   /** Called with the rendered component's own size, so the frame can be fitted to it. */
   onContentSize?: (size: { width: number; height: number }) => void;
+  /** Commented elements to locate; their positions come back through onPins. */
+  pinTargets?: Array<{ id: string; element: SelectedElementInfo }>;
+  /** Called whenever the sandbox re-measures the pinned elements. */
+  onPins?: (pins: PinPosition[]) => void;
 }
 
 export interface PreviewHandle {
@@ -68,7 +72,7 @@ function loadThemeCss(): Promise<string> {
  * cannot read a cross-origin frame's pixels.
  */
 const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
-  { code, exportName, interactive = true, isInspecting = false, onElementSelect, onContentSize },
+  { code, exportName, interactive = true, isInspecting = false, onElementSelect, onContentSize, pinTargets, onPins },
   ref
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -79,6 +83,8 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   onElementSelectRef.current = onElementSelect;
   const onContentSizeRef = useRef(onContentSize);
   onContentSizeRef.current = onContentSize;
+  const onPinsRef = useRef(onPins);
+  onPinsRef.current = onPins;
   const pendingCapturesRef = useRef(new Map<string, PendingCapture>());
   const readyRef = useRef(false);
   readyRef.current = ready;
@@ -172,6 +178,9 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onContentSizeRef.current?.({ width: data.width, height: data.height });
           }
           break;
+        case 'pins':
+          if (Array.isArray(data.pins)) onPinsRef.current?.(data.pins as PinPosition[]);
+          break;
         case 'capture':
           settleCapture(data.id, (entry) => {
             if (typeof data.dataUrl === 'string') entry.resolve(data.dataUrl);
@@ -228,6 +237,13 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     }, READY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [ready]);
+
+  // Sent as a string key so a new array with the same targets doesn't re-post.
+  const pinTargetsKey = JSON.stringify(pinTargets ?? []);
+  useEffect(() => {
+    if (!ready) return;
+    postToFrame({ type: 'locate', targets: JSON.parse(pinTargetsKey) });
+  }, [ready, pinTargetsKey, postToFrame]);
 
   useEffect(() => {
     if (!ready) return;

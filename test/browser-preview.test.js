@@ -266,3 +266,71 @@ test("repo tokens reach the sandbox, and a lazily loaded library still renders",
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('a picked element carries a locator, and the sandbox reports where commented elements are', { skip: canRun ? false : 'Chromium or built web assets unavailable' }, async () => {
+  const server = createKloseServer({ cwd: root, publicDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ executablePath: executable, headless: true });
+    const page = await browser.newPage();
+    await page.goto(origin);
+    // The host page keeps every sandbox message so the test can wait on them.
+    await page.evaluate(() => {
+      window.sandboxMessages = [];
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = '/preview.html';
+      frame.style.cssText = 'width:600px;height:400px;border:0;position:absolute;left:0;top:0';
+      document.body.style.margin = '0';
+      document.body.appendChild(frame);
+      window.sandboxFrame = frame;
+      addEventListener('message', (event) => {
+        if (event.source !== frame.contentWindow || event.data?.source !== 'klose-sandbox') return;
+        window.sandboxMessages.push(event.data);
+        if (event.data.type === 'ready') {
+          frame.contentWindow.postMessage({
+            type: 'render',
+            code: "import React from 'react'; export default function Demo(){ return <div style={{ padding: 20 }}><h1 style={{ margin: 0, height: 40 }}>Title</h1><button className=\"cta\" style={{ marginTop: 30, width: 120, height: 40 }}>Subscribe</button></div>; }",
+          }, '*');
+        }
+      });
+    });
+    const waitFor = (type) =>
+      page.waitForFunction((t) => window.sandboxMessages.filter((m) => m.type === t).at(-1) ?? false, type, { timeout: 15_000 }).then((h) => h.jsonValue());
+
+    await waitFor('rendered');
+    await page.evaluate(() => window.sandboxFrame.contentWindow.postMessage({ type: 'setInspecting', value: true }, '*'));
+    const frame = page.frames().find((f) => f.url().endsWith('/preview.html'));
+    await frame.click('button');
+    const selected = await waitFor('select');
+    assert.equal(selected.info.tagName, 'button');
+    assert.equal(selected.info.locator, '1>2');
+
+    await page.evaluate((info) => {
+      window.sandboxMessages.length = 0;
+      window.sandboxFrame.contentWindow.postMessage({
+        type: 'locate',
+        targets: [
+          { id: 'by-locator', element: info },
+          // An older comment: no locator, found by its text and classes instead.
+          { id: 'by-match', element: { tagName: 'button', text: 'Subscribe', classes: 'cta', path: 'div > button' } },
+          { id: 'gone', element: { tagName: 'table', text: 'Nope', classes: '', path: 'table' } },
+        ],
+      }, '*');
+    }, selected.info);
+    const { pins } = await waitFor('pins');
+    const byId = Object.fromEntries(pins.map((p) => [p.id, p]));
+    assert.equal(byId['by-locator'].found, true);
+    // The button's own box, in the frame's pixels (the sandbox centres the component).
+    assert.deepEqual([byId['by-locator'].width, byId['by-locator'].height], [120, 40]);
+    assert.ok(byId['by-locator'].x > 0 && byId['by-locator'].y > 0);
+    // Both ways of finding it land on the same element.
+    assert.deepEqual({ ...byId['by-match'], id: 'by-locator' }, byId['by-locator']);
+    assert.equal(byId.gone.found, false);
+  } finally {
+    await browser?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

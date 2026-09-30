@@ -2,11 +2,41 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Box, FileCode2, Copy, Check, RefreshCw, Loader2, ChevronRight, X, Blocks,
-  GitBranch, FolderGit2, Eye, EyeOff, PlusSquare, ChevronDown,
+  GitBranch, FolderGit2, Eye, EyeOff, PlusSquare, ChevronDown, Sparkles, Layers,
 } from 'lucide-react';
-import { listComponents, getComponentSource } from '../services/componentService';
+import { listComponents, getComponentSource, classifyComponents, rankComponents, rankAllRepos } from '../services/componentService';
 import { listProjects, createProject, addNode } from '../services/projectService';
-import { RepoComponent, ComponentIndex, Project } from '../types';
+import { RepoComponent, ComponentIndex, ComponentRanking, ComponentRole, Project } from '../types';
+import { REPO_ID } from '../lib/repoScope';
+
+const ROLE_LABELS: Record<ComponentRole, string> = {
+  primitive: 'Primitives',
+  composite: 'Composites',
+  screen: 'Screens',
+  provider: 'Providers',
+};
+
+const VERDICTS: Record<ComponentRanking['verdict'], { title: string; body: string; tone: string }> = {
+  reuse: { title: 'Something here already does this', body: 'Reuse or extend the top match instead of sketching a new one.', tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' },
+  partial: { title: 'A partial fit', body: 'Check the top matches before deciding to build something new.', tone: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
+  new: { title: 'Nothing here does this job', body: 'Sketch a new component — the closest matches are below for reference.', tone: 'border-app-border bg-app-surface-soft text-app-secondary' },
+};
+
+/** "primitive · input" — what Jev said a component is. */
+const RoleBadge: React.FC<{ component: RepoComponent }> = ({ component }) =>
+  component.role ? (
+    <span
+      className="flex-shrink-0 rounded-full border border-app-border px-1.5 py-0.5 text-[10px] font-medium text-app-muted"
+      title={component.roleConfidence != null ? `Jev: ${Math.round(component.roleConfidence * 100)}% sure of the role` : undefined}
+    >
+      {component.role} · {component.kind}
+    </span>
+  ) : null;
+
+/** A ranked component from another repo lives on that repo's page; its id is "<repo id>:<component id>". */
+function ownId(c: RepoComponent): string {
+  return c.repo ? c.id.slice(c.repo.id.length + 1) : c.id;
+}
 import Preview from '../components/Runtime/Preview';
 
 function reuseNote(c: RepoComponent): string {
@@ -183,6 +213,7 @@ const Detail: React.FC<{ component: RepoComponent; onClose: () => void }> = ({ c
             <Box size={16} className="flex-shrink-0 text-ceko-accent" />
             <h2 className="truncate text-lg font-semibold text-app-primary">{component.name}</h2>
             <span className="rounded-full border border-app-border bg-app-surface-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-subtle">{component.category}</span>
+            <RoleBadge component={component} />
           </div>
           <p className="mt-1 font-mono text-xs text-app-muted">{component.file}:{component.line}</p>
         </div>
@@ -256,6 +287,18 @@ const ComponentsPage: React.FC = () => {
   const [selected, setSelected] = useState<RepoComponent | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Jev: classification (role filters, duplicates) and search by meaning.
+  const [role, setRole] = useState<ComponentRole | null>(null);
+  const [onlyIds, setOnlyIds] = useState<Set<string> | null>(null);
+  const [classifying, setClassifying] = useState(false);
+  const [classifyNote, setClassifyNote] = useState<string | null>(null);
+  const [ranking, setRanking] = useState<ComponentRanking | null>(null);
+  const [rankedFor, setRankedFor] = useState('');
+  const [isRanking, setIsRanking] = useState(false);
+  const [rankError, setRankError] = useState<string | null>(null);
+  const [allRepos, setAllRepos] = useState(false);
+  const jevAvailable = Boolean(index?.jev?.available);
+
   const load = async (refresh = false) => {
     try {
       refresh ? setRefreshing(true) : setIsLoading(true);
@@ -273,6 +316,64 @@ const ComponentsPage: React.FC = () => {
 
   useEffect(() => { load(); }, []);
 
+  // Arriving from another repo's search result: open the component it named.
+  useEffect(() => {
+    if (!index) return;
+    const focus = new URLSearchParams(window.location.search).get('focus');
+    const found = focus && index.components.find((c) => c.id === focus);
+    if (found) setSelected(found);
+  }, [index]);
+
+  const classify = async () => {
+    setClassifying(true);
+    setClassifyNote(null);
+    try {
+      const summary = await classifyComponents();
+      const failed = summary.failed ? ` ${summary.failed} failed${summary.error ? ` (${summary.error})` : ''}.` : '';
+      setClassifyNote(`Classified ${summary.classified} new component${summary.classified === 1 ? '' : 's'}.${failed}`);
+      await load();
+    } catch (err) {
+      setClassifyNote(err instanceof Error ? err.message : 'Classification failed');
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const askJev = async () => {
+    const need = query.trim();
+    if (!need || isRanking) return;
+    setIsRanking(true);
+    setRankError(null);
+    try {
+      setRanking(await (allRepos ? rankAllRepos(need) : rankComponents(need)));
+      setRankedFor(need);
+    } catch (err) {
+      setRankError(err instanceof Error ? err.message : 'Search failed');
+    } finally {
+      setIsRanking(false);
+    }
+  };
+
+  const clearRanking = () => {
+    setRanking(null);
+    setRankedFor('');
+    setRankError(null);
+  };
+
+  const openResult = (c: RepoComponent) => {
+    if (c.repo && c.repo.id !== REPO_ID) {
+      window.location.assign(`/r/${c.repo.id}/components?focus=${encodeURIComponent(ownId(c))}`);
+      return;
+    }
+    setSelected(index?.components.find((x) => x.id === ownId(c)) || c);
+  };
+
+  const roles = useMemo(() => {
+    const counts = new Map<ComponentRole, number>();
+    for (const c of index?.components || []) if (c.role) counts.set(c.role, (counts.get(c.role) || 0) + 1);
+    return (Object.keys(ROLE_LABELS) as ComponentRole[]).filter((r) => counts.has(r)).map((r) => ({ role: r, count: counts.get(r)! }));
+  }, [index]);
+
   const categories = useMemo(() => {
     if (!index) return [];
     const counts = new Map<string, number>();
@@ -282,14 +383,22 @@ const ComponentsPage: React.FC = () => {
 
   const filtered = useMemo(() => {
     if (!index) return [];
+    // A ranking already answered the query, in its own order.
+    if (ranking) {
+      return ranking.ranked.slice(0, 12).filter((c) => (!role || c.role === role) && (!category || c.repo || c.category === category));
+    }
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return index.components.filter((c) => {
+      if (onlyIds && !onlyIds.has(c.id)) return false;
+      if (role && c.role !== role) return false;
       if (category && c.category !== category) return false;
       if (terms.length === 0) return true;
-      const hay = `${c.name} ${c.file} ${c.category} ${c.description} ${c.props.map((p) => p.name).join(' ')}`.toLowerCase();
+      const hay = `${c.name} ${c.file} ${c.category} ${c.description} ${c.role || ''} ${c.kind || ''} ${c.props.map((p) => p.name).join(' ')}`.toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
-  }, [index, query, category]);
+  }, [index, query, category, role, onlyIds, ranking]);
+
+  const unclassified = index ? index.count - (index.classified || 0) : 0;
 
   return (
     <div className="flex h-full overflow-hidden bg-app-bg font-sans text-app-primary selection:bg-ceko-accent/30">
@@ -307,6 +416,18 @@ const ComponentsPage: React.FC = () => {
                 </span>
               </div>
             </div>
+            <div className="flex flex-shrink-0 items-center gap-2">
+            {jevAvailable && unclassified > 0 && (
+              <button
+                onClick={classify}
+                disabled={classifying}
+                className="inline-flex items-center gap-2 rounded-lg border border-ceko-accent/40 bg-ceko-accent/15 px-3 py-2 text-xs font-semibold text-ceko-accent transition-colors hover:bg-ceko-accent/25 disabled:opacity-60"
+                title={`Ask Jev what each of the ${unclassified} unclassified components is: one request each, sending names, paths, props and doc comments — no source code`}
+              >
+                {classifying ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {classifying ? `Classifying ${unclassified}…` : `Classify ${unclassified} with Jev`}
+              </button>
+            )}
             <button
               onClick={() => load(true)}
               disabled={refreshing}
@@ -315,20 +436,65 @@ const ComponentsPage: React.FC = () => {
             >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Rescan
             </button>
+            </div>
           </div>
 
           <div className="relative mt-4">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-subtle" />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, file, prop, or description…"
-              className="w-full rounded-xl border border-app-border bg-app-surface py-2.5 pl-10 pr-3 text-sm text-app-primary outline-none placeholder:text-app-subtle focus:border-ceko-accent/60"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (ranking) clearRanking();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && jevAvailable) askJev();
+              }}
+              placeholder={jevAvailable ? 'Search by name, or describe what you need and press Enter to ask Jev…' : 'Search by name, file, prop, or description…'}
+              className={`w-full rounded-xl border border-app-border bg-app-surface py-2.5 pl-10 text-sm text-app-primary outline-none placeholder:text-app-subtle focus:border-ceko-accent/60 ${jevAvailable ? 'pr-44' : 'pr-3'}`}
             />
+            {jevAvailable && (
+              <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-2">
+                {REPO_ID && (
+                  <label className="flex cursor-pointer items-center gap-1 text-[11px] text-app-muted" title="Search every repo the hub knows about">
+                    <input type="checkbox" checked={allRepos} onChange={(e) => { setAllRepos(e.target.checked); clearRanking(); }} className="accent-blue-500" />
+                    All repos
+                  </label>
+                )}
+                <button
+                  onClick={askJev}
+                  disabled={!query.trim() || isRanking}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-ceko-accent px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-40"
+                  title="Rank components by how well they fit what you described (one Jev request; no source code is sent)"
+                >
+                  {isRanking ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  Ask Jev
+                </button>
+              </div>
+            )}
           </div>
+          {!jevAvailable && index && (
+            <p className="mt-2 text-[11px] text-app-subtle">
+              Set <code className="font-mono">TYPESAFE_API_KEY</code> before starting Klose to sort these by role and search them by meaning with Jev.
+            </p>
+          )}
+          {classifyNote && <p className="mt-2 text-[11px] text-app-muted">{classifyNote}</p>}
 
-          {categories.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+          {roles.length > 0 && !onlyIds && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.14em] text-app-subtle">Role</span>
+              <button onClick={() => setRole(null)} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${role === null ? 'border-ceko-accent/50 bg-ceko-accent/15 text-ceko-accent' : 'border-app-border text-app-muted hover:text-app-primary'}`}>All</button>
+              {roles.map((r) => (
+                <button key={r.role} onClick={() => setRole(role === r.role ? null : r.role)} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${role === r.role ? 'border-ceko-accent/50 bg-ceko-accent/15 text-ceko-accent' : 'border-app-border text-app-muted hover:text-app-primary'}`}>
+                  {ROLE_LABELS[r.role]} <span className="opacity-60">{r.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {categories.length > 0 && !onlyIds && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {roles.length > 0 && <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.14em] text-app-subtle">Folder</span>}
               <button onClick={() => setCategory(null)} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${category === null ? 'border-ceko-accent/50 bg-ceko-accent/15 text-ceko-accent' : 'border-app-border text-app-muted hover:text-app-primary'}`}>All</button>
               {categories.map((cat) => (
                 <button key={cat.name} onClick={() => setCategory(category === cat.name ? null : cat.name)} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${category === cat.name ? 'border-ceko-accent/50 bg-ceko-accent/15 text-ceko-accent' : 'border-app-border text-app-muted hover:text-app-primary'}`}>
@@ -341,6 +507,49 @@ const ComponentsPage: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-6 canvas-scroll">
           {error && <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">{error}</div>}
+
+          {rankError && <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-400">Jev couldn't search: {rankError}</div>}
+
+          {ranking && (
+            <div className={`mb-4 flex items-start justify-between gap-3 rounded-xl border p-3 ${VERDICTS[ranking.verdict].tone}`}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Sparkles size={14} className="flex-shrink-0" />
+                  {VERDICTS[ranking.verdict].title}
+                  <span className="text-[11px] font-normal opacity-70">fit {Math.round(ranking.exists * 100)}%</span>
+                </div>
+                <p className="mt-0.5 text-xs text-app-secondary">
+                  {VERDICTS[ranking.verdict].body} Ranked for “{rankedFor}”{allRepos ? ' across every repo' : ''}
+                  {ranking.considered < ranking.total ? ` (the ${ranking.considered} of ${ranking.total} components closest to its words)` : ''}.
+                </p>
+              </div>
+              <button onClick={clearRanking} className="flex-shrink-0 rounded-md p-1 text-app-subtle hover:text-app-primary" aria-label="Clear the search"><X size={14} /></button>
+            </div>
+          )}
+
+          {!ranking && index?.duplicates && index.duplicates.length > 0 && (
+            <div className="mb-4 rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-xs font-semibold text-app-primary">
+                  <Layers size={13} className="text-amber-500" />
+                  Primitives that may do the same job
+                </span>
+                {onlyIds && <button onClick={() => setOnlyIds(null)} className="text-[11px] text-app-muted hover:text-app-primary">Show all</button>}
+              </div>
+              <p className="mt-0.5 text-[11px] text-app-muted">Worth a look before adding another — or a sign the design system has split.</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {index.duplicates.map((d) => (
+                  <button
+                    key={d.kind}
+                    onClick={() => setOnlyIds(new Set(d.components.map((c) => c.id)))}
+                    className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-500 transition-colors hover:bg-amber-500/20"
+                  >
+                    <span className="font-semibold">{d.kind}</span> · {d.components.map((c) => c.name).join(', ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isLoading ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -355,19 +564,27 @@ const ComponentsPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((c) => (
-                <button key={c.id} onClick={() => setSelected(c)} className={`group flex flex-col rounded-xl border bg-app-surface p-4 text-left transition-all hover:border-ceko-accent/50 hover:shadow-lg ${selected?.id === c.id ? 'border-ceko-accent/60 ring-1 ring-ceko-accent/30' : 'border-app-border'}`}>
+                <button key={c.id} onClick={() => openResult(c)} className={`group flex flex-col rounded-xl border bg-app-surface p-4 text-left transition-all hover:border-ceko-accent/50 hover:shadow-lg ${selected?.id === ownId(c) && !(c.repo && c.repo.id !== REPO_ID) ? 'border-ceko-accent/60 ring-1 ring-ceko-accent/30' : 'border-app-border'}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <Box size={15} className="flex-shrink-0 text-ceko-accent" />
                       <span className="truncate text-sm font-semibold text-app-primary">{c.name}</span>
                       {c.previewable && <span className="flex-shrink-0 text-emerald-400" title="Previewable in isolation"><Eye size={12} /></span>}
                     </div>
-                    <ChevronRight size={14} className="flex-shrink-0 text-app-subtle transition-transform group-hover:translate-x-0.5" />
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
+                      {c.relevance != null && (
+                        <span className="rounded-md bg-ceko-accent/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ceko-accent" title="How well Jev thinks this fits what you described">
+                          {Math.round(c.relevance * 100)}%
+                        </span>
+                      )}
+                      <ChevronRight size={14} className="text-app-subtle transition-transform group-hover:translate-x-0.5" />
+                    </div>
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-app-muted">
                     <FileCode2 size={11} className="flex-shrink-0" />
-                    <span className="truncate">{c.file}</span>
+                    <span className="truncate">{c.repo && c.repo.id !== REPO_ID ? `${c.repo.name}: ` : ''}{c.file}</span>
                   </div>
+                  {c.role && <div className="mt-1.5"><RoleBadge component={c} /></div>}
                   {c.description && <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-app-secondary">{c.description}</p>}
                   {c.props.length > 0 && (
                     <div className="mt-2.5 flex flex-wrap gap-1">

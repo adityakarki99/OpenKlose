@@ -520,6 +520,8 @@ klose update [--force]                            Upgrade the klose package and 
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)
 klose components "<need>" --rank [--top=N] [--json]   Rank components by fit using Jev (optional, needs TYPESAFE_API_KEY)
+klose components "<need>" --rank --all-repos      The same, across every repo the hub knows
+klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose project list                                List projects
 klose project create <name>                       Create a project
@@ -595,12 +597,22 @@ file in your source tree.
 No. Klose runs a local server and stores JSON files. The "intelligence" is your coding agent, which
 you're already running.
 
-The one optional exception is `klose components "<need>" --rank`, which asks
-[Jev](https://docs.typesafe.ai) (TypeSafe AI) which of your existing components fits a plain-language
-description, so the agent finds reuse candidates whose names don't match your words. It only runs
-when you pass `--rank` with `TYPESAFE_API_KEY` set, sends each component's name, path, props and doc
-comment (never source code) to `api.typesafe.ai`, and falls back to the local text search on any
-error. Without a key, nothing leaves your machine.
+The one optional exception is [Jev](https://docs.typesafe.ai) (TypeSafe AI), used for two things
+when `TYPESAFE_API_KEY` is set in the environment Klose starts in:
+
+- **Search by meaning** — `klose components "<need>" --rank`, or **Ask Jev** on the Components page:
+  which existing component fits a plain-language description, and whether anything does, so reuse
+  candidates turn up even when their names don't match your words. `--all-repos` (or **All repos**
+  on the hub) searches every repo the hub knows at once. One request per search.
+- **Classification** — `klose components --classify`, or **Classify with Jev**: what each component
+  is (a primitive, a composite, a screen, a provider) and what kind of UI (input, navigation,
+  overlay…). The Components page can then filter by role, and flags primitives that look like
+  duplicates of each other. One request per component the first time; the answers are cached on
+  your machine in `~/.klose/index/`, so later runs only pay for new or changed components.
+
+Both only run when you ask, send each component's name, path, props and doc comment (never source
+code) to `api.typesafe.ai`, and leave the plain index working on any error. Without a key, nothing
+leaves your machine.
 
 **Where does my data live?**
 In `.klose/projects/*.json` at the root of the repo you ran `klose init` in. Commit it to keep design

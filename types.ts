@@ -93,6 +93,43 @@ export interface RepoComponent {
   loc?: number;
   /** True when the file has no repo-local (relative) imports, so it can render in the sandbox. */
   previewable?: boolean;
+  /** What Jev said it is, once classified (server/classify.js). */
+  role?: ComponentRole;
+  kind?: ComponentKind;
+  roleConfidence?: number | null;
+  kindConfidence?: number | null;
+  /** 0–1 fit for a search by meaning; present only in a ranking. */
+  relevance?: number;
+  /** Which repo it's in; present only when ranking across repos. */
+  repo?: { id: string; name: string };
+}
+
+export type ComponentRole = 'primitive' | 'composite' | 'screen' | 'provider';
+export type ComponentKind =
+  | 'action' | 'input' | 'display' | 'feedback' | 'navigation' | 'overlay'
+  | 'data' | 'content' | 'layout' | 'media' | 'other';
+
+/** Primitives of the same kind — possibly one design-system piece built twice. */
+export interface DuplicateGroup {
+  kind: ComponentKind;
+  components: { id: string; name: string; file: string }[];
+}
+
+/** Jev's answer to "which of these fits, and does any?" (server/jev.js rankComponents). */
+export interface ComponentRanking {
+  exists: number;
+  verdict: 'reuse' | 'partial' | 'new';
+  considered: number;
+  total: number;
+  ranked: RepoComponent[];
+}
+
+export interface ClassifySummary {
+  total: number;
+  classified: number;
+  cached: number;
+  failed: number;
+  error: string | null;
 }
 
 export interface RepoInfo {
@@ -113,6 +150,11 @@ export interface ComponentIndex {
   truncated: boolean;
   count: number;
   components: RepoComponent[];
+  /** How many components Jev has classified (answers cached on this machine). */
+  classified?: number;
+  duplicates?: DuplicateGroup[];
+  /** Whether this server has a TYPESAFE_API_KEY, so classify and rank can run. */
+  jev?: { available: boolean };
 }
 
 export interface CanvasState {

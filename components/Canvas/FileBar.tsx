@@ -1,13 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, FileText, FolderDown, Loader2, MessageSquare, Plus, X } from 'lucide-react';
-import { Project } from '../../types';
+import { HubRepo, Project } from '../../types';
 import { listProjects, saveProjectToRepo } from '../../services/projectService';
+import { agentLine, getRepo } from '../../services/hubService';
+import { HUB_HOME, REPO_ID } from '../../lib/repoScope';
+import { AgentDot } from '../Hub/AgentDot';
 
 export const FILE_BAR_HEIGHT = 40;
 
-const OPEN_FILES_KEY = 'klose.openFiles';
+// On a hub every repo shares one origin, so each keeps its own list of tabs.
+const OPEN_FILES_KEY = REPO_ID ? `klose.openFiles.${REPO_ID}` : 'klose.openFiles';
 
-/** Ids of the files left open as tabs. Remembered per browser (so, per repo's canvas origin). */
+const AGENT_POLL_MS = 5000;
+
+/** Ids of the files left open as tabs. Remembered per browser and per repo. */
 function readOpenFiles(): string[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(OPEN_FILES_KEY) || '[]');
@@ -54,6 +60,22 @@ export const FileBar: React.FC<FileBarProps> = ({ projectId, projectName, refres
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => writeOpenFiles(openIds), [openIds]);
+
+  // On a hub: which repo this canvas belongs to, and what its agent is doing.
+  const [hubRepo, setHubRepo] = useState<HubRepo | null>(null);
+  useEffect(() => {
+    if (!REPO_ID) return;
+    let cancelled = false;
+    const load = () => {
+      getRepo(REPO_ID!).then((r) => !cancelled && setHubRepo(r)).catch(() => {});
+    };
+    load();
+    const timer = window.setInterval(() => document.visibilityState !== 'hidden' && load(), AGENT_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // Coalesced: one disk write can fire several change events.
   useEffect(() => {
@@ -141,6 +163,16 @@ export const FileBar: React.FC<FileBarProps> = ({ projectId, projectName, refres
       className="absolute left-0 top-0 z-30 flex items-stretch whitespace-nowrap border-b border-app-border bg-app-surface-elevated text-xs"
       style={{ height: FILE_BAR_HEIGHT, ...style }}
     >
+      {hubRepo && (
+        <a
+          href={HUB_HOME}
+          title={`${hubRepo.path} — ${agentLine(hubRepo)}. Back to all repos.`}
+          className="flex shrink-0 items-center gap-2 border-r border-app-border px-3 text-app-muted transition-colors hover:text-app-primary"
+        >
+          <AgentDot agent={hubRepo.agent} size="sm" />
+          <span className="max-w-[140px] truncate font-medium">{hubRepo.name}</span>
+        </a>
+      )}
       <div className="flex min-w-0 items-stretch" role="tablist" aria-label="Open Klose files">
         {tabs.map((tab) => {
           const active = tab.id === projectId;

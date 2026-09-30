@@ -12,7 +12,20 @@ just as labeled boxes), rearrange them, and store per-project design notes.
 
 ## 1. Make sure the local server is running
 
-Check whether `.klose/` exists at the repo root. If not, this is the first run:
+Start by asking whether a canvas is already up for this repo:
+
+```
+npx klose status
+```
+
+**If it says the repo is running "on the hub"**, you're done with this step: the user runs one
+machine-wide Klose (`klose hub`) that serves every repo, this one included. Don't run `init` or
+`serve` — the hub needs neither, and `.klose/` is created the first time you add a sketch. Tell the
+user the URL it printed (it looks like `http://localhost:5171/r/<id>/projects`) and go to step 2.
+Every `npx klose project …` command below works exactly the same either way.
+
+**Otherwise**, this repo runs its own canvas. Check whether `.klose/` exists at the repo root. If
+not, this is the first run:
 
 ```
 npx klose init

@@ -7,6 +7,7 @@ import * as store from './store.js';
 import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
 import { loadTheme } from './theme.js';
 import { exportProject, repoState } from './export.js';
+import { createRepoIndex, listRepos } from './hub.js';
 import { HttpError } from './errors.js';
 
 const MIME = {
@@ -108,117 +109,216 @@ async function serveStatic(res, publicDir, urlPath) {
   createReadStream(filePath).pipe(res);
 }
 
-export function createKloseServer({ cwd = process.cwd(), publicDir, version = null } = {}) {
-  const sseClients = new Set();
-
-  // What the canvas sees of a project: the stored record, with the save
-  // bookkeeping replaced by its answer ("is the repo copy up to date?").
-  const present = ({ savedToRepo, ...project }) => ({ ...project, repo: repoState(cwd, { ...project, savedToRepo }) });
+/**
+ * Live-update channel for one repo: tells connected canvases when anything
+ * under its .klose/projects/ changes (the agent's CLI writes there directly).
+ * The folder may not exist yet — Klose creates it on the first sketch — so
+ * until it does, this looks again every couple of seconds.
+ */
+function createRepoEvents(root) {
+  const clients = new Set();
+  let watcher = null;
+  let retry = null;
 
   const notify = () => {
-    for (const res of sseClients) res.write('event: update\ndata: {}\n\n');
+    for (const res of clients) res.write('event: update\ndata: {}\n\n');
+  };
+  const stop = () => {
+    watcher?.close();
+    watcher = null;
+    if (retry) clearInterval(retry);
+    retry = null;
+  };
+  const start = () => {
+    if (watcher) return true;
+    try {
+      watcher = watch(store.projectsWatchDir(root), { persistent: false }, () => notify());
+      watcher.on('error', () => {
+        watcher = null;
+        arm();
+      });
+      if (retry) clearInterval(retry);
+      retry = null;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  function arm() {
+    if (retry || watcher || !clients.size) return;
+    retry = setInterval(() => {
+      if (start()) notify();
+    }, 2000);
+    retry.unref();
+  }
+
+  return {
+    add(res) {
+      clients.add(res);
+      if (!start()) arm();
+    },
+    remove(res) {
+      clients.delete(res);
+      if (!clients.size) stop();
+    },
+  };
+}
+
+/**
+ * One server, two shapes:
+ *
+ *   - for a single repo (`cwd`): the API lives at /api/…
+ *   - as a hub (`hub: { claudeDir, home }`, see server/hub.js): the same API
+ *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list them.
+ */
+export function createKloseServer({ cwd = process.cwd(), publicDir, version = null, hub = null } = {}) {
+  const repoIndex = hub ? createRepoIndex(hub) : null;
+  const events = new Map(); // root -> createRepoEvents(root)
+  const eventsFor = (root) => {
+    if (!events.has(root)) events.set(root, createRepoEvents(root));
+    return events.get(root);
   };
 
-  try {
-    watch(store.projectsWatchDir(cwd), { persistent: false }, () => notify());
-  } catch {
-    // Directory may not exist yet; created lazily on first write.
+  /**
+   * The per-repo API. `parts` is the path after /api (or after
+   * /api/repos/<id>). Resolves to false when nothing matched.
+   */
+  async function handleRepoApi(root, req, res, url, parts) {
+    // What the canvas sees of a project: the stored record, with the save
+    // bookkeeping replaced by its answer ("is the repo copy up to date?").
+    const present = ({ savedToRepo, ...project }) => ({ ...project, repo: repoState(root, { ...project, savedToRepo }) });
+    const only = (name) => parts[0] === name && parts.length === 1;
+
+    // The repo's design tokens as Tailwind CSS, injected into every preview.
+    if (only('theme') && req.method === 'GET') {
+      sendJson(res, 200, await loadTheme(root, { force: url.searchParams.get('refresh') === '1' }));
+      return true;
+    }
+
+    if (only('events')) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write('\n');
+      const channel = eventsFor(root);
+      channel.add(res);
+      req.on('close', () => channel.remove(res));
+      return true;
+    }
+
+    if (only('feedback') && req.method === 'GET') {
+      const projectId = url.searchParams.get('project') || undefined;
+      const feedback = await store.listFeedback(root, { projectId });
+      sendJson(res, 200, { count: feedback.length, feedback });
+      return true;
+    }
+
+    // Repo component index — search & view the host repo's real components.
+    if (only('components') && req.method === 'GET') {
+      const data = await scanComponents(root, { force: url.searchParams.get('refresh') === '1' });
+      const q = url.searchParams.get('q');
+      const components = q ? filterComponents(data.components, q) : data.components;
+      sendJson(res, 200, { ...data, count: components.length, components });
+      return true;
+    }
+    if (parts[0] === 'component-source' && req.method === 'GET') {
+      const file = url.searchParams.get('file');
+      if (!file) sendJson(res, 400, { error: 'file query param required' });
+      else sendJson(res, 200, await readComponentSource(root, file));
+      return true;
+    }
+
+    if (parts[0] === 'projects') {
+      const id = parts[1];
+      const sub = parts[2]; // 'nodes' | 'export'
+      const nodeId = parts[3];
+
+      if (!id && req.method === 'GET') {
+        // The list leaves out fields a save writes (context, design notes),
+        // so each project is read in full to judge its repo copy.
+        const projects = await store.listProjects(root);
+        const repos = await Promise.all(
+          projects.map(async (p) => repoState(root, await store.getProject(root, p.id)))
+        );
+        sendJson(res, 200, projects.map(({ savedToRepo, ...p }, i) => ({ ...p, repo: repos[i] })));
+        return true;
+      }
+      if (!id && req.method === 'POST') {
+        const body = await readBody(req);
+        sendJson(res, 201, await store.createProject(root, body.name));
+        return true;
+      }
+      if (id && !sub && req.method === 'GET') {
+        sendJson(res, 200, present(await store.getProject(root, id)));
+        return true;
+      }
+      if (id && !sub && req.method === 'PATCH') {
+        const { repo: _computed, ...body } = await readBody(req);
+        sendJson(res, 200, present(await store.updateProject(root, id, body)));
+        return true;
+      }
+      if (id && !sub && req.method === 'DELETE') {
+        await store.deleteProject(root, id);
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+      // Save this project into the repo as files. The folder is never taken
+      // from the request: it is the one recorded by the last save, or the
+      // default under docs/klose/.
+      if (id && sub === 'export' && !nodeId && req.method === 'POST') {
+        const result = await exportProject(root, id);
+        sendJson(res, 200, { dir: result.repo.dir, files: result.files, repo: result.repo });
+        return true;
+      }
+      if (id && sub === 'nodes' && !nodeId && req.method === 'POST') {
+        const body = await readBody(req);
+        sendJson(res, 201, await store.addNode(root, id, body));
+        return true;
+      }
+      if (id && sub === 'nodes' && nodeId && req.method === 'PATCH') {
+        const body = await readBody(req);
+        sendJson(res, 200, await store.updateNode(root, id, nodeId, body));
+        return true;
+      }
+    }
+    return false;
   }
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const parts = url.pathname.split('/').filter(Boolean);
+    const isApi = parts[0] === 'api';
 
-    if (rejectForeignRequest(req, res, parts[0] === 'api')) return;
+    if (rejectForeignRequest(req, res, isApi)) return;
 
     try {
       // `root` lets `klose status` tell this repo's server apart from one
-      // another repo started on the same port.
+      // another repo started on the same port; a hub has no root of its own.
       if (url.pathname === '/api/health') {
-        return sendJson(res, 200, { ok: true, root: cwd, version, pid: process.pid });
+        return sendJson(res, 200, { ok: true, root: hub ? null : cwd, version, pid: process.pid, ...(hub ? { hub: true } : {}) });
       }
 
-      // The repo's design tokens as Tailwind CSS, injected into every preview.
-      if (url.pathname === '/api/theme' && req.method === 'GET') {
-        return sendJson(res, 200, await loadTheme(cwd, { force: url.searchParams.get('refresh') === '1' }));
+      if (isApi && hub) {
+        if (parts[1] !== 'repos') {
+          return sendJson(res, 400, { error: 'This is a Klose hub: address a repo as /api/repos/<id>/…', code: 'REPO_REQUIRED' });
+        }
+        if (!parts[2]) {
+          if (req.method !== 'GET') return sendJson(res, 404, { error: 'Not found' });
+          return sendJson(res, 200, { repos: await listRepos(hub) });
+        }
+        const root = await repoIndex.resolve(parts[2]);
+        if (!root) return sendJson(res, 404, { error: `No repo with id ${parts[2]}`, code: 'REPO_NOT_FOUND' });
+        if (!parts[3]) {
+          if (req.method !== 'GET') return sendJson(res, 404, { error: 'Not found' });
+          return sendJson(res, 200, await repoIndex.describe(parts[2]));
+        }
+        if (await handleRepoApi(root, req, res, url, parts.slice(3))) return;
+        return sendJson(res, 404, { error: 'Not found' });
       }
 
-      if (url.pathname === '/api/events') {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        res.write('\n');
-        sseClients.add(res);
-        req.on('close', () => sseClients.delete(res));
-        return;
-      }
-
-      if (url.pathname === '/api/feedback' && req.method === 'GET') {
-        const projectId = url.searchParams.get('project') || undefined;
-        const feedback = await store.listFeedback(cwd, { projectId });
-        return sendJson(res, 200, { count: feedback.length, feedback });
-      }
-
-      // Repo component index — search & view the host repo's real components.
-      if (parts[0] === 'api' && parts[1] === 'components' && !parts[2] && req.method === 'GET') {
-        const data = await scanComponents(cwd, { force: url.searchParams.get('refresh') === '1' });
-        const q = url.searchParams.get('q');
-        const components = q ? filterComponents(data.components, q) : data.components;
-        return sendJson(res, 200, { ...data, count: components.length, components });
-      }
-      if (parts[0] === 'api' && parts[1] === 'component-source' && req.method === 'GET') {
-        const file = url.searchParams.get('file');
-        if (!file) return sendJson(res, 400, { error: 'file query param required' });
-        return sendJson(res, 200, await readComponentSource(cwd, file));
-      }
-
-      if (parts[0] === 'api' && parts[1] === 'projects') {
-        const id = parts[2];
-        const sub = parts[3]; // 'nodes' | 'export'
-        const nodeId = parts[4];
-
-        if (!id && req.method === 'GET') {
-          // The list leaves out fields a save writes (context, design notes),
-          // so each project is read in full to judge its repo copy.
-          const projects = await store.listProjects(cwd);
-          const repos = await Promise.all(
-            projects.map(async (p) => repoState(cwd, await store.getProject(cwd, p.id)))
-          );
-          return sendJson(res, 200, projects.map(({ savedToRepo, ...p }, i) => ({ ...p, repo: repos[i] })));
-        }
-        if (!id && req.method === 'POST') {
-          const body = await readBody(req);
-          return sendJson(res, 201, await store.createProject(cwd, body.name));
-        }
-        if (id && !sub && req.method === 'GET') {
-          return sendJson(res, 200, present(await store.getProject(cwd, id)));
-        }
-        if (id && !sub && req.method === 'PATCH') {
-          const { repo: _computed, ...body } = await readBody(req);
-          return sendJson(res, 200, present(await store.updateProject(cwd, id, body)));
-        }
-        // Save this project into the repo as files. The folder is never taken
-        // from the request: it is the one recorded by the last save, or the
-        // default under docs/klose/.
-        if (id && sub === 'export' && !nodeId && req.method === 'POST') {
-          const result = await exportProject(cwd, id);
-          return sendJson(res, 200, { dir: result.repo.dir, files: result.files, repo: result.repo });
-        }
-        if (id && !sub && req.method === 'DELETE') {
-          await store.deleteProject(cwd, id);
-          return sendJson(res, 200, { ok: true });
-        }
-        if (id && sub === 'nodes' && !nodeId && req.method === 'POST') {
-          const body = await readBody(req);
-          return sendJson(res, 201, await store.addNode(cwd, id, body));
-        }
-        if (id && sub === 'nodes' && nodeId && req.method === 'PATCH') {
-          const body = await readBody(req);
-          return sendJson(res, 200, await store.updateNode(cwd, id, nodeId, body));
-        }
-      }
+      if (isApi && (await handleRepoApi(cwd, req, res, url, parts.slice(1)))) return;
 
       if (req.method === 'GET' && publicDir) {
         return await serveStatic(res, publicDir, url.pathname);

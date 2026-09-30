@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, openSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import * as store from '../server/store.js';
 import { createKloseServer } from '../server/http.js';
@@ -12,6 +13,17 @@ import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
 import { exportProject } from '../server/export.js';
+import {
+  defaultHubOptions,
+  findHub,
+  kloseHome,
+  listRepos,
+  rememberRepo,
+  removeHubInfo,
+  removeHubInfoSync,
+  repoUrl,
+  writeHubInfo,
+} from '../server/hub.js';
 import {
   DEFAULT_PORT,
   displayUrl,
@@ -40,6 +52,10 @@ Getting started
   status        Check whether this repo's canvas is running
   stop          Stop this repo's canvas server
 
+One canvas for every repo
+  hub           Start (or check, stop) a machine-wide canvas that finds your
+                repos from Claude Code's sessions — nothing to set up per repo
+
 Canvas data
   project       List, create, read and edit projects and their sketches
   feedback      Read pending comments as JSON
@@ -65,7 +81,10 @@ Options
   --ignore-projects   Keep sketches out of git (adds projects/ to .klose/.gitignore)
   --wire-claude-md    Add a note to CLAUDE.md so the agent suggests /klose on its own
   --force             Overwrite skill files you've edited (the old copy is kept as SKILL.md.bak)
-  --here              Install in this folder instead of the repo root`,
+  --here              Install in this folder instead of the repo root
+  --global            Install the skills for every repo (~/.claude/skills) and
+                      nothing else — pair it with "klose hub" so no repo needs
+                      its own init`,
   serve: `Usage: klose serve [options]
 
 Starts the canvas for this repo on 127.0.0.1. If it is already running, says
@@ -80,6 +99,28 @@ Options
 
 Reports whether this repo's canvas server is running and at which URL. Exits 1
 when it isn't, including when a Klose server for a different repo holds the port.`,
+  hub: `Usage: klose hub [start] [--port=N] [--open] [--detach]
+       klose hub status [--json]
+       klose hub stop
+       klose hub add [path]
+
+Runs one canvas for every repo on this machine instead of one per repo. The
+hub reads Claude Code's own session files (~/.claude/sessions and the
+transcripts under ~/.claude/projects) to see which repos have an agent in
+them or were used recently, and serves each one's .klose/ at
+  http://localhost:<port>/r/<repo-id>/projects
+
+It only reads ~/.claude. It writes ~/.klose/ (its own bookkeeping) and a
+repo's .klose/ once you sketch there — never before. It listens on 127.0.0.1.
+
+  start    (default) Start the hub. --detach runs it in the background.
+  status   Whether the hub is running, and the repos it sees.
+  stop     Stop the hub.
+  add      List a repo the hub hasn't noticed (default: the current one).
+
+While the hub is up, "klose status" and "klose serve" in any repo point at it
+instead of starting a second server. "klose init --global" installs the
+/klose skill for every repo, so there is nothing left to do per repo.`,
   stop: `Usage: klose stop
 
 Stops this repo's canvas server, whether it was started with --detach or not.`,
@@ -281,7 +322,26 @@ async function printRepoReport() {
   }
 }
 
+// Installs the skills for every repo (~/.claude/skills) and nothing else: no
+// .klose/ here, no demo project. With the hub running, that is all the setup
+// any repo needs.
+async function initGlobal(args) {
+  const home = os.homedir();
+  const report = await installSkills(packageRoot, home, { force: hasFlag(args, '--force') });
+  const list = (names) => names.map((n) => `/${n}`).join(', ');
+  const changed = [...report.installed, ...report.updated];
+  console.log(`Klose ${VERSION} skills are installed for every repo on this machine\n`);
+  if (changed.length) console.log(`  ✓ Skills       ${list(changed)} → ${path.join(home, '.claude', 'skills')}/`);
+  else if (report.unchanged.length) console.log(`  ✓ Skills       ${list(report.unchanged)} (already up to date)`);
+  for (const name of report.backedUp) console.log(`  ! /${name}: your previous SKILL.md was saved as SKILL.md.bak`);
+  for (const name of report.skipped) console.log(`  ! /${name}: you've edited this skill, so it was left alone (re-run with --force to replace it)`);
+  const hub = await findHub();
+  console.log(hub.state === 'running' ? `\nThe hub is running at ${hub.url}.` : '\nNext: start the hub with\n  npx klose hub --detach --open');
+  console.log("If /klose isn't in Claude Code's command list yet, restart Claude Code.");
+}
+
 async function cmdInit(args) {
+  if (hasFlag(args, '--global')) return initGlobal(args);
   const report = await installSkills(packageRoot, root, { force: hasFlag(args, '--force') });
   await mkdir(path.join(root, '.klose', 'projects'), { recursive: true });
   const projectsIgnored = await writeKloseGitignore(root, hasFlag(args, '--ignore-projects'));
@@ -348,7 +408,7 @@ async function listen(server, basePort, explicit) {
         const health = await probe(port);
         fail(
           health
-            ? `port ${port} is used by the Klose canvas for ${health.root}. Pick another with --port=N.`
+            ? `port ${port} is used by ${health.hub ? 'the Klose hub' : `the Klose canvas for ${health.root}`}. Pick another with --port=N.`
             : `port ${port} is already in use by another program. Pick another with --port=N.`
         );
       }
@@ -401,6 +461,15 @@ async function cmdServe(args) {
     return;
   }
 
+  // A hub already serves every repo, this one included — a second server
+  // would only give the same canvas a second address.
+  const onHub = await hubUrlForRepo();
+  if (onHub) {
+    console.log(`The Klose hub is running — this repo's canvas is at ${onHub}`);
+    if (open) openBrowser(onHub);
+    return;
+  }
+
   if (hasFlag(args, '--detach')) return startDetached(args, open);
 
   const publicDir = path.join(packageRoot, 'web', 'dist');
@@ -429,6 +498,11 @@ async function cmdServe(args) {
 async function cmdStatus(args) {
   const found = await findServer(root, portFromArgs(args).port);
   const running = found.state === 'running';
+  const onHub = running ? null : await hubUrlForRepo();
+  if (onHub) {
+    if (hasFlag(args, '--json')) return printJson({ running: true, hub: true, url: onHub, root });
+    return console.log(`klose is running for this repo on the hub at ${onHub}`);
+  }
   if (hasFlag(args, '--json')) {
     return printJson({ running, url: found.url, port: found.port, root, ...(found.pid ? { pid: found.pid } : {}), ...(found.otherRoot ? { otherRoot: found.otherRoot } : {}) });
   }
@@ -460,6 +534,157 @@ async function cmdStop(args) {
   }
   await removeServerInfo(root);
   console.log(`Stopped klose at ${found.url}`);
+}
+
+// ------------------------------------------------------------------- hub
+
+// If a hub is running, the URL of this repo's canvas on it — and make sure
+// the hub lists the repo, since someone just asked about it here.
+async function hubUrlForRepo() {
+  const hub = await findHub();
+  if (hub.state !== 'running') return null;
+  await rememberRepo(root);
+  return repoUrl(hub.url, root);
+}
+
+function isRepo(dir) {
+  return dir !== os.homedir() && (existsSync(path.join(dir, '.git')) || existsSync(path.join(dir, '.klose')));
+}
+
+async function startHubDetached(args, open) {
+  const home = kloseHome();
+  const logFile = path.join(home, 'hub.log');
+  await mkdir(home, { recursive: true });
+  const log = openSync(logFile, 'a');
+  const childArgs = args.filter((a) => a !== '--detach' && a !== '--open');
+  const child = spawn(process.execPath, [__filename, 'hub', ...childArgs], {
+    cwd: invokedFrom,
+    detached: true,
+    stdio: ['ignore', log, log],
+    windowsHide: true,
+  });
+  let exited = null;
+  child.on('exit', (code) => {
+    exited = code ?? 1;
+  });
+  child.unref();
+
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline && exited === null) {
+    const found = await findHub();
+    if (found.state === 'running' && found.pid === child.pid) {
+      console.log(`The Klose hub is running at ${found.url} (in the background, pid ${found.pid})`);
+      console.log('Stop it with: npx klose hub stop');
+      if (open) openBrowser(found.url);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  const tail = readFileSync(logFile, 'utf-8').trim().split('\n').slice(-5).join('\n');
+  fail(`the hub didn't start. Last lines of ${logFile}:\n${tail}`);
+}
+
+async function hubStart(args) {
+  const { port: basePort, explicit } = portFromArgs(args);
+  const open = hasFlag(args, '--open');
+
+  const existing = await findHub();
+  if (existing.state === 'running') {
+    console.log(`The Klose hub is already running at ${existing.url}`);
+    if (open) openBrowser(existing.url);
+    return;
+  }
+
+  // Started from inside a repo: list it even if no agent has been there yet.
+  if (isRepo(root)) await rememberRepo(root);
+
+  if (hasFlag(args, '--detach')) return startHubDetached(args, open);
+
+  const publicDir = path.join(packageRoot, 'web', 'dist');
+  const hasUi = existsSync(path.join(publicDir, 'index.html'));
+  const server = createKloseServer({ hub: defaultHubOptions(), publicDir: hasUi ? publicDir : undefined, version: VERSION });
+  const port = await listen(server, basePort, explicit);
+  const url = displayUrl(port);
+
+  await writeHubInfo({ pid: process.pid, port, url, version: VERSION, startedAt: new Date().toISOString() });
+  process.on('exit', () => removeHubInfoSync(process.pid));
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0));
+
+  if (port !== basePort && basePort !== 0) console.log(`Port ${basePort} is busy, so the hub is using ${port} instead.`);
+  const repos = await listRepos();
+  console.log(`klose hub serving ${repos.length} repo${repos.length === 1 ? '' : 's'} at ${url}`);
+  if (!hasUi) {
+    console.log('Note: the canvas UI isn\'t built in this install (web/dist is missing) — only the API is available.');
+    console.log('      Reinstall klose from npm, or run "npm run build" if you\'re working on Klose itself.');
+  }
+  if (open) openBrowser(url);
+}
+
+async function hubStatus(args) {
+  const hub = await findHub();
+  const running = hub.state === 'running';
+  const repos = await listRepos();
+  if (hasFlag(args, '--json')) {
+    return printJson({
+      running,
+      ...(running ? { url: hub.url, port: hub.port, pid: hub.pid } : {}),
+      repos: repos.map((r) => ({ ...r, ...(running ? { url: repoUrl(hub.url, r.root) } : {}) })),
+    });
+  }
+  console.log(running ? `The Klose hub is running at ${hub.url}` : 'The Klose hub is not running. Start it with: npx klose hub --detach');
+  if (!repos.length) {
+    console.log('\nNo repos found yet — open Claude Code in one, or run "klose hub add" inside it.');
+  } else {
+    console.log(`\n${repos.length} repo${repos.length === 1 ? '' : 's'}:`);
+    for (const r of repos) {
+      const agent = r.agent === 'working' ? 'agent working' : r.agent === 'idle' ? 'agent idle' : 'no agent';
+      const counts = r.files ? `${r.files} file${r.files === 1 ? '' : 's'}, ${r.sketches} sketch${r.sketches === 1 ? '' : 'es'}${r.comments ? `, ${r.comments} comment${r.comments === 1 ? '' : 's'} waiting` : ''}` : 'no Klose files yet';
+      console.log(`  ${r.name.padEnd(22)} ${agent.padEnd(14)} ${counts}`);
+      console.log(`  ${' '.repeat(22)} ${running ? repoUrl(hub.url, r.root) : r.path}`);
+    }
+  }
+  if (!running) process.exit(1);
+}
+
+async function hubStop() {
+  const hub = await findHub();
+  if (hub.state !== 'running') {
+    await removeHubInfo();
+    console.log('The Klose hub is not running.');
+    return;
+  }
+  try {
+    process.kill(hub.pid, 'SIGTERM');
+  } catch (err) {
+    fail(`could not stop pid ${hub.pid}: ${err.message}`);
+  }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline && (await probe(hub.port, 300))) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await removeHubInfo();
+  console.log(`Stopped the Klose hub at ${hub.url}`);
+}
+
+async function hubAdd(args) {
+  const target = args.find((a) => !a.startsWith('--'));
+  const dir = target ? resolveRoot(path.resolve(invokedFrom, target)) : root;
+  if (!existsSync(dir)) fail(`no such folder: ${dir}`);
+  if (dir === os.homedir()) fail('your home directory is not a repo — run this inside a project, or pass its path');
+  const added = await rememberRepo(dir);
+  const hub = await findHub();
+  console.log(added ? `Added ${dir} to the hub.` : `${dir} is already on the hub.`);
+  console.log(hub.state === 'running' ? `Its canvas: ${repoUrl(hub.url, dir)}` : 'Start the hub with: npx klose hub --detach');
+}
+
+async function cmdHub(args) {
+  const sub = args.find((a) => !a.startsWith('--'));
+  const rest = args.filter((a) => a !== sub);
+  if (!sub || sub === 'start') return hubStart(rest);
+  if (sub === 'status') return hubStatus(rest);
+  if (sub === 'stop') return hubStop();
+  if (sub === 'add') return hubAdd(rest);
+  fail(`unknown hub subcommand "${sub}"\n\n${COMMAND_HELP.hub}`);
 }
 
 // --------------------------------------------------------------- update
@@ -705,6 +930,7 @@ const COMMANDS = {
   serve: cmdServe,
   status: cmdStatus,
   stop: cmdStop,
+  hub: cmdHub,
   update: cmdUpdate,
   cleanup: cmdCleanup,
   project: cmdProject,
@@ -728,7 +954,9 @@ async function main() {
   if (hasFlag(args, '--help', '-h')) return console.log(COMMAND_HELP[command]);
 
   root = command === 'init' && hasFlag(args, '--here') ? invokedFrom : resolveRoot(invokedFrom);
-  if (root !== invokedFrom) process.stderr.write(`klose: using repo root ${root}\n`);
+  // The hub and a global init aren't about this repo, so which root was picked is noise.
+  const machineWide = command === 'hub' || (command === 'init' && hasFlag(args, '--global'));
+  if (root !== invokedFrom && !machineWide) process.stderr.write(`klose: using repo root ${root}\n`);
   return run(args);
 }
 

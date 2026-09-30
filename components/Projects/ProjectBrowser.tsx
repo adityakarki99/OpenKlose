@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Project, RepoSave } from '../../types';
 import { listProjects, createProject, deleteProject, saveProject, saveProjectToRepo, getRepoName } from '../../services/projectService';
 import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot } from 'lucide-react';
+import { API_BASE } from '../../lib/repoScope';
 import { Button } from '../DesignSystem/Button';
 import { Card } from '../DesignSystem/Card';
 import { Input } from '../DesignSystem/Input';
@@ -235,7 +236,7 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
 
     // Files the agent creates or edits show up here without a reload.
     useEffect(() => {
-        const source = new EventSource('/api/events');
+        const source = new EventSource(`${API_BASE}/events`);
         source.addEventListener('update', () => fetchProjects({ quiet: true }));
         return () => source.close();
     }, []);

@@ -33,8 +33,13 @@ test('klose feedback prints stable JSON without clipboard handoff', async () => 
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
 
+// Every CLI run gets an empty hub home and no Claude sessions, so a hub the
+// developer happens to be running can't answer for these repos.
+const isolated = path.join(os.tmpdir(), `klose-cli-isolated-${process.pid}`);
+const cliEnv = { ...process.env, KLOSE_HOME: path.join(isolated, 'klose'), CLAUDE_CONFIG_DIR: path.join(isolated, 'claude') };
+
 function klose(cwd, ...args) {
-  return spawnSync(process.execPath, [cliPath, ...args], { cwd, encoding: 'utf-8', timeout: 20000 });
+  return spawnSync(process.execPath, [cliPath, ...args], { cwd, encoding: 'utf-8', timeout: 20000, env: cliEnv });
 }
 
 async function withTempRepo(fn) {

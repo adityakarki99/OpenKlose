@@ -56,6 +56,12 @@ export function useHistory<T>(initialState: T) {
     }));
   }, []);
 
+  // Replace the state and forget history: for a fresh load, or a version from
+  // disk (the agent's) that undo must not be able to walk back.
+  const reset = useCallback((newState: T) => {
+    setHistory({ past: [], present: newState, future: [] });
+  }, []);
+
   const undo = useCallback(() => {
     setHistory((curr) => {
       if (curr.past.length === 0) return curr;
@@ -90,6 +96,7 @@ export function useHistory<T>(initialState: T) {
     state: present,
     setState,
     setTransient,
+    reset,
     commitToHistory,
     undo,
     redo,

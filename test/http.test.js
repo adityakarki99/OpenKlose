@@ -258,3 +258,34 @@ test('projects carry their repo state, and POST …/export saves them into the r
   const missing = await request('POST', '/api/projects/00000000-0000-4000-8000-000000000000/export', {});
   assert.equal(missing.status, 404);
 });
+
+test('POST /api/projects with example: true creates a file with the demo sketch', async () => {
+  const res = await request('POST', '/api/projects', { example: true });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.nodes.length, 1);
+  assert.ok(res.body.nodes[0].code, 'the example sketch has a live preview');
+  assert.equal(res.body.repo.state, 'canvas');
+});
+
+test('a canvas hears about projects written after the server started, in a fresh repo', async () => {
+  const fresh = await mkdtemp(path.join(os.tmpdir(), 'klose-http-fresh-'));
+  const srv = createKloseServer({ cwd: fresh });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const controller = new AbortController();
+  try {
+    const res = await fetch(`http://127.0.0.1:${srv.address().port}/api/events`, { signal: controller.signal });
+    const reader = res.body.getReader();
+    await reader.read(); // the stream's opening newline
+    const { createProject } = await import('../server/store.js');
+    await createProject(fresh, 'Written by the agent');
+    const { value } = await Promise.race([
+      reader.read(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('no update event')), 3000)),
+    ]);
+    assert.match(new TextDecoder().decode(value), /event: update/);
+  } finally {
+    controller.abort();
+    await new Promise((resolve) => srv.close(resolve));
+    await rm(fresh, { recursive: true, force: true });
+  }
+});

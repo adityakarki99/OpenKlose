@@ -96,6 +96,7 @@ test('listFeedback flattens element-scoped comments for agent consumption', asyn
       text: 'Make this clearer',
       createdAt: 123,
       element: { tagName: 'button', text: 'Pay', classes: 'px-4', path: 'div > button' },
+      status: 'new',
     }]);
   });
 });
@@ -200,5 +201,61 @@ test('cleanup with only --built leaves an all-built project on the canvas', asyn
 
     const remaining = await store.getProject(cwd, project.id);
     assert.equal(remaining.nodes.length, 0);
+  });
+});
+
+test('resolveComments stamps open comments and listFeedback drops them', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'Resolve');
+    const node = await store.addNode(cwd, project.id, {
+      name: 'Card',
+      comments: [
+        { id: 'a', text: 'One', createdAt: 1 },
+        { id: 'b', text: 'Two', createdAt: 1, sentAt: 2 },
+      ],
+    });
+
+    let feedback = await store.listFeedback(cwd, { projectId: project.id });
+    assert.deepEqual(feedback.map((f) => [f.commentId, f.status]), [['a', 'new'], ['b', 'sent']]);
+
+    const result = await store.resolveComments(cwd, project.id, node.id, ['b'], { note: 'Fixed', now: 10 });
+    assert.deepEqual(result, { resolved: ['b'], open: 1 });
+
+    feedback = await store.listFeedback(cwd, { projectId: project.id });
+    assert.deepEqual(feedback.map((f) => f.commentId), ['a']);
+    const all = await store.listFeedback(cwd, { projectId: project.id, includeResolved: true });
+    const b = all.find((f) => f.commentId === 'b');
+    assert.equal(b.status, 'resolved');
+    assert.equal(b.resolution, 'Fixed');
+
+    // No ids resolves the rest; resolving again is a no-op.
+    assert.deepEqual(await store.resolveComments(cwd, project.id, node.id), { resolved: ['a'], open: 0 });
+    assert.deepEqual(await store.resolveComments(cwd, project.id, node.id), { resolved: [], open: 0 });
+
+    const saved = await store.getProject(cwd, project.id);
+    assert.equal(saved.nodes[0].comments.length, 2, 'resolved comments stay on the node');
+  });
+});
+
+test('resolveComments rejects unknown comment ids without writing anything', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'Resolve');
+    const node = await store.addNode(cwd, project.id, { name: 'Card', comments: [{ id: 'a', text: 'One', createdAt: 1 }] });
+    await assert.rejects(store.resolveComments(cwd, project.id, node.id, ['a', 'nope']), /nope/);
+    const saved = await store.getProject(cwd, project.id);
+    assert.equal(saved.nodes[0].comments[0].resolvedAt, undefined);
+  });
+});
+
+test('addNode places a sketch without a position to the right of the others', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'Place');
+    const first = await store.addNode(cwd, project.id, { name: 'A' });
+    assert.deepEqual([first.x, first.y, first.width, first.height], [200, 160, 480, 360]);
+    assert.ok(first.createdAt > 0);
+    const second = await store.addNode(cwd, project.id, { name: 'B', width: 300 });
+    assert.deepEqual([second.x, second.y, second.width], [200 + 480 + 80, 160, 300]);
+    const pinned = await store.addNode(cwd, project.id, { name: 'C', x: 10, y: 20 });
+    assert.deepEqual([pinned.x, pinned.y], [10, 20]);
   });
 });

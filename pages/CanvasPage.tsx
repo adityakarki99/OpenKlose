@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Comment, ComponentNode, DragState, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
+import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { getProject } from '../services/projectService';
 import { API_BASE } from '../lib/repoScope';
 import {
@@ -15,15 +15,22 @@ import {
 } from '../constants';
 import SketchNode from '../components/Canvas/SketchNode';
 import ZoomControl from '../components/Canvas/ZoomControl';
+import { Minimap } from '../components/Canvas/Minimap';
+import { Toast, ToastMessage } from '../components/Canvas/Toast';
+import { ShortcutsDialog } from '../components/Canvas/ShortcutsDialog';
 import VerticalNavigationBar from '../components/Canvas/VerticalNavigationBar';
 import { FileBar, FILE_BAR_HEIGHT } from '../components/Canvas/FileBar';
 import { FeedbackTray, TRAY_COLLAPSED_WIDTH, TRAY_OPEN_WIDTH, TrayScope } from '../components/Sidebar/FeedbackTray';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
-import { Loader2, X } from 'lucide-react';
+import { Check, Copy, Loader2, X } from 'lucide-react';
 import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
 import { targetedNodeId, targetingReason } from '../lib/targeting.js';
+import { boundsOf, fitView, isEditableTarget, stepZoom, zoomAround } from '../lib/viewport.js';
+import { changeBadge, diffSketches, summarizeChanges } from '../lib/changes.js';
+import { markSent } from '../lib/feedback.js';
+import { mergeSketches } from '../lib/merge.js';
 import { useHistory } from '../hooks/useHistory';
-import { usePersistence } from '../hooks/usePersistence';
+import { usePersistence, PersistenceData } from '../hooks/usePersistence';
 
 /** The subset of a pointer event the drag/resize math needs. */
 interface PointerSample {
@@ -53,6 +60,16 @@ function readTrayOpen(): boolean {
   }
 }
 
+/** The fields of a project this page edits and autosaves, in one shape. */
+function toSaveData(project: Project): PersistenceData {
+  return {
+    name: project.name,
+    nodes: project.nodes || [],
+    designSystemPrompt: project.designSystemPrompt || '',
+    projectContext: project.projectContext || DEFAULT_PROJECT_CONTEXT,
+  };
+}
+
 const CanvasPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -64,17 +81,34 @@ const CanvasPage: React.FC = () => {
   // --- State ---
   const [projectName, setProjectName] = useState('Untitled Project');
   const [zoom, setZoom] = useState(1);
+  // Read by handlers registered once (wheel, keys, the live-update stream).
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  // One transient message at a time: undo a delete, what the agent just changed.
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const showToast = useCallback((t: Omit<ToastMessage, 'id'>) => setToast({ ...t, id: Date.now() }), []);
+  const dismissToast = useCallback(() => setToast(null), []);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  // Sketches the agent just changed, with the badge each wears for a few seconds.
+  const [agentBadges, setAgentBadges] = useState<Record<string, string>>({});
+  // The visible part of the canvas in canvas units, for the minimap.
+  const [viewRect, setViewRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [commandCopied, setCommandCopied] = useState(false);
 
   const {
     state: nodes,
     setState: setNodes,
     setTransient: setNodesTransient,
+    reset: resetNodes,
     commitToHistory,
     undo,
     redo,
     canUndo,
     canRedo,
   } = useHistory<ComponentNode[]>([]);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [designSystemPrompt, setDesignSystemPrompt] = useState<string>('');
@@ -117,10 +151,19 @@ const CanvasPage: React.FC = () => {
     [projectName, nodes, designSystemPrompt, projectContext]
   );
 
-  const { saveStatus, saveNow, isDirty } = usePersistence({
+  const saveDataRef = useRef(saveData);
+  saveDataRef.current = saveData;
+  // What this tab last knew to be on disk: its load, its last save, or the
+  // last version it took in from the agent. Merges are three-way against it.
+  const baseRef = useRef<PersistenceData | null>(null);
+
+  const { saveStatus, saveNow, markSaved, isDirty } = usePersistence({
     projectId: projectId || null,
     data: saveData,
     enabled: !pageLoading,
+    onSaved: (saved) => {
+      baseRef.current = saved;
+    },
   });
 
   const isSaving = saveStatus === 'saving';
@@ -176,10 +219,15 @@ const CanvasPage: React.FC = () => {
     const loadProject = async () => {
       try {
         const project = await getProject(projectId);
-        setProjectName(project.name);
-        setNodes(() => project.nodes || []);
-        setDesignSystemPrompt(project.designSystemPrompt || '');
-        setProjectContext(project.projectContext || DEFAULT_PROJECT_CONTEXT);
+        const loaded = toSaveData(project);
+        setProjectName(loaded.name);
+        // A fresh history: undo must not walk back past the load to an empty canvas.
+        resetNodes(loaded.nodes);
+        setDesignSystemPrompt(loaded.designSystemPrompt);
+        setProjectContext(loaded.projectContext);
+        // What was just read is what's on disk, so opening a file saves nothing.
+        baseRef.current = loaded;
+        markSaved(loaded);
         setPageLoading(false);
       } catch (err) {
         console.error('Failed to load project:', err);
@@ -199,7 +247,30 @@ const CanvasPage: React.FC = () => {
       setFilesRefreshKey((k) => k + 1);
       getProject(projectId)
         .then((project) => {
-          setNodes(() => project.nodes || []);
+          const base = baseRef.current;
+          if (!base) return;
+          const incoming = toSaveData(project);
+          // Our own save coming back, or nothing new.
+          if (JSON.stringify(incoming) === JSON.stringify(base)) return;
+
+          const local = saveDataRef.current;
+          const { nodes: merged, kept } = mergeSketches({ base: base.nodes, local: local.nodes, incoming: incoming.nodes });
+          // Project-level fields: the incoming value, unless edited here since.
+          const pick = <K extends keyof PersistenceData>(key: K): PersistenceData[K] =>
+            JSON.stringify(local[key]) === JSON.stringify(base[key]) ? incoming[key] : local[key];
+          const changes = diffSketches(local.nodes, merged);
+
+          baseRef.current = incoming;
+          // Disk now holds `incoming`; whatever was kept from here still
+          // differs from it, so autosave writes just that back.
+          markSaved(incoming);
+          // The agent's version replaces history: undo must not quietly
+          // revert what it wrote (and autosave the revert).
+          resetNodes(merged);
+          setProjectName(pick('name'));
+          setDesignSystemPrompt(pick('designSystemPrompt'));
+          setProjectContext(pick('projectContext'));
+          if (changes.length || kept.length) announceRef.current(changes, kept.length);
         })
         .catch(() => {
           // Ignore — the next successful poll/save will reconcile.
@@ -331,9 +402,47 @@ const CanvasPage: React.FC = () => {
     setActiveComment((prev) => (prev && prev.nodeId === selectedNodeId ? prev : null));
   }, [selectedNodeId]);
 
+  /** Deletes at once, with Undo in a toast rather than a confirm dialog in the way. */
   const handleDeleteNode = (id: string) => {
+    const index = nodesRef.current.findIndex((n) => n.id === id);
+    if (index < 0) return;
+    const node = nodesRef.current[index];
     setNodes((prev) => prev.filter((n) => n.id !== id));
     if (selectedNodeId === id) setSelectedNodeId(null);
+    const fileNote = node.status === 'built' && node.builtFilePath ? ` ${node.builtFilePath} is untouched.` : '';
+    showToast({
+      message: `Deleted "${node.name || 'Untitled sketch'}".${fileNote}`,
+      action: {
+        label: 'Undo',
+        onClick: () =>
+          setNodes((prev) => (prev.some((n) => n.id === id) ? prev : [...prev.slice(0, index), node, ...prev.slice(index)])),
+      },
+    });
+  };
+
+  /** Resolve a comment by hand, or reopen one (it then counts as new, so the next copy sends it again). */
+  const handleSetResolved = (nodeId: string, commentId: string, resolved: boolean) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== nodeId) return n;
+        const comments = (n.comments || []).map((c) => {
+          if (c.id !== commentId) return c;
+          if (resolved) return { ...c, resolvedAt: Date.now() };
+          const { resolvedAt, resolution, sentAt, ...open } = c;
+          return open;
+        });
+        return { ...n, comments, updatedAt: Date.now() };
+      })
+    );
+    if (resolved) setActiveComment((prev) => (prev?.commentId === commentId ? null : prev));
+  };
+
+  const handleMarkSent = (ids: Set<string>) => {
+    if (ids.size === 0) return;
+    setNodes((prev) => {
+      const next = markSent(prev, ids);
+      return next.every((n, i) => n === prev[i]) ? prev : next;
+    });
   };
 
   const handleDuplicateNode = (id: string) => {
@@ -376,7 +485,7 @@ const CanvasPage: React.FC = () => {
   };
 
   const handleSelectFromList = (id: string) => {
-    const node = nodes.find((n) => n.id === id);
+    const node = nodesRef.current.find((n) => n.id === id);
     if (node && canvasRef.current) {
       setSelectedNodeId(id);
       const viewportW = canvasRef.current.clientWidth;
@@ -384,10 +493,152 @@ const CanvasPage: React.FC = () => {
       const nodeCenterX = node.x + node.width / 2;
       const nodeCenterY = node.y + node.height / 2;
       canvasRef.current.scrollTo({
-        left: nodeCenterX * zoom - viewportW / 2,
-        top: nodeCenterY * zoom - viewportH / 2,
+        left: nodeCenterX * zoomRef.current - viewportW / 2,
+        top: nodeCenterY * zoomRef.current - viewportH / 2,
         behavior: 'smooth',
       });
+    }
+  };
+
+  // --- Viewport: zoom, fit, minimap ---
+  // A zoom change resizes the scroll content, so the scroll position that goes
+  // with it can only be applied once React has laid the new size out.
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+
+  const updateViewRect = useCallback(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const z = zoomRef.current;
+    setViewRect({ x: el.scrollLeft / z, y: el.scrollTop / z, width: el.clientWidth / z, height: el.clientHeight / z });
+  }, []);
+
+  const currentView = () => ({
+    zoom: zoomRef.current,
+    scrollLeft: canvasRef.current?.scrollLeft || 0,
+    scrollTop: canvasRef.current?.scrollTop || 0,
+  });
+
+  const applyView = (view: { zoom: number; scrollLeft: number; scrollTop: number }, smooth = false) => {
+    const el = canvasRef.current;
+    if (!el) return;
+    if (Math.abs(view.zoom - zoomRef.current) < 1e-6) {
+      el.scrollTo({ left: view.scrollLeft, top: view.scrollTop, behavior: smooth ? 'smooth' : 'auto' });
+      return;
+    }
+    pendingScrollRef.current = { left: view.scrollLeft, top: view.scrollTop };
+    zoomRef.current = view.zoom;
+    setZoom(view.zoom);
+  };
+
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    const pending = pendingScrollRef.current;
+    if (el && pending) {
+      el.scrollLeft = pending.left;
+      el.scrollTop = pending.top;
+      pendingScrollRef.current = null;
+    }
+    updateViewRect();
+  }, [zoom, pageLoading, updateViewRect]);
+
+  const viewCenter = () => ({ x: (canvasRef.current?.clientWidth || 0) / 2, y: (canvasRef.current?.clientHeight || 0) / 2 });
+  const zoomBy = (direction: 1 | -1) => applyView(zoomAround(currentView(), stepZoom(zoomRef.current, direction), viewCenter()));
+  const resetZoom = () => applyView(zoomAround(currentView(), 1, viewCenter()));
+  const viewportSize = () => ({ width: canvasRef.current?.clientWidth || 0, height: canvasRef.current?.clientHeight || 0 });
+  const fitAll = () => {
+    const bounds = boundsOf(nodesRef.current);
+    if (bounds) applyView(fitView(bounds, viewportSize()), true);
+  };
+  const fitNode = (id: string) => {
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (!node) return;
+    setSelectedNodeId(id);
+    applyView(fitView(node, viewportSize(), { padding: 96 }), true);
+  };
+  const navigateTo = (x: number, y: number) => {
+    const el = canvasRef.current;
+    if (!el) return;
+    el.scrollTo({ left: x * zoomRef.current - el.clientWidth / 2, top: y * zoomRef.current - el.clientHeight / 2 });
+  };
+
+  // ⌘/Ctrl + wheel (and trackpad pinch, which browsers report the same way)
+  // zooms around the pointer. Needs a non-passive listener to stop the page zooming.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) {
+        // A plain scroll handed back by a preview (see Preview.tsx) is synthetic,
+        // so the browser won't scroll for it: pan by hand.
+        if (!e.isTrusted) {
+          const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+          el.scrollBy(e.deltaX * unit, e.deltaY * unit);
+        }
+        return;
+      }
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const delta = Math.max(-30, Math.min(30, e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY));
+      const next = zoomRef.current * Math.exp(-delta * 0.01);
+      applyView(zoomAround(currentView(), next, { x: e.clientX - rect.left, y: e.clientY - rect.top }));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageLoading]);
+
+  // The canvas's size changes with the window, the tray, and once more when the
+  // web fonts land after first paint, so it is observed, not read once.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => updateViewRect());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pageLoading, updateViewRect]);
+
+  // When the agent writes a sketch: badge the ones it touched for a few
+  // seconds, and say what happened with a way to go and look.
+  const announceRef = useRef<(changes: ReturnType<typeof diffSketches>, kept: number) => void>(() => {});
+  announceRef.current = (changes, kept) => {
+    const ids = changes.map((c) => c.id);
+    setAgentBadges((prev) => ({ ...prev, ...Object.fromEntries(changes.map((c) => [c.id, changeBadge(c)])) }));
+    window.setTimeout(() => {
+      setAgentBadges((prev) => {
+        const next = { ...prev };
+        ids.forEach((id) => delete next[id]);
+        return next;
+      });
+    }, 8000);
+    const keptNote = kept ? `Kept your unsaved edits on ${kept} sketch${kept === 1 ? '' : 'es'}.` : '';
+    showToast({
+      message: [summarizeChanges(changes), keptNote].filter(Boolean).join(' · '),
+      tone: 'agent',
+      action: {
+        label: 'Show',
+        onClick: () => {
+          if (ids.length === 1) return fitNode(ids[0]);
+          const bounds = boundsOf(nodesRef.current.filter((n) => ids.includes(n.id)));
+          if (bounds) applyView(fitView(bounds, viewportSize()), true);
+        },
+      },
+    });
+  };
+
+  const nudgeSelected = (dx: number, dy: number) => {
+    if (!selectedNodeId) return;
+    setNodes((prev) =>
+      prev.map((n) => (n.id === selectedNodeId ? { ...n, ...moveFrame(n, { dx, dy, snap: false, limits: FRAME_LIMITS }), updatedAt: Date.now() } : n))
+    );
+  };
+
+  const copyKloseCommand = async () => {
+    try {
+      await navigator.clipboard.writeText('/klose');
+      setCommandCopied(true);
+      window.setTimeout(() => setCommandCopied(false), 2000);
+    } catch {
+      // Clipboard can be blocked; the command is on screen to type.
     }
   };
 
@@ -555,30 +806,89 @@ const CanvasPage: React.FC = () => {
     }
   };
 
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedNodeId && !document.querySelector('input:focus') && !document.querySelector('textarea:focus')) {
-          handleDeleteNode(selectedNodeId);
-        }
-      }
-      if (e.key === 'Escape') {
-        // Escape closes the innermost thing first: a comment popup, then the selection.
-        if (activeComment) setActiveComment(null);
-        else setSelectedNodeId(null);
-      }
+  // Keyboard shortcuts. The handler is re-read from a ref on every key, so it
+  // always sees current state without re-binding the listener each render.
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandlerRef.current = (e: KeyboardEvent) => {
+    // A field that already handled the key (e.g. Escape dropping a picked element) wins.
+    if (showShortcuts || e.defaultPrevented) return;
+    if (e.key === 'Escape') {
+      // Escape closes the innermost thing first: a comment popup, then the selection.
+      if (activeComment) setActiveComment(null);
+      else setSelectedNodeId(null);
+      return;
+    }
+    // Typing in a field (or a focused preview) owns the keyboard.
+    if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
 
-      if ((e.metaKey || e.ctrlKey) && !document.querySelector('input:focus') && !document.querySelector('textarea:focus')) {
-        if (e.key === 'z') {
-          if (e.shiftKey) { if (canRedo) redo(); } else if (canUndo) undo();
-        }
-        if (e.key === 'y' && canRedo) redo();
+    const mod = e.metaKey || e.ctrlKey;
+    const key = e.key.toLowerCase();
+    if (mod) {
+      if (key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) { if (canRedo) redo(); } else if (canUndo) undo();
+      } else if (key === 'y') {
+        e.preventDefault();
+        if (canRedo) redo();
+      } else if (key === '=' || key === '+') {
+        e.preventDefault();
+        zoomBy(1);
+      } else if (key === '-' || key === '_') {
+        e.preventDefault();
+        zoomBy(-1);
+      } else if (key === '0') {
+        e.preventDefault();
+        resetZoom();
+      } else if (key === 'd' && selectedNodeId) {
+        e.preventDefault();
+        handleDuplicateNode(selectedNodeId);
       }
-    };
+      return;
+    }
+    if (e.altKey) return;
+
+    // Shift+1 / Shift+2 are "!" and "@" on most layouts, so match the physical key.
+    if (e.shiftKey && e.code === 'Digit1') {
+      e.preventDefault();
+      fitAll();
+      return;
+    }
+    if (e.shiftKey && e.code === 'Digit2') {
+      e.preventDefault();
+      if (selectedNodeId) fitNode(selectedNodeId);
+      return;
+    }
+    if (e.key === '?') {
+      e.preventDefault();
+      setShowShortcuts(true);
+      return;
+    }
+    if (key === 'n' && !e.shiftKey) {
+      e.preventDefault();
+      handleAddSketch();
+      return;
+    }
+    if (!selectedNodeId) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      handleDeleteNode(selectedNodeId);
+    } else if (key === 'c' && !e.shiftKey) {
+      e.preventDefault();
+      handleStartComment(selectedNodeId);
+    } else if (e.key.startsWith('Arrow')) {
+      e.preventDefault();
+      const step = e.shiftKey ? GRID_SIZE * 10 : GRID_SIZE;
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      nudgeSelected(dx, dy);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => keyHandlerRef.current(e);
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, activeComment, canUndo, canRedo, undo, redo]);
+  }, []);
 
   // --- Loading / Error States ---
   if (pageLoading) {
@@ -627,6 +937,7 @@ const CanvasPage: React.FC = () => {
             onAdd={handleAddSketch}
             onSave={handleSaveProject}
             onToggleContext={() => setIsContextPopUpOpen((v) => !v)}
+            onShowShortcuts={() => setShowShortcuts(true)}
             isSaving={isSaving}
             saveStatus={saveStatus}
             isDirty={isDirty}
@@ -639,13 +950,14 @@ const CanvasPage: React.FC = () => {
         {isContextPopUpOpen && (
           <div
             className="absolute left-24 z-[100] flex h-[600px] max-h-[80vh] w-[400px] flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl animate-in fade-in slide-in-from-left-4 duration-300"
-            style={{ top: FILE_BAR_HEIGHT + 24 }}
+            style={{ top: FILE_BAR_HEIGHT + 24, left: 104 }}
           >
             <div className="flex items-center justify-between border-b border-app-border bg-app-surface-soft/60 px-4 py-3">
               <span className="text-xs font-bold uppercase tracking-widest text-app-muted">Project Context</span>
               <button
                 onClick={() => setIsContextPopUpOpen(false)}
                 className="rounded-lg p-1 text-app-subtle transition-colors hover:bg-app-surface-muted/10 hover:text-app-primary"
+                aria-label="Close project context"
               >
                 <X size={16} />
               </button>
@@ -664,6 +976,7 @@ const CanvasPage: React.FC = () => {
           className={`absolute bottom-0 left-0 overflow-auto canvas-scroll ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
           style={{ top: FILE_BAR_HEIGHT, right: trayWidth }}
           onPointerDown={handleCanvasPointerDown}
+          onScroll={updateViewRect}
         >
           <div style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }} className="relative">
             <div
@@ -679,22 +992,43 @@ const CanvasPage: React.FC = () => {
                 }}
               />
               {nodes.length === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                  <div className="pointer-events-auto mx-4 w-full max-w-md space-y-4 rounded-2xl border border-app-border bg-app-canvas-empty/90 p-6 shadow-2xl backdrop-blur-xl">
+                <div
+                  className="pointer-events-none absolute z-20 flex items-center justify-center"
+                  style={{ left: viewRect.x, top: viewRect.y, width: viewRect.width || '100%', height: viewRect.height || '100%' }}
+                >
+                  <div className="pointer-events-auto mx-4 w-full max-w-md space-y-4 rounded-2xl border border-app-border bg-app-canvas-empty/90 p-6 shadow-2xl backdrop-blur-xl" style={{ transform: `scale(${1 / zoom})` }}>
                     <div className="space-y-2">
-                      <h2 className="text-lg font-semibold text-app-primary">Start sketching a component.</h2>
-                      <p className="text-sm text-app-secondary">
-                        Place a sketch here, then use <code>/klose</code> in your coding agent to ideate the details against
-                        this project's design system and build the real component into your repo.
+                      <h2 className="text-lg font-semibold text-app-primary">Ask your agent for a sketch.</h2>
+                      <p className="text-sm leading-relaxed text-app-secondary">
+                        Run this in Claude Code and describe the component you want. The agent reads your design system,
+                        and its sketches appear here live as it writes them.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleAddSketch}
-                      className="rounded-full border border-app-border bg-app-surface-muted/10 px-4 py-2 text-xs font-medium text-app-primary transition-colors hover:bg-app-surface-muted/20"
-                    >
-                      + Add a sketch
-                    </button>
+                    <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                      <code className="flex-1 font-mono text-sm text-app-primary">/klose</code>
+                      <button
+                        type="button"
+                        onClick={copyKloseCommand}
+                        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-blue-300 hover:bg-blue-500/10"
+                      >
+                        {commandCopied ? <Check size={13} /> : <Copy size={13} />}
+                        {commandCopied ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <p className="flex items-center gap-2 text-xs text-app-muted">
+                      <span className="relative flex h-2 w-2" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                      </span>
+                      Listening for changes from the agent
+                    </p>
+                    <div className="border-t border-app-border pt-3 text-xs text-app-muted">
+                      Or{' '}
+                      <button type="button" onClick={handleAddSketch} className="font-medium text-app-secondary underline underline-offset-2 hover:text-app-primary">
+                        place an empty sketch
+                      </button>{' '}
+                      (N) and describe it yourself first.
+                    </div>
                   </div>
                 </div>
               )}
@@ -719,6 +1053,7 @@ const CanvasPage: React.FC = () => {
                   isResizing={resizeState.isResizing && resizeState.nodeId === node.id}
                   onInspectElement={handleInspectElement}
                   onFitToContent={handleFitToContent}
+                  agentBadge={agentBadges[node.id] || null}
                   onSelect={(id, e) => {
                     e.stopPropagation();
                     // The preceding mousedown already selected this node (see
@@ -744,10 +1079,24 @@ const CanvasPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="absolute bottom-4 left-4 z-30 flex flex-col items-center gap-2 pointer-events-none">
+        <div className="pointer-events-none absolute bottom-4 left-4 z-30 flex flex-col items-start gap-2">
           <div className="pointer-events-auto">
-            <ZoomControl defaultZoom={(zoom * 100) as any} onZoomChange={(newZoom) => setZoom(newZoom / 100)} className="!p-0 scale-90" />
+            <Minimap nodes={nodes} selectedNodeId={selectedNodeId} view={viewRect} onNavigate={navigateTo} />
           </div>
+          <div className="pointer-events-auto">
+            <ZoomControl
+              zoom={zoom}
+              onZoomIn={() => zoomBy(1)}
+              onZoomOut={() => zoomBy(-1)}
+              onReset={resetZoom}
+              onFit={fitAll}
+              canFit={nodes.length > 0}
+            />
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute bottom-4 z-40 flex justify-center" style={{ left: 16, right: trayWidth + 16 }}>
+          <Toast toast={toast} onDismiss={dismissToast} />
         </div>
       </div>
 
@@ -768,6 +1117,8 @@ const CanvasPage: React.FC = () => {
           }}
           onSelectNode={handleSelectFromList}
           onDeleteComment={handleDeleteComment}
+          onSetResolved={handleSetResolved}
+          onMarkSent={handleMarkSent}
           onAddComment={handleAddComment}
           isTargeting={!!selectedNode && targetingNodeId === selectedNode.id}
           pendingElement={pendingElement}
@@ -776,6 +1127,7 @@ const CanvasPage: React.FC = () => {
           onComposerFocusChange={(focused) => setComposerNodeId(focused && selectedNode ? selectedNode.id : null)}
         />
       )}
+      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 };

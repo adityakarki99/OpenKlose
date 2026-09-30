@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '@tailwindcss/browser';
+import './app.css';
 import App from './App';
 
 console.log('Index.tsx: Starting execution');

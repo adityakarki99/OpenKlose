@@ -8,33 +8,6 @@
       content="A local, no-login design canvas for coding agents. Sketch components against your repo's real design system, point at the exact element that is wrong, and let the agent build it."
     />
     <title>Klose — Design canvas for coding agents</title>
-    <style type="text/tailwindcss">
-      @theme {
-        --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
-        --font-logo: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
-        --color-ceko-bg: rgb(var(--ceko-bg));
-        --color-ceko-surface: rgb(var(--ceko-surface));
-        --color-ceko-accent: rgb(var(--app-accent));
-        --color-app-bg: rgb(var(--app-bg));
-        --color-app-surface: rgb(var(--app-surface));
-        --color-app-surface-soft: rgb(var(--app-surface-soft));
-        --color-app-surface-elevated: rgb(var(--app-surface-elevated));
-        --color-app-surface-muted: rgb(var(--app-surface-muted));
-        --color-app-border: rgb(var(--app-border));
-        --color-app-border-strong: rgb(var(--app-border-strong));
-        --color-app-primary: rgb(var(--app-text-primary));
-        --color-app-secondary: rgb(var(--app-text-secondary));
-        --color-app-muted: rgb(var(--app-text-muted));
-        --color-app-subtle: rgb(var(--app-text-subtle));
-        --color-app-accent: rgb(var(--app-accent));
-        --color-app-grid: rgb(var(--app-grid-dot));
-        --color-app-canvas-empty: rgb(var(--app-canvas-empty));
-        --animate-spin-slow: spin 120s linear infinite;
-        --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        --animate-float: float 6s ease-in-out infinite;
-        --animate-glow: glow 2s ease-in-out infinite;
-      }
-    </style>
     <style>
       :root {
         --ceko-bg: 2 6 23;
@@ -49,7 +22,8 @@
         --app-text-primary: 248 250 252;
         --app-text-secondary: 203 213 225;
         --app-text-muted: 148 163 184;
-        --app-text-subtle: 100 116 139;
+        /* Lightest text still meets WCAG AA (4.5:1) on every dark surface. */
+        --app-text-subtle: 125 138 160;
         --app-grid-dot: 55 65 81;
         --app-canvas-empty: 9 9 11;
         --app-accent: 59 130 246;
@@ -68,8 +42,9 @@
         --app-border-strong: 148 163 184;
         --app-text-primary: 15 23 42;
         --app-text-secondary: 51 65 85;
-        --app-text-muted: 100 116 139;
-        --app-text-subtle: 148 163 184;
+        /* Muted and subtle both meet WCAG AA (4.5:1) on white and on --app-bg. */
+        --app-text-muted: 71 85 105;
+        --app-text-subtle: 100 116 139;
         --app-grid-dot: 148 163 184;
         --app-canvas-empty: 255 255 255;
         --app-accent: 37 99 235;
@@ -144,7 +119,9 @@
         animation: pencilWriting 0.6s ease-in-out infinite;
       }
 
-      :root[data-theme="light"] .text-white,
+      /* .text-white is deliberately not here: every use of it sits on a
+         saturated fill (buttons, comment pins, badges), where it must stay
+         white in both themes. */
       :root[data-theme="light"] .text-zinc-100,
       :root[data-theme="light"] .text-slate-100,
       :root[data-theme="light"] .text-\[\#F4F4F5\] {
@@ -197,6 +174,30 @@
 
       :root[data-theme="light"] .hover\:bg-white\/10:hover {
         background-color: rgb(var(--app-surface-muted) / 0.1) !important;
+      }
+
+      /* Pastel accent text is tuned for the dark theme; on white it needs the
+         deep end of the same hue to stay readable. */
+      :root[data-theme="light"] .text-amber-300,
+      :root[data-theme="light"] .text-amber-400,
+      :root[data-theme="light"] .text-amber-500 {
+        color: rgb(180 83 9) !important;
+      }
+      :root[data-theme="light"] .text-emerald-300,
+      :root[data-theme="light"] .text-emerald-400 {
+        color: rgb(4 120 87) !important;
+      }
+      :root[data-theme="light"] .text-blue-200,
+      :root[data-theme="light"] .text-blue-300,
+      :root[data-theme="light"] .text-blue-400 {
+        color: rgb(29 78 216) !important;
+      }
+      :root[data-theme="light"] .text-violet-300 {
+        color: rgb(109 40 217) !important;
+      }
+      :root[data-theme="light"] .text-red-300,
+      :root[data-theme="light"] .text-red-400 {
+        color: rgb(185 28 28) !important;
       }
     </style>
   </head>

@@ -179,6 +179,28 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onContentSizeRef.current?.({ width: data.width, height: data.height });
           }
           break;
+        case 'wheel': {
+          // Re-dispatch on the iframe element so it bubbles up to the canvas
+          // as if the wheel had happened over the frame itself. The sandbox
+          // reports coordinates inside the (possibly zoomed) frame.
+          const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+          const rect = frame.getBoundingClientRect();
+          const scale = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+          frame.dispatchEvent(
+            new WheelEvent('wheel', {
+              bubbles: true,
+              cancelable: true,
+              deltaX: num(data.deltaX),
+              deltaY: num(data.deltaY),
+              deltaMode: num(data.deltaMode),
+              clientX: rect.left + num(data.clientX) * scale,
+              clientY: rect.top + num(data.clientY) * scale,
+              ctrlKey: !!data.ctrlKey,
+              metaKey: !!data.metaKey,
+            })
+          );
+          break;
+        }
         case 'pins':
           if (Array.isArray(data.pins)) onPinsRef.current?.(data.pins as PinPosition[]);
           break;

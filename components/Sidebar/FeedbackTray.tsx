@@ -1,7 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronsRight, Copy, MessageSquare, Send, Trash2, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
-import { buildFeedbackText, describeElement, timeAgo } from '../../lib/feedback.js';
+import {
+  buildFeedbackText,
+  commentStatus,
+  commentsToSend,
+  countNew,
+  countOpen,
+  describeElement,
+  openComments,
+  resolvedComments,
+  timeAgo,
+} from '../../lib/feedback.js';
 import { focusMovedIntoPreview } from '../../lib/targeting.js';
 
 export const TRAY_OPEN_WIDTH = 380;
@@ -22,6 +32,10 @@ interface FeedbackTrayProps {
   onSelectComment: (nodeId: string, commentId: string) => void;
   onSelectNode: (nodeId: string) => void;
   onDeleteComment: (nodeId: string, commentId: string) => void;
+  /** Mark a comment addressed (resolved = true) or reopen it. */
+  onSetResolved: (nodeId: string, commentId: string, resolved: boolean) => void;
+  /** A copy just handed these comments to the agent. */
+  onMarkSent: (commentIds: Set<string>) => void;
   onAddComment: (nodeId: string, text: string, element: SelectedElementInfo | null) => void;
   /** True while the selected sketch's preview is accepting element picks. */
   isTargeting: boolean;
@@ -44,12 +58,19 @@ function useCopy() {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
+      return true;
     } catch (err) {
       console.error('Copy to clipboard failed:', err);
+      return false;
     }
   };
   return { copied, copy };
 }
+
+const STATUS_CHIP: Record<'new' | 'sent', { label: string; className: string; title: string }> = {
+  new: { label: 'New', className: 'bg-amber-400/15 text-amber-300', title: "Not copied for the agent yet" },
+  sent: { label: 'Sent', className: 'bg-app-surface-muted/15 text-app-secondary', title: 'Copied for the agent; waiting for it to resolve this' },
+};
 
 const CommentRow: React.FC<{
   comment: Comment;
@@ -57,7 +78,10 @@ const CommentRow: React.FC<{
   active: boolean;
   onSelect: () => void;
   onDelete: () => void;
-}> = ({ comment, number, active, onSelect, onDelete }) => {
+  onResolve: () => void;
+}> = ({ comment, number, active, onSelect, onDelete, onResolve }) => {
+  const status = commentStatus(comment) as 'new' | 'sent';
+  const chip = STATUS_CHIP[status];
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -86,22 +110,59 @@ const CommentRow: React.FC<{
             <span className={`truncate font-mono text-[11px] ${comment.element ? 'text-blue-300' : 'text-app-muted'}`}>
               {comment.element ? describeElement(comment.element) : 'Whole sketch'}
             </span>
-            <span className="flex-shrink-0 text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
+            <span className="flex flex-shrink-0 items-center gap-1.5">
+              <span className={`rounded px-1.5 py-px text-[10.5px] font-semibold ${chip.className}`} title={chip.title}>
+                {chip.label}
+              </span>
+              <span className="text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
+            </span>
           </span>
           <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-app-secondary">{comment.text}</span>
         </span>
       </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="self-start rounded p-1 text-app-muted opacity-0 transition-opacity hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100"
-        aria-label={`Delete comment ${number}`}
-      >
-        <Trash2 size={13} />
-      </button>
+      <span className="flex flex-col gap-0.5 self-start opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={onResolve}
+          className="rounded p-1 text-app-muted hover:text-emerald-400"
+          aria-label={`Mark comment ${number} resolved`}
+          title="Mark resolved"
+        >
+          <Check size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded p-1 text-app-muted hover:text-red-400"
+          aria-label={`Delete comment ${number}`}
+          title="Delete"
+        >
+          <Trash2 size={13} />
+        </button>
+      </span>
     </div>
   );
 };
+
+/** A comment the agent (or the user) marked addressed, with what was changed. */
+const ResolvedRow: React.FC<{ comment: Comment; onReopen: () => void; onDelete: () => void }> = ({ comment, onReopen, onDelete }) => (
+  <div className="group flex gap-2.5 rounded-xl border border-app-border/60 p-2.5">
+    <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-emerald-400" aria-hidden="true" />
+    <span className="flex min-w-0 flex-1 flex-col gap-1">
+      <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-app-muted line-through decoration-app-muted/50">{comment.text}</span>
+      {comment.resolution && <span className="text-xs leading-relaxed text-emerald-300">{comment.resolution}</span>}
+      <span className="text-[11px] text-app-muted">Resolved {timeAgo(comment.resolvedAt || 0)}</span>
+    </span>
+    <span className="flex flex-col gap-0.5 self-start opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      <button type="button" onClick={onReopen} className="rounded p-1 text-app-muted hover:text-blue-300" aria-label="Reopen comment" title="Reopen">
+        <RotateCcw size={13} />
+      </button>
+      <button type="button" onClick={onDelete} className="rounded p-1 text-app-muted hover:text-red-400" aria-label="Delete resolved comment" title="Delete">
+        <Trash2 size={13} />
+      </button>
+    </span>
+  </div>
+);
 
 /**
  * The feedback tray on the right of the canvas. Open, it lists every comment
@@ -122,6 +183,8 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   onSelectComment,
   onSelectNode,
   onDeleteComment,
+  onSetResolved,
+  onMarkSent,
   onAddComment,
   isTargeting,
   pendingElement,
@@ -131,14 +194,22 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
 }) => {
   const [draft, setDraft] = useState('');
   const { copied, copy } = useCopy();
-  const total = nodes.reduce((sum, n) => sum + (n.comments?.length || 0), 0);
+  const [showResolved, setShowResolved] = useState(false);
+  // Counts are of open comments: resolved ones are history, not work.
+  const total = countOpen(nodes);
   // "This sketch" means nothing with no sketch selected.
   const effectiveScope: TrayScope = selectedNode ? scope : 'all';
   const scopedNodes = effectiveScope === 'sketch' && selectedNode ? [selectedNode] : nodes;
+  const scopedNew = countNew(scopedNodes);
 
   useEffect(() => setDraft(''), [selectedNode?.id]);
 
-  const copyForAgent = () => copy(buildFeedbackText({ projectId, projectName, nodes: scopedNodes }));
+  /** Copies what the agent hasn't seen yet (or everything open, if it has seen it all) and marks it sent. */
+  const copyForAgent = async (forNodes: ComponentNode[] = scopedNodes) => {
+    const { ids } = commentsToSend(forNodes);
+    const ok = await copy(buildFeedbackText({ projectId, projectName, nodes: forNodes, only: ids }));
+    if (ok) onMarkSent(ids);
+  };
 
   const submit = () => {
     const text = draft.trim();
@@ -171,7 +242,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         <span className="my-1 h-px w-7 bg-app-border" aria-hidden="true" />
         <div className="flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto">
           {nodes.map((node) => {
-            const count = node.comments?.length || 0;
+            const count = openComments(node.comments).length;
             const selected = node.id === selectedNode?.id;
             return (
               <button
@@ -195,7 +266,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         </div>
         <button
           type="button"
-          onClick={copyForAgent}
+          onClick={() => copyForAgent(nodes)}
           disabled={total === 0}
           className="grid h-11 w-11 place-items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Copy all feedback for the agent"
@@ -207,8 +278,16 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
     );
   }
 
-  const visible = scopedNodes.filter((n) => effectiveScope === 'sketch' || (n.comments?.length || 0) > 0);
-  const scopedCount = scopedNodes.reduce((sum, n) => sum + (n.comments?.length || 0), 0);
+  const visible = scopedNodes.filter((n) => effectiveScope === 'sketch' || openComments(n.comments).length > 0);
+  const scopedCount = countOpen(scopedNodes);
+  const scopedResolved = scopedNodes.flatMap((n) => resolvedComments(n.comments).map((comment) => ({ node: n, comment })));
+  const copyLabel = copied
+    ? 'Copied — marked as sent'
+    : scopedNew > 0
+      ? `Copy ${scopedNew} new comment${scopedNew === 1 ? '' : 's'} for agent`
+      : scopedCount > 0
+        ? `Copy ${scopedCount} open comment${scopedCount === 1 ? '' : 's'} again`
+        : 'Copy feedback for agent';
 
   return (
     <aside
@@ -251,11 +330,13 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
         {visible.length === 0 && (
           <p className="py-6 text-center text-[13px] leading-relaxed text-app-muted">
-            No feedback yet. Select a sketch and write a comment below. Whatever you leave here is what the agent reads next.
+            {scopedResolved.length > 0
+              ? 'All caught up: nothing open. Resolved comments are below.'
+              : 'No feedback yet. Select a sketch and write a comment below. Whatever you leave here is what the agent reads next.'}
           </p>
         )}
         {visible.map((node) => {
-          const comments = node.comments || [];
+          const comments = openComments(node.comments);
           return (
             <section key={node.id} className="flex flex-col gap-2">
               <button
@@ -265,10 +346,12 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
               >
                 <StatusDot node={node} />
                 <span className="flex-1 truncate">{node.name || 'Untitled sketch'}</span>
-                <span className="text-xs font-normal text-app-muted">{comments.length} comment{comments.length === 1 ? '' : 's'}</span>
+                <span className="text-xs font-normal text-app-muted">{comments.length} open</span>
               </button>
               {comments.length === 0 && (
-                <p className="text-xs leading-relaxed text-app-muted">No feedback on this sketch yet.</p>
+                <p className="text-xs leading-relaxed text-app-muted">
+                  {resolvedComments(node.comments).length > 0 ? 'Nothing open on this sketch. Everything has been resolved.' : 'No feedback on this sketch yet.'}
+                </p>
               )}
               {comments.map((comment, index) => (
                 <CommentRow
@@ -278,11 +361,34 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
                   active={activeComment?.commentId === comment.id}
                   onSelect={() => onSelectComment(node.id, comment.id)}
                   onDelete={() => onDeleteComment(node.id, comment.id)}
+                  onResolve={() => onSetResolved(node.id, comment.id, true)}
                 />
               ))}
             </section>
           );
         })}
+        {scopedResolved.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setShowResolved((v) => !v)}
+              aria-expanded={showResolved}
+              className="flex items-center gap-1.5 py-0.5 text-left text-xs font-medium text-app-muted hover:text-app-secondary"
+            >
+              {showResolved ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              Resolved · {scopedResolved.length}
+            </button>
+            {showResolved &&
+              scopedResolved.map(({ node, comment }) => (
+                <ResolvedRow
+                  key={comment.id}
+                  comment={comment}
+                  onReopen={() => onSetResolved(node.id, comment.id, false)}
+                  onDelete={() => onDeleteComment(node.id, comment.id)}
+                />
+              ))}
+          </section>
+        )}
         {visible.some((n) => n.comments?.some((c) => c.element)) && (
           <p className="text-xs leading-relaxed text-app-muted">Click a pin on a preview to find its comment, or a comment here to find its element.</p>
         )}
@@ -297,7 +403,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
             {pendingElement && (
               <div className="flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 py-1 pl-2 pr-1 font-mono text-[11px] text-blue-200">
                 <span className="min-w-0 flex-1 truncate">{describeElement(pendingElement)}</span>
-                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-white" aria-label="Don't attach this element">
+                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-app-primary" aria-label="Don't attach this element">
                   <X size={12} />
                 </button>
               </div>
@@ -358,13 +464,16 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         )}
         <button
           type="button"
-          onClick={copyForAgent}
+          onClick={() => copyForAgent()}
           disabled={scopedCount === 0}
           className="mt-1 flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copied ? 'Copied' : effectiveScope === 'sketch' ? 'Copy feedback for agent' : 'Copy all feedback for agent'}
+          {copyLabel}
         </button>
+        <p className="text-[11px] leading-relaxed text-app-muted">
+          Or skip the clipboard: run <code className="font-mono text-app-secondary">/klose</code> and the agent reads open comments straight from this repo.
+        </p>
       </div>
     </aside>
   );

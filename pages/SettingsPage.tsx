@@ -6,7 +6,10 @@ import type { ThemeMode, UserSettings } from '../types';
 import { Button } from '../components/DesignSystem/Button';
 import { Card } from '../components/DesignSystem/Card';
 
-const SETTING_CONFIG: { key: keyof UserSettings; label: string; description: string }[] = [
+/** The on/off settings: the keys of UserSettings whose value is a boolean. */
+type ToggleSetting = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
+
+const SETTING_CONFIG: { key: ToggleSetting; label: string; description: string }[] = [
   { key: 'cssLogicalProperties', label: 'CSS logical properties', description: 'Use margin-inline-start etc. for RTL-ready layout' },
   { key: 'rtlDirection', label: 'Right-to-left layout', description: 'Set document direction to RTL (e.g. Arabic, Hebrew)' },
 ];

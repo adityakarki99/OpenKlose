@@ -213,6 +213,52 @@ document.addEventListener('click', (event) => {
   post({ type: 'select', info: elementInfo(target) });
 }, true);
 
+/** Whether something under `start` can still scroll by (dx, dy). */
+function canScroll(start: EventTarget | null, dx: number, dy: number): boolean {
+  const scrollable = (el: Element, axis: 'x' | 'y') => {
+    const style = getComputedStyle(el);
+    const overflow = axis === 'y' ? style.overflowY : style.overflowX;
+    const isRoot = el === document.scrollingElement;
+    return isRoot || overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay';
+  };
+  const can = (el: Element) => {
+    if (dy && scrollable(el, 'y') && el.scrollHeight > el.clientHeight) {
+      if (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+    }
+    if (dx && scrollable(el, 'x') && el.scrollWidth > el.clientWidth) {
+      if (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0) return true;
+    }
+    return false;
+  };
+  for (let el = start instanceof Element ? start : null; el; el = el.parentElement) {
+    if (can(el)) return true;
+  }
+  return !!document.scrollingElement && can(document.scrollingElement);
+}
+
+// Scrolling the preview has no use for goes back to the canvas: ⌘/Ctrl + wheel
+// (and pinch, which browsers report the same way) always zooms the canvas, and
+// plain scrolling pans it once the preview can't scroll that way itself.
+document.addEventListener(
+  'wheel',
+  (event) => {
+    const zoom = event.ctrlKey || event.metaKey;
+    if (!zoom && canScroll(event.target, event.deltaX, event.deltaY)) return;
+    event.preventDefault();
+    post({
+      type: 'wheel',
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    });
+  },
+  { passive: false }
+);
+
 window.addEventListener('message', (event) => {
   if (event.source !== parent) return;
   const data = event.data || {};

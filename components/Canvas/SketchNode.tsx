@@ -189,7 +189,6 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           zoom={zoom}
           hasPreview={hasPreview}
           showCode={showCode}
-          canFit={canFit}
           capture={capture}
           onToggleCode={() => setShowCode((v) => !v)}
           onComment={() => {
@@ -197,13 +196,14 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             onComment?.(node.id);
           }}
           onScreenshot={handleScreenshot}
-          onFit={handleFit}
           onDuplicate={() => onDuplicate(node.id)}
           onDelete={() => onDelete(node.id)}
           onUpdate={onUpdate}
         />
       )}
-      {isSelected && !isGesturing && <SketchSizePanel node={node} zoom={zoom} onResize={onResize} />}
+      {isSelected && !isGesturing && (
+        <SketchSizePanel node={node} zoom={zoom} onResize={onResize} onFit={hasPreview ? handleFit : undefined} canFit={canFit} />
+      )}
 
       {/* The toolbar takes this spot on the selected sketch. */}
       {agentBadge && !isSelected && (

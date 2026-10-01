@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, Plug, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, MessageSquare, Plug, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
 import {
   buildFeedbackText,
@@ -82,66 +82,68 @@ const CommentRow: React.FC<{
   onSelect: () => void;
   onDelete: () => void;
   onResolve: () => void;
-}> = ({ comment, number, active, onSelect, onDelete, onResolve }) => {
+  /** Copy just this comment for the agent; resolves to whether it reached the clipboard. */
+  onCopy: () => Promise<boolean>;
+}> = ({ comment, number, active, onSelect, onDelete, onResolve, onCopy }) => {
   const status = commentStatus(comment) as 'new' | 'sent';
   const chip = STATUS_CHIP[status];
   const ref = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [active]);
+  const action = 'grid h-6 w-6 place-items-center rounded text-app-muted hover:bg-app-surface-muted/10';
   return (
     <div
       ref={ref}
-      className={`group flex gap-2.5 rounded-xl border p-2.5 transition-colors ${
-        active ? 'border-blue-500/50 bg-blue-500/10' : 'border-app-border bg-app-surface hover:border-app-border-strong'
+      className={`pointer-events-auto flex gap-2.5 rounded-xl border p-2.5 transition-colors ${
+        // Solid in both states: the list floats over the canvas with nothing behind the cards.
+        active ? 'border-blue-500/50 bg-app-surface shadow-[inset_0_0_0_999px_rgba(59,130,246,0.1)]' : 'border-app-border bg-app-surface hover:border-app-border-strong'
       }`}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 gap-2.5 text-left"
-        aria-label={`Show comment ${number} on the canvas`}
-      >
+      <span className="flex flex-shrink-0 flex-col items-center gap-1.5">
         <span
-          className={`grid h-[22px] w-[22px] flex-shrink-0 place-items-center font-mono text-[11px] font-semibold text-white ${comment.element ? 'bg-blue-500' : 'bg-slate-600'}`}
+          className={`grid h-[22px] w-[22px] place-items-center font-mono text-[11px] font-semibold text-white ${comment.element ? 'bg-blue-500' : 'bg-slate-600'}`}
           style={{ borderRadius: '11px 11px 11px 3px' }}
         >
           {number}
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex items-center justify-between gap-2">
-            <span className={`truncate font-mono text-[11px] ${comment.element ? 'text-blue-300' : 'text-app-muted'}`}>
-              {comment.element ? describeElement(comment.element) : 'Whole sketch'}
-            </span>
-            <span className="flex flex-shrink-0 items-center gap-1.5">
-              <span className={`rounded px-1.5 py-px text-[10.5px] font-semibold ${chip.className}`} title={chip.title}>
-                {chip.label}
-              </span>
-              <span className="text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
-            </span>
+        <span className={`rounded px-1.5 py-px text-[10.5px] font-semibold ${chip.className}`} title={chip.title}>
+          {chip.label}
+        </span>
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <button type="button" onClick={onSelect} className="flex min-w-0 flex-col gap-1 text-left" aria-label={`Show comment ${number} on the canvas`}>
+          <span className={`truncate font-mono text-[11px] ${comment.element ? 'text-blue-300' : 'text-app-muted'}`}>
+            {comment.element ? describeElement(comment.element) : 'Whole sketch'}
           </span>
           <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-app-secondary">{comment.text}</span>
+        </button>
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
+          <span className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!(await onCopy())) return;
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 2000);
+              }}
+              className={`flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium hover:bg-app-surface-muted/10 ${copied ? 'text-emerald-400' : 'text-app-muted hover:text-app-primary'}`}
+              aria-label={`Copy comment ${number} for the agent`}
+              title="Copy this comment for the agent (marks it sent)"
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button type="button" onClick={onResolve} className={`${action} hover:text-emerald-400`} aria-label={`Mark comment ${number} resolved`} title="Mark resolved">
+              <Check size={13} />
+            </button>
+            <button type="button" onClick={onDelete} className={`${action} hover:text-red-400`} aria-label={`Delete comment ${number}`} title="Delete">
+              <Trash2 size={13} />
+            </button>
+          </span>
         </span>
-      </button>
-      <span className="flex flex-col gap-0.5 self-start opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        <button
-          type="button"
-          onClick={onResolve}
-          className="rounded p-1 text-app-muted hover:text-emerald-400"
-          aria-label={`Mark comment ${number} resolved`}
-          title="Mark resolved"
-        >
-          <Check size={13} />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded p-1 text-app-muted hover:text-red-400"
-          aria-label={`Delete comment ${number}`}
-          title="Delete"
-        >
-          <Trash2 size={13} />
-        </button>
       </span>
     </div>
   );
@@ -149,32 +151,35 @@ const CommentRow: React.FC<{
 
 /** A comment the agent (or the user) marked addressed, with what was changed. */
 const ResolvedRow: React.FC<{ comment: Comment; onReopen: () => void; onDelete: () => void }> = ({ comment, onReopen, onDelete }) => (
-  <div className="group flex gap-2.5 rounded-xl border border-app-border/60 p-2.5">
+  <div className="pointer-events-auto flex gap-2.5 rounded-xl border border-app-border/60 bg-app-surface p-2.5">
     <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0 text-emerald-400" aria-hidden="true" />
-    <span className="flex min-w-0 flex-1 flex-col gap-1">
+    <span className="flex min-w-0 flex-1 flex-col gap-1.5">
       <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-app-muted line-through decoration-app-muted/50">{comment.text}</span>
       {comment.resolution && <span className="text-xs leading-relaxed text-emerald-300">{comment.resolution}</span>}
-      <span className="text-[11px] text-app-muted">Resolved {timeAgo(comment.resolvedAt || 0)}</span>
-    </span>
-    <span className="flex flex-col gap-0.5 self-start opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-      <button type="button" onClick={onReopen} className="rounded p-1 text-app-muted hover:text-blue-300" aria-label="Reopen comment" title="Reopen">
-        <RotateCcw size={13} />
-      </button>
-      <button type="button" onClick={onDelete} className="rounded p-1 text-app-muted hover:text-red-400" aria-label="Delete resolved comment" title="Delete">
-        <Trash2 size={13} />
-      </button>
+      <span className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-app-muted">Resolved {timeAgo(comment.resolvedAt || 0)}</span>
+        <span className="flex items-center gap-0.5">
+          <button type="button" onClick={onReopen} className="grid h-6 w-6 place-items-center rounded text-app-muted hover:bg-app-surface-muted/10 hover:text-blue-300" aria-label="Reopen comment" title="Reopen">
+            <RotateCcw size={13} />
+          </button>
+          <button type="button" onClick={onDelete} className="grid h-6 w-6 place-items-center rounded text-app-muted hover:bg-app-surface-muted/10 hover:text-red-400" aria-label="Delete resolved comment" title="Delete">
+            <Trash2 size={13} />
+          </button>
+        </span>
+      </span>
     </span>
   </div>
 );
 
 /**
  * The feedback tray on the right of the canvas. Open, it lists every comment,
- * with numbers that match the pins on the previews, and holds the composer.
- * Its top bar is the filter: "All sketches", or the selected sketch's tag —
- * selecting a sketch switches to it. It floats over the canvas, inset from
- * the edges, rather than being pinned to them. Collapsed, it is a small
- * summary at the canvas's top right: the open-comment count (click to open)
- * and "Copy for agent".
+ * with numbers that match the pins on the previews, straight over the canvas:
+ * only the cards are solid, and the space between them passes clicks through.
+ * Below the list, one floating panel holds the chat box — with the selected
+ * sketch as a tag inside it, which is also the filter — and the copy row
+ * (copy, Use MCP, collapse). Collapsed, it is a summary as wide as the open
+ * tray at the canvas's top right: the open-comment count (click to open) and
+ * "Copy for agent".
  */
 export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   open,
@@ -222,6 +227,13 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
     if (ok) onMarkSent(ids);
   };
 
+  const copyOne = async (node: ComponentNode, commentId: string) => {
+    const ids = new Set([commentId]);
+    const ok = await copy(buildFeedbackText({ projectId, projectName, nodes: [node], only: ids }));
+    if (ok) onMarkSent(ids);
+    return ok;
+  };
+
   const submit = () => {
     const text = draft.trim();
     if (!text || !selectedNode) return;
@@ -236,12 +248,12 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         role="region"
         aria-label="Feedback, collapsed"
         className="absolute z-30 flex items-center gap-1 rounded-2xl border border-app-border bg-app-surface-elevated p-1.5 shadow-2xl shadow-black/40"
-        style={{ top: FLOAT_TOP, right: TRAY_INSET }}
+        style={{ top: FLOAT_TOP, right: TRAY_INSET, width: TRAY_OPEN_WIDTH }}
       >
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="flex h-9 items-center gap-2 rounded-xl px-2.5 text-app-primary hover:bg-app-surface-muted/10"
+          className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-app-primary hover:bg-app-surface-muted/10"
           aria-label={`Open feedback, ${total} open comment${total === 1 ? '' : 's'}`}
           title="Open feedback"
         >
@@ -275,82 +287,18 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   const copyLabel = copied
     ? 'Copied — marked as sent'
     : scopedNew > 0
-      ? `Copy ${scopedNew} new comment${scopedNew === 1 ? '' : 's'} for agent`
+      ? `Copy ${scopedNew} new comment${scopedNew === 1 ? '' : 's'}`
       : scopedCount > 0
         ? `Copy ${scopedCount} open comment${scopedCount === 1 ? '' : 's'} again`
-        : 'Copy feedback for agent';
+        : 'Copy feedback';
 
   return (
     <aside
       aria-label="Feedback"
-      className="absolute z-30 flex flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl shadow-black/40"
+      className="pointer-events-none absolute z-30 flex flex-col gap-3"
       style={{ width: TRAY_OPEN_WIDTH, top: FLOAT_TOP, right: TRAY_INSET, bottom: TRAY_INSET }}
     >
-      <div className="flex items-center gap-2 border-b border-app-border px-3 py-2.5">
-        <div role="group" aria-label="Show feedback for" className="flex min-w-0 flex-1 gap-0.5 rounded-lg p-0.5">
-          <button
-            type="button"
-            aria-pressed={effectiveScope === 'all'}
-            onClick={() => onScopeChange('all')}
-            className={`flex flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] ${
-              effectiveScope === 'all' ? 'bg-app-surface-muted/10 font-medium text-app-primary' : 'text-app-muted hover:text-app-secondary'
-            }`}
-          >
-            <Layers size={13} />
-            All sketches · {total}
-          </button>
-          {selectedNode && (
-            <button
-              type="button"
-              aria-pressed={effectiveScope === 'sketch'}
-              onClick={() => onScopeChange('sketch')}
-              className={`flex min-w-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] ${
-                effectiveScope === 'sketch'
-                  ? 'bg-app-surface-muted/10 font-medium text-app-primary ring-1 ring-blue-500/50'
-                  : 'text-app-muted hover:text-app-secondary'
-              }`}
-              title={`Show feedback on ${selectedNode.name || 'Untitled sketch'} only`}
-            >
-              <StatusDot node={selectedNode} />
-              <span className="truncate">{selectedNode.name || 'Untitled sketch'}</span>
-              <span className="font-mono text-[11px] text-app-muted">{openComments(selectedNode.comments).length}</span>
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary"
-          aria-label="Collapse feedback"
-          title="Collapse feedback"
-        >
-          <ChevronsRight size={16} />
-        </button>
-      </div>
-
-      <div className="flex gap-2 border-b border-app-border px-3 py-2.5">
-        <button
-          type="button"
-          onClick={() => copyForAgent()}
-          disabled={scopedCount === 0}
-          className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {copied ? <Check size={15} /> : <Copy size={15} />}
-          <span className="truncate">{copyLabel}</span>
-        </button>
-        {/* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */}
-        <button
-          type="button"
-          disabled
-          className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
-          title="Coming soon: send feedback to the agent over MCP"
-        >
-          <Plug size={14} />
-          Use MCP
-        </button>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 py-1 canvas-scroll">
         {visible.length === 0 && (
           <p className="py-6 text-center text-[13px] leading-relaxed text-app-muted">
             {scopedResolved.length > 0
@@ -364,8 +312,11 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
             <section key={node.id} className="flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => onSelectNode(node.id)}
-                className="flex items-center gap-2 py-0.5 text-left text-[13px] font-semibold text-app-primary hover:text-blue-300"
+                onClick={() => {
+                  onSelectNode(node.id);
+                  onScopeChange('sketch');
+                }}
+                className="pointer-events-auto flex items-center gap-2 py-0.5 text-left text-[13px] font-semibold text-app-primary hover:text-blue-300"
               >
                 <StatusDot node={node} />
                 <span className="flex-1 truncate">{node.name || 'Untitled sketch'}</span>
@@ -385,6 +336,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
                   onSelect={() => onSelectComment(node.id, comment.id)}
                   onDelete={() => onDeleteComment(node.id, comment.id)}
                   onResolve={() => onSetResolved(node.id, comment.id, true)}
+                  onCopy={() => copyOne(node, comment.id)}
                 />
               ))}
             </section>
@@ -396,7 +348,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
               type="button"
               onClick={() => setShowResolved((v) => !v)}
               aria-expanded={showResolved}
-              className="flex items-center gap-1.5 py-0.5 text-left text-xs font-medium text-app-muted hover:text-app-secondary"
+              className="pointer-events-auto flex items-center gap-1.5 self-start py-0.5 text-left text-xs font-medium text-app-muted hover:text-app-secondary"
             >
               {showResolved ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
               Resolved · {scopedResolved.length}
@@ -417,62 +369,132 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         )}
       </div>
 
-      <div className="flex flex-shrink-0 flex-col gap-2 border-t border-app-border px-4 pb-4 pt-3">
-        {selectedNode ? (
-          <>
-            <div className="relative">
-              <textarea
-                id="feedback-composer"
-                ref={composerRef}
-                /* The filter bar names the sketch; the element rides in the placeholder. */
-                aria-label={`Comment on ${selectedNode.name || 'Untitled sketch'}`}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onFocus={() => onComposerFocusChange(true)}
-                onBlur={() => {
-                  // Clicking an element moves focus into the preview's iframe a
-                  // moment before the sandbox reports what was clicked. That blur
-                  // must not end targeting, or the click lands on nothing.
-                  window.setTimeout(() => {
-                    if (focusMovedIntoPreview(document.activeElement)) return;
-                    onComposerFocusChange(false);
-                  }, 0);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    submit();
-                  }
-                  // Escape drops the targeted element first; the draft survives.
-                  if (e.key === 'Escape' && pendingElement) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onClearPendingElement();
-                  }
-                }}
-                placeholder={pendingElement ? `Feedback on ${describeElement(pendingElement)}… (Esc to detach)` : 'Leave feedback on this design…'}
-                className={`block h-20 w-full resize-none rounded-lg border bg-app-surface py-2 pl-3 pr-12 text-[13px] leading-relaxed text-app-primary outline-none ${
-                  isTargeting ? 'border-blue-500' : 'border-app-border focus:border-blue-500'
+      <div className="pointer-events-auto flex flex-shrink-0 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl shadow-black/40">
+        <div className="flex flex-col gap-2 px-4 pb-3 pt-3">
+          <div
+            className={`relative flex flex-col gap-1.5 rounded-2xl border bg-app-surface p-2 ${!selectedNode ? 'opacity-60' : ''} ${
+              isTargeting ? 'border-blue-500' : 'border-app-border focus-within:border-blue-500'
+            }`}
+          >
+            {/* The sketch being commented on, which is also the list's filter: pressed shows
+                only its comments, ✕ goes back to every sketch's. */}
+            {selectedNode && (
+              <span
+                className={`flex min-w-0 max-w-[calc(100%-3rem)] items-center gap-1.5 self-start rounded-full py-0.5 pl-2 pr-0.5 text-xs font-medium ${
+                  effectiveScope === 'sketch' ? 'bg-app-surface-muted/10 text-app-primary ring-1 ring-blue-500/50' : 'text-app-secondary ring-1 ring-app-border'
                 }`}
-              />
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!draft.trim()}
-                className="absolute bottom-1.5 right-1.5 grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-app-surface-soft disabled:text-app-muted"
-                aria-label="Add comment"
-                title="Add comment (Enter)"
               >
-                <Send size={15} />
-              </button>
-            </div>
-            {selectedNode.code && !pendingElement && (
-              <p className={`text-xs leading-relaxed ${isTargeting ? 'text-blue-300' : 'text-app-muted'}`}>Click an element in the preview to attach it.</p>
+                <button
+                  type="button"
+                  onClick={() => onScopeChange('sketch')}
+                  aria-pressed={effectiveScope === 'sketch'}
+                  className="flex min-w-0 items-center gap-1.5"
+                  title={effectiveScope === 'sketch' ? `Showing ${selectedNode.name || 'Untitled sketch'}'s feedback` : `Show only ${selectedNode.name || 'Untitled sketch'}'s feedback`}
+                >
+                  <StatusDot node={selectedNode} />
+                  <span className="truncate">{selectedNode.name || 'Untitled sketch'}</span>
+                  <span className="font-mono text-[11px] text-app-muted">{openComments(selectedNode.comments).length}</span>
+                </button>
+                {effectiveScope === 'sketch' ? (
+                  <button
+                    type="button"
+                    onClick={() => onScopeChange('all')}
+                    className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary"
+                    aria-label="Show all sketches"
+                    title={`All sketches · ${total}`}
+                  >
+                    <X size={12} />
+                  </button>
+                ) : (
+                  <span className="w-1.5" aria-hidden="true" />
+                )}
+              </span>
             )}
-          </>
-        ) : (
-          <p className="text-xs leading-relaxed text-app-muted">Select a sketch to comment on it.</p>
-        )}
+            <textarea
+              id="feedback-composer"
+              ref={composerRef}
+              /* The tag names the sketch; the element rides in the placeholder. */
+              aria-label={selectedNode ? `Comment on ${selectedNode.name || 'Untitled sketch'}` : 'Comment'}
+              value={draft}
+              disabled={!selectedNode}
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={() => onComposerFocusChange(true)}
+              onBlur={() => {
+                // Clicking an element moves focus into the preview's iframe a
+                // moment before the sandbox reports what was clicked. That blur
+                // must not end targeting, or the click lands on nothing.
+                window.setTimeout(() => {
+                  if (focusMovedIntoPreview(document.activeElement)) return;
+                  onComposerFocusChange(false);
+                }, 0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+                // Escape drops the targeted element first; the draft survives.
+                if (e.key === 'Escape' && pendingElement) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onClearPendingElement();
+                }
+              }}
+              placeholder={
+                !selectedNode
+                  ? 'Select a sketch to comment on it…'
+                  : pendingElement
+                    ? `Feedback on ${describeElement(pendingElement)}… (Esc to detach)`
+                    : 'Leave feedback on this design…'
+              }
+              className="block h-14 w-full resize-none bg-transparent px-1.5 pr-11 text-[13px] leading-relaxed text-app-primary outline-none placeholder:text-app-muted disabled:cursor-not-allowed"
+            />
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!draft.trim() || !selectedNode}
+              className="absolute bottom-2 right-2 grid h-9 w-9 place-items-center rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-app-surface-soft disabled:text-app-muted"
+              aria-label="Add comment"
+              title="Add comment (Enter)"
+            >
+              <Send size={15} />
+            </button>
+          </div>
+          {selectedNode?.code && !pendingElement && (
+            <p className={`text-xs leading-relaxed ${isTargeting ? 'text-blue-300' : 'text-app-muted'}`}>Click an element in the preview to attach it.</p>
+          )}
+        </div>
+
+        <div className="flex gap-2 border-t border-app-border px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => copyForAgent()}
+            disabled={scopedCount === 0}
+            className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {copied ? <Check size={15} /> : <Copy size={15} />}
+            <span className="truncate">{copyLabel}</span>
+          </button>
+          {/* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */}
+          <button
+            type="button"
+            disabled
+            className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Coming soon: send feedback to the agent over MCP"
+          >
+            <Plug size={14} />
+            Use MCP
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary"
+            aria-label="Collapse feedback"
+            title="Collapse feedback"
+          >
+            <ChevronsRight size={16} />
+          </button>
+        </div>
       </div>
     </aside>
   );

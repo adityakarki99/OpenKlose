@@ -10,12 +10,10 @@ interface SketchToolbarProps {
   zoom: number;
   hasPreview: boolean;
   showCode: boolean;
-  canFit: boolean;
   capture: CaptureState;
   onToggleCode: () => void;
   onComment: () => void;
   onScreenshot: (toClipboard: boolean) => void;
-  onFit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
   onUpdate: (id: string, updates: Partial<ComponentNode>) => void;
@@ -101,15 +99,20 @@ const PRESET_ICONS: Record<string, React.ElementType> = {
 
 /**
  * The selected sketch's frame size, as its own small panel floating outside
- * the frame's top-left corner: W and H, then one icon per size preset (the
- * one matching the frame is lit). Like the toolbar, it keeps a constant
- * on-screen size whatever the canvas zoom.
+ * the frame's top-left corner: W and H, one icon per size preset (the one
+ * matching the frame is lit), and — for a sketch with a preview — fitting the
+ * frame to it. Like the toolbar, it keeps a constant on-screen size whatever
+ * the canvas zoom.
  */
 export const SketchSizePanel: React.FC<{
   node: ComponentNode;
   zoom: number;
   onResize: (id: string, size: { width?: number; height?: number }) => void;
-}> = ({ node, zoom, onResize }) => {
+  /** Present when the sketch has a preview to fit to. */
+  onFit?: () => void;
+  /** False until the preview has reported the size it wants. */
+  canFit?: boolean;
+}> = ({ node, zoom, onResize, onFit, canFit = false }) => {
   // Free text while typed and only committed on blur or Enter, so a
   // half-typed "4" doesn't snap the frame to its minimum.
   const [width, setWidth] = useState(String(Math.round(node.width)));
@@ -174,6 +177,21 @@ export const SketchSizePanel: React.FC<{
             </button>
           );
         })}
+        {onFit && (
+          <>
+            <span className="my-0.5 h-px w-7 bg-app-border" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={onFit}
+              disabled={!canFit}
+              aria-label="Fit frame to preview"
+              title="Fit the frame to the preview"
+              className="grid h-8 w-8 place-items-center rounded-lg text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary disabled:opacity-40"
+            >
+              <Scan size={15} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -181,8 +199,9 @@ export const SketchSizePanel: React.FC<{
 
 /**
  * Floating toolbar above the selected sketch: its name, starting a comment,
- * a screenshot, fitting the frame to the preview, the code view, and the
- * rarer actions (details, duplicate, delete) behind ⋯. The status badge lives
+ * a screenshot, the code view, and the rarer actions (details, duplicate,
+ * delete) behind ⋯. Fitting the frame lives with the other sizing controls,
+ * in the size panel. The status badge lives
  * on the frame's own header. Drawn at a constant on-screen size whatever the
  * canvas zoom.
  */
@@ -191,12 +210,10 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
   zoom,
   hasPreview,
   showCode,
-  canFit,
   capture,
   onToggleCode,
   onComment,
   onScreenshot,
-  onFit,
   onDuplicate,
   onDelete,
   onUpdate,
@@ -237,9 +254,6 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
               title="Screenshot as PNG (⌥-click copies it instead)"
             >
               {capture === 'working' ? <Loader2 size={15} className="animate-spin" /> : capture === 'done' ? <Check size={15} /> : <Camera size={15} />}
-            </button>
-            <button type="button" className={`${iconBtn} disabled:opacity-40`} disabled={!canFit} onClick={onFit} aria-label="Fit frame to preview" title="Fit the frame to the preview">
-              <Scan size={15} />
             </button>
             <Divider />
             <button type="button" className={`${iconBtn} ${showCode ? 'text-blue-400' : ''}`} onClick={onToggleCode} aria-pressed={showCode} aria-label={showCode ? 'Show live preview' : 'Show preview code'} title={showCode ? 'Back to the live preview' : 'View the code behind this preview'}>

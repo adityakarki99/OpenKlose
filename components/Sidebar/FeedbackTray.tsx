@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, Plug, RotateCcw, Send, Trash2 } from 'lucide-react';
 import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
 import {
   buildFeedbackText,
@@ -282,7 +282,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       style={{ width: TRAY_OPEN_WIDTH }}
     >
       <div className="flex items-center gap-2 border-b border-app-border px-3 py-2.5">
-        <div role="group" aria-label="Show feedback for" className="flex min-w-0 flex-1 gap-0.5 rounded-lg border border-app-border p-0.5">
+        <div role="group" aria-label="Show feedback for" className="flex min-w-0 flex-1 gap-0.5 rounded-lg p-0.5">
           <button
             type="button"
             aria-pressed={effectiveScope === 'all'}
@@ -323,15 +323,25 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         </button>
       </div>
 
-      <div className="border-b border-app-border px-3 py-2.5">
+      <div className="flex gap-2 border-b border-app-border px-3 py-2.5">
         <button
           type="button"
           onClick={() => copyForAgent()}
           disabled={scopedCount === 0}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copyLabel}
+          <span className="truncate">{copyLabel}</span>
+        </button>
+        {/* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */}
+        <button
+          type="button"
+          disabled
+          className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Coming soon: send feedback to the agent over MCP"
+        >
+          <Plug size={14} />
+          Use MCP
         </button>
       </div>
 

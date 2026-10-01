@@ -1,0 +1,7 @@
+node_modules/
+.cache/
+# Fetched or copied by scripts/prepare-sidecar.mjs before every build.
+src-tauri/binaries/
+src-tauri/resources/
+src-tauri/target/
+src-tauri/gen/

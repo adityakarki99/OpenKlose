@@ -10,6 +10,13 @@ type Step = (typeof STEPS)[number];
 
 const FIRST_PROMPT = '/klose a pricing card for our billing page';
 
+/**
+ * Set when the desktop app shows this page (it opens /welcome?shell=desktop).
+ * The app is then the menu bar icon and owns its login item, so the last step
+ * only asks about starting at login, and the app applies the answer.
+ */
+const IN_DESKTOP_APP = new URLSearchParams(window.location.search).get('shell') === 'desktop';
+
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label: string; hint: string; disabled?: boolean }> = ({
@@ -273,7 +280,18 @@ const ReadyStep: React.FC<{
         {state.skills.installed ? ', and /klose is installed for all of them.' : '. Install /klose from the last step whenever you like.'}
       </p>
 
-      {mb.supported && (
+      {IN_DESKTOP_APP && (
+        <div className="mt-6 space-y-2">
+          <Toggle
+            checked={startAtLogin}
+            onChange={setStartAtLogin}
+            label="Start Klose at login"
+            hint="Klose stays in your menu bar and starts the canvas for you."
+          />
+        </div>
+      )}
+
+      {mb.supported && !IN_DESKTOP_APP && (
         <div className="mt-6 space-y-2">
           <Toggle
             checked={menuBar}
@@ -335,7 +353,7 @@ const WelcomePage: React.FC = () => {
         setState(s);
         // Defaults: on where they can work, kept as they are where already set.
         setMenuBar(s.menuBar.running || s.menuBar.canBuild);
-        setStartAtLogin(s.menuBar.startAtLogin || s.menuBar.canBuild);
+        setStartAtLogin(IN_DESKTOP_APP || s.menuBar.startAtLogin || s.menuBar.canBuild);
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : 'Klose could not load setup'));
   };
@@ -350,7 +368,7 @@ const WelcomePage: React.FC = () => {
   const back = () => setStep(STEPS[Math.max(0, index - 1)]);
   const next = () => setStep(STEPS[Math.min(STEPS.length - 1, index + 1)]);
 
-  const finish = async (choices: { menuBar?: boolean; startAtLogin?: boolean }) => {
+  const finish = async (choices: Parameters<typeof finishSetup>[0]) => {
     setFinishing(true);
     setFinishError(null);
     try {
@@ -366,7 +384,8 @@ const WelcomePage: React.FC = () => {
       setFinishing(false);
     }
   };
-  const done = () => finish(state?.menuBar.supported ? { menuBar, startAtLogin } : {});
+  const done = () =>
+    finish(IN_DESKTOP_APP ? { startAtLogin, shell: 'desktop' as const } : state?.menuBar.supported ? { menuBar, startAtLogin } : {});
 
   if (loadError || !state) {
     return (

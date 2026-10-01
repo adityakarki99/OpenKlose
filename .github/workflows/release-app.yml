@@ -1,0 +1,252 @@
+name: Release (desktop app)
+
+# Builds the Klose desktop app for macOS (Apple Silicon and Intel) and
+# Windows, and drafts a GitHub release with installers, checksums and the
+# updater manifest. Adapted from antiburn's release-app.yml.
+#
+#   git tag klose-app-v0.3.0 && git push origin klose-app-v0.3.0
+#
+# The version is the klose package's (package.json), so the tag must match it.
+# Run it by hand (Actions → Run workflow) to build the installers as workflow
+# artifacts without releasing anything.
+#
+# Optional secrets — each one only turns something on:
+#   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD     Developer ID signing (base64 .p12)
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID           notarization (app-specific password)
+#   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]              updater signatures; also set the
+#                                                     repo variable TAURI_UPDATER_PUBKEY
+# Without Apple's, the Mac app is ad-hoc signed: it runs, but a browser
+# download needs right-click → Open the first time (install.sh avoids that).
+on:
+  push:
+    tags: ['klose-app-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-app-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'adityakarki99/OpenKlose'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Version, and that the tag matches it
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "klose-app-v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $VERSION (expected klose-app-v$VERSION)"
+            exit 1
+          fi
+
+  build:
+    needs: verify
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, bundles: 'app,dmg', platform: darwin-aarch64, arch: aarch64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, bundles: 'app,dmg', platform: darwin-x86_64, arch: x64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis, platform: windows-x86_64, arch: x64 }
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      # `if:` can't read secrets directly.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      # The canvas UI the bundled klose package serves.
+      - name: Build the canvas
+        run: npm ci && npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install the Tauri CLI
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Bundle Node and the klose package
+        working-directory: apps/desktop
+        run: node scripts/prepare-sidecar.mjs --target="$TARGET"
+
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.+)"/\1/')"
+          [ -n "$IDENTITY" ] || { echo "::error::No Developer ID Application identity in APPLE_CERTIFICATE"; exit 1; }
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      # Settings that depend on which secrets exist, as a --config overlay so
+      # the committed tauri.conf.json builds anywhere with none of them.
+      - name: Release config
+        working-directory: apps/desktop
+        env:
+          HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: |
+          node -e '
+            const overlay = { bundle: {} };
+            if (process.env.RUNNER_OS === "macOS" && !process.env.APPLE_SIGNING_IDENTITY) {
+              overlay.bundle.macOS = { signingIdentity: "-" }; // ad-hoc
+            }
+            if (process.env.HAS_UPDATER_KEY === "true" && process.env.UPDATER_PUBKEY) {
+              overlay.bundle.createUpdaterArtifacts = true;
+              overlay.plugins = { updater: { pubkey: process.env.UPDATER_PUBKEY } };
+            }
+            require("fs").writeFileSync("release.conf.json", JSON.stringify(overlay, null, 2));
+            console.log(JSON.stringify(overlay));
+          '
+
+      - name: Build the app
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # The bundler starts notarizing when these merely exist; drop empty ones.
+          for v in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            [ -n "${!v}" ] || unset "$v"
+          done
+          npx tauri build --target "$TARGET" --bundles "${{ matrix.bundles }}" --config release.conf.json
+
+      - name: Check the Mac app
+        if: runner.os == 'macOS'
+        run: |
+          APP="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos/Klose.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          test -x "$APP/Contents/MacOS/node"
+          # Signing turns on the hardened runtime; without Entitlements.plist's
+          # JIT entitlements the bundled Node dies (SIGTRAP) on its first line.
+          "$APP/Contents/MacOS/node" -e "require('http'); process.exit(0)"
+          test -f "$APP/Contents/Resources/klose-package/bin/klose.js"
+          test -f "$APP/Contents/Resources/klose-package/web/dist/index.html"
+
+      - name: Collect the installers
+        run: |
+          BUNDLE="apps/desktop/src-tauri/target/$TARGET/release/bundle"
+          OUT="dist/${{ matrix.platform }}"
+          mkdir -p "$OUT"
+          url() { echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/klose-app-v${VERSION}/$1"; }
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp "$BUNDLE"/dmg/*.dmg "$OUT/Klose_${VERSION}_${{ matrix.arch }}.dmg"
+            UPDATER="$BUNDLE/macos/Klose.app.tar.gz"
+            NAME="Klose_${VERSION}_${{ matrix.arch }}.app.tar.gz"
+          else
+            SETUP="$(ls "$BUNDLE"/nsis/*-setup.exe | head -1)"
+            cp "$SETUP" "$OUT/Klose_${VERSION}_x64-setup.exe"
+            UPDATER="$SETUP"
+            NAME="Klose_${VERSION}_x64-setup.exe"
+          fi
+          # Updater artifacts exist only when the release config turned them on.
+          if [ -f "$UPDATER.sig" ]; then
+            [ "$RUNNER_OS" = "macOS" ] && cp "$UPDATER" "$OUT/$NAME"
+            cp "$UPDATER.sig" "$OUT/$NAME.sig"
+            node -e '
+              const [platform, sigFile, url] = process.argv.slice(1);
+              const signature = require("fs").readFileSync(sigFile, "utf-8").trim();
+              require("fs").writeFileSync(process.env.OUT + "/latest-" + platform + ".json", JSON.stringify({ [platform]: { signature, url } }));
+            ' "${{ matrix.platform }}" "$UPDATER.sig" "$(url "$NAME")"
+          fi
+          ls -la "$OUT"
+        env:
+          OUT: dist/${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: klose-app-${{ matrix.platform }}
+          path: dist/${{ matrix.platform }}
+          if-no-files-found: error
+
+  release:
+    needs: [verify, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Updater manifest, checksums, install scripts
+        run: |
+          cd dist
+          # One latest.json from the per-platform pieces, if updates are on.
+          if ls latest-*.json >/dev/null 2>&1; then
+            node -e '
+              const fs = require("fs");
+              const platforms = Object.assign({}, ...fs.readdirSync(".").filter((f) => /^latest-.+\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(f, "utf-8"))));
+              fs.writeFileSync("latest.json", JSON.stringify({ version: process.env.VERSION, notes: "", pub_date: new Date().toISOString(), platforms }, null, 2));
+            '
+            rm latest-*.json
+          fi
+          cp ../apps/desktop/install.sh ../apps/desktop/install.ps1 .
+          sha256sum Klose_* > SHA256SUMS
+          ls -la
+          test "$(ls Klose_*.dmg | wc -l)" -eq 2
+          test "$(ls Klose_*-setup.exe | wc -l)" -eq 1
+
+      # A draft: a person checks it and presses Publish. Published, it is the
+      # "Latest" release, which is what install.sh, install.ps1 and the app's
+      # updater all follow (npm releases are never marked Latest).
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --draft --latest \
+            --title "Klose desktop $VERSION" \
+            --notes "Install on macOS: \`curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sh\`
+          Install on Windows (PowerShell): \`irm https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.ps1 | iex\`
+
+          Or download the .dmg (Mac: aarch64 = Apple Silicon, x64 = Intel) or the -setup.exe (Windows) below."

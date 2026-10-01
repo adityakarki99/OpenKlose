@@ -121,7 +121,9 @@ test('copying marks comments sent; the agent resolving them shows up', { skip },
   const { page, project, a, errors } = await openCanvas({ comments: [{ id: 'c1', text: 'Bigger heading', createdAt: 1 }] });
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
   await select(page, a.id);
-  await page.getByRole('button', { name: /Copy 1 new comment for agent/ }).click();
+  // The selected sketch rides in the chat box as a tag, which also filters the list.
+  await page.getByRole('button', { name: 'Show all sketches' }).waitFor();
+  await page.getByRole('button', { name: /^Copy 1 new comment$/ }).click();
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(clip, /1\. Bigger heading \[comment c1\]/);
   await eventually(async () => (await store.getProject(cwd, project.id)).nodes[0].comments[0].sentAt, 'sentAt on disk');
@@ -130,6 +132,33 @@ test('copying marks comments sent; the agent resolving them shows up', { skip },
   await page.getByText(/resolved 1 comment/).waitFor();
   await page.getByRole('button', { name: /Resolved · 1/ }).click();
   await page.getByText('Now text-2xl').waitFor();
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('each comment copies on its own, and Fit lives in the size panel', { skip }, async () => {
+  const { page, project, a, errors } = await openCanvas({
+    comments: [
+      { id: 'c1', text: 'Bigger heading', createdAt: 1 },
+      { id: 'c2', text: 'Less padding', createdAt: 2 },
+    ],
+  });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  await select(page, a.id);
+
+  await page.getByRole('button', { name: 'Copy comment 2 for the agent' }).click();
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(clip, /Less padding \[comment c2\]/);
+  assert.doesNotMatch(clip, /Bigger heading/, 'only that comment is copied');
+  await eventually(async () => {
+    const [c1, c2] = (await store.getProject(cwd, project.id)).nodes[0].comments;
+    return c2.sentAt && !c1.sentAt;
+  }, 'only c2 marked sent');
+  await page.getByRole('button', { name: /^Copy 1 new comment$/ }).waitFor();
+
+  // Fitting the frame is a sizing control now, not a toolbar action.
+  assert.equal(await page.getByRole('toolbar').getByRole('button', { name: 'Fit frame to preview' }).count(), 0);
+  assert.equal(await page.getByRole('group', { name: 'Frame size' }).getByRole('button', { name: 'Fit frame to preview' }).count(), 1);
   assert.deepEqual(errors, []);
   await page.close();
 });

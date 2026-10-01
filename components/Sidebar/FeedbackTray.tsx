@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, Plug, RotateCcw, Send, Trash2 } from 'lucide-react';
 import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
 import {
   buildFeedbackText,
@@ -13,9 +13,12 @@ import {
   timeAgo,
 } from '../../lib/feedback.js';
 import { focusMovedIntoPreview } from '../../lib/targeting.js';
+import { FILE_BAR_HEIGHT } from '../Canvas/FileBar';
 
 export const TRAY_OPEN_WIDTH = 380;
-export const TRAY_COLLAPSED_WIDTH = 64;
+/** Open or collapsed, the tray floats this far in from the canvas's edges. */
+export const TRAY_INSET = 12;
+const FLOAT_TOP = FILE_BAR_HEIGHT + TRAY_INSET;
 
 export type TrayScope = 'sketch' | 'all';
 
@@ -165,10 +168,13 @@ const ResolvedRow: React.FC<{ comment: Comment; onReopen: () => void; onDelete: 
 );
 
 /**
- * The feedback tray on the right of the canvas. Open, it lists every comment
- * (for the selected sketch or all of them), with numbers that match the pins
- * on the previews, and holds the composer. Collapsed, it shrinks to a strip
- * with the open-comment count, one entry per sketch and "Copy for agent".
+ * The feedback tray on the right of the canvas. Open, it lists every comment,
+ * with numbers that match the pins on the previews, and holds the composer.
+ * Its top bar is the filter: "All sketches", or the selected sketch's tag —
+ * selecting a sketch switches to it. It floats over the canvas, inset from
+ * the edges, rather than being pinned to them. Collapsed, it is a small
+ * summary at the canvas's top right: the open-comment count (click to open)
+ * and "Copy for agent".
  */
 export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   open,
@@ -203,6 +209,11 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   const scopedNew = countNew(scopedNodes);
 
   useEffect(() => setDraft(''), [selectedNode?.id]);
+  // Selecting a sketch filters the tray to it; "All sketches" is one click back.
+  useEffect(() => {
+    if (selectedNode) onScopeChange('sketch');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode?.id]);
 
   /** Copies what the agent hasn't seen yet (or everything open, if it has seen it all) and marks it sent. */
   const copyForAgent = async (forNodes: ComponentNode[] = scopedNodes) => {
@@ -219,62 +230,42 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   };
 
   if (!open) {
+    const totalNew = countNew(nodes);
     return (
-      <aside
+      <div
+        role="region"
         aria-label="Feedback, collapsed"
-        className="absolute bottom-0 right-0 top-0 z-30 flex flex-col items-center gap-2.5 border-l border-app-border bg-app-surface-elevated py-3.5"
-        style={{ width: TRAY_COLLAPSED_WIDTH }}
+        className="absolute z-30 flex items-center gap-1 rounded-2xl border border-app-border bg-app-surface-elevated p-1.5 shadow-2xl shadow-black/40"
+        style={{ top: FLOAT_TOP, right: TRAY_INSET }}
       >
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="relative grid h-11 w-11 place-items-center rounded-xl bg-app-surface-muted/10 text-app-primary hover:bg-app-surface-muted/20"
-          aria-label={`Open feedback, ${total} comment${total === 1 ? '' : 's'}`}
+          className="flex h-9 items-center gap-2 rounded-xl px-2.5 text-app-primary hover:bg-app-surface-muted/10"
+          aria-label={`Open feedback, ${total} open comment${total === 1 ? '' : 's'}`}
           title="Open feedback"
         >
-          <MessageSquare size={18} />
-          {total > 0 && (
-            <span className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-blue-500 px-1 font-mono text-[10.5px] font-semibold text-white ring-2 ring-app-surface-elevated">
-              {total}
+          <MessageSquare size={16} className="text-app-muted" />
+          <span className="font-mono text-[13px] font-semibold">{total}</span>
+          <span className="text-[13px] text-app-secondary">comment{total === 1 ? '' : 's'}</span>
+          {totalNew > 0 && (
+            <span className={`rounded px-1.5 py-px text-[10.5px] font-semibold ${STATUS_CHIP.new.className}`} title={STATUS_CHIP.new.title}>
+              {totalNew} new
             </span>
           )}
         </button>
-        <span className="my-1 h-px w-7 bg-app-border" aria-hidden="true" />
-        <div className="flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto">
-          {nodes.map((node) => {
-            const count = openComments(node.comments).length;
-            const selected = node.id === selectedNode?.id;
-            return (
-              <button
-                key={node.id}
-                type="button"
-                onClick={() => {
-                  onSelectNode(node.id);
-                  onOpenChange(true);
-                }}
-                className={`flex w-11 flex-col items-center gap-1 rounded-lg py-1.5 ${selected ? 'bg-blue-500/10 ring-1 ring-blue-500/40' : 'hover:bg-app-surface-muted/10'}`}
-                aria-label={`${node.name || 'Untitled sketch'}, ${count} comment${count === 1 ? '' : 's'}`}
-                title={node.name || 'Untitled sketch'}
-              >
-                <StatusDot node={node} />
-                <span className={`font-mono text-[11px] font-semibold ${count > 0 ? (selected ? 'text-blue-200' : 'text-app-secondary') : 'text-app-muted'}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <span className="h-5 w-px bg-app-border" aria-hidden="true" />
         <button
           type="button"
           onClick={() => copyForAgent(nodes)}
           disabled={total === 0}
-          className="grid h-11 w-11 place-items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="grid h-9 w-9 place-items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Copy all feedback for the agent"
-          title="Copy all feedback for the agent"
+          title={copied ? 'Copied — marked as sent' : 'Copy all feedback for the agent'}
         >
-          {copied ? <Check size={17} /> : <Copy size={17} />}
+          {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
-      </aside>
+      </div>
     );
   }
 
@@ -292,17 +283,44 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   return (
     <aside
       aria-label="Feedback"
-      className="absolute bottom-0 right-0 top-0 z-30 flex flex-col border-l border-app-border bg-app-surface-elevated shadow-2xl"
-      style={{ width: TRAY_OPEN_WIDTH }}
+      className="absolute z-30 flex flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl shadow-black/40"
+      style={{ width: TRAY_OPEN_WIDTH, top: FLOAT_TOP, right: TRAY_INSET, bottom: TRAY_INSET }}
     >
-      <div className="flex items-center gap-2.5 border-b border-app-border px-4 py-3">
-        <span className="text-[15px] font-semibold text-app-primary">Feedback</span>
-        <span className="grid h-5 min-w-5 place-items-center rounded-full bg-blue-500/15 px-1.5 font-mono text-[11px] font-semibold text-blue-300">{total}</span>
-        <span className="flex-1" />
+      <div className="flex items-center gap-2 border-b border-app-border px-3 py-2.5">
+        <div role="group" aria-label="Show feedback for" className="flex min-w-0 flex-1 gap-0.5 rounded-lg p-0.5">
+          <button
+            type="button"
+            aria-pressed={effectiveScope === 'all'}
+            onClick={() => onScopeChange('all')}
+            className={`flex flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] ${
+              effectiveScope === 'all' ? 'bg-app-surface-muted/10 font-medium text-app-primary' : 'text-app-muted hover:text-app-secondary'
+            }`}
+          >
+            <Layers size={13} />
+            All sketches · {total}
+          </button>
+          {selectedNode && (
+            <button
+              type="button"
+              aria-pressed={effectiveScope === 'sketch'}
+              onClick={() => onScopeChange('sketch')}
+              className={`flex min-w-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] ${
+                effectiveScope === 'sketch'
+                  ? 'bg-app-surface-muted/10 font-medium text-app-primary ring-1 ring-blue-500/50'
+                  : 'text-app-muted hover:text-app-secondary'
+              }`}
+              title={`Show feedback on ${selectedNode.name || 'Untitled sketch'} only`}
+            >
+              <StatusDot node={selectedNode} />
+              <span className="truncate">{selectedNode.name || 'Untitled sketch'}</span>
+              <span className="font-mono text-[11px] text-app-muted">{openComments(selectedNode.comments).length}</span>
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => onOpenChange(false)}
-          className="grid h-8 w-8 place-items-center rounded-lg text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary"
+          className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary"
           aria-label="Collapse feedback"
           title="Collapse feedback"
         >
@@ -310,21 +328,26 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         </button>
       </div>
 
-      <div role="group" aria-label="Show feedback for" className="mx-4 mt-3 flex gap-0.5 rounded-lg border border-app-border p-0.5">
-        {(['sketch', 'all'] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            disabled={value === 'sketch' && !selectedNode}
-            aria-pressed={effectiveScope === value}
-            onClick={() => onScopeChange(value)}
-            className={`flex-1 rounded-md py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-40 ${
-              effectiveScope === value ? 'bg-app-surface-muted/10 font-medium text-app-primary' : 'text-app-muted hover:text-app-secondary'
-            }`}
-          >
-            {value === 'sketch' ? 'This sketch' : `All sketches · ${total}`}
-          </button>
-        ))}
+      <div className="flex gap-2 border-b border-app-border px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => copyForAgent()}
+          disabled={scopedCount === 0}
+          className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {copied ? <Check size={15} /> : <Copy size={15} />}
+          <span className="truncate">{copyLabel}</span>
+        </button>
+        {/* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */}
+        <button
+          type="button"
+          disabled
+          className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Coming soon: send feedback to the agent over MCP"
+        >
+          <Plug size={14} />
+          Use MCP
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
@@ -397,21 +420,12 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       <div className="flex flex-shrink-0 flex-col gap-2 border-t border-app-border px-4 pb-4 pt-3">
         {selectedNode ? (
           <>
-            <label htmlFor="feedback-composer" className="text-xs text-app-muted">
-              Comment on <span className="font-semibold text-app-primary">{selectedNode.name || 'Untitled sketch'}</span>
-            </label>
-            {pendingElement && (
-              <div className="flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 py-1 pl-2 pr-1 font-mono text-[11px] text-blue-200">
-                <span className="min-w-0 flex-1 truncate">{describeElement(pendingElement)}</span>
-                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-app-primary" aria-label="Don't attach this element">
-                  <X size={12} />
-                </button>
-              </div>
-            )}
-            <div className="flex items-start gap-2">
+            <div className="relative">
               <textarea
                 id="feedback-composer"
                 ref={composerRef}
+                /* The filter bar names the sketch; the element rides in the placeholder. */
+                aria-label={`Comment on ${selectedNode.name || 'Untitled sketch'}`}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onFocus={() => onComposerFocusChange(true)}
@@ -436,8 +450,8 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
                     onClearPendingElement();
                   }
                 }}
-                placeholder={pendingElement ? 'Feedback on this element…' : 'Leave feedback on this design…'}
-                className={`h-16 flex-1 resize-none rounded-lg border bg-app-surface px-3 py-2 text-[13px] leading-relaxed text-app-primary outline-none ${
+                placeholder={pendingElement ? `Feedback on ${describeElement(pendingElement)}… (Esc to detach)` : 'Leave feedback on this design…'}
+                className={`block h-20 w-full resize-none rounded-lg border bg-app-surface py-2 pl-3 pr-12 text-[13px] leading-relaxed text-app-primary outline-none ${
                   isTargeting ? 'border-blue-500' : 'border-app-border focus:border-blue-500'
                 }`}
               />
@@ -445,35 +459,20 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
                 type="button"
                 onClick={submit}
                 disabled={!draft.trim()}
-                className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg border border-app-border bg-app-surface-soft text-app-secondary hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-40"
+                className="absolute bottom-1.5 right-1.5 grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-app-surface-soft disabled:text-app-muted"
                 aria-label="Add comment"
+                title="Add comment (Enter)"
               >
                 <Send size={15} />
               </button>
             </div>
-            {selectedNode.code && (
-              <p className={`text-xs leading-relaxed ${isTargeting || pendingElement ? 'text-blue-300' : 'text-app-muted'}`}>
-                {pendingElement
-                  ? 'This comment carries the element, so the agent knows exactly what you mean.'
-                  : 'Click an element in the preview to attach it.'}
-              </p>
+            {selectedNode.code && !pendingElement && (
+              <p className={`text-xs leading-relaxed ${isTargeting ? 'text-blue-300' : 'text-app-muted'}`}>Click an element in the preview to attach it.</p>
             )}
           </>
         ) : (
           <p className="text-xs leading-relaxed text-app-muted">Select a sketch to comment on it.</p>
         )}
-        <button
-          type="button"
-          onClick={() => copyForAgent()}
-          disabled={scopedCount === 0}
-          className="mt-1 flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copyLabel}
-        </button>
-        <p className="text-[11px] leading-relaxed text-app-muted">
-          Or skip the clipboard: run <code className="font-mono text-app-secondary">/klose</code> and the agent reads open comments straight from this repo.
-        </p>
       </div>
     </aside>
   );

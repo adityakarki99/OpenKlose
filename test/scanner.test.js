@@ -163,3 +163,22 @@ test('readComponentSource rejects non-source file extensions', async () => {
     await assert.rejects(() => readComponentSource(cwd, 'package.json'), /Not a source file/);
   });
 });
+
+test('agent worktrees and nested repos are not part of the index', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'klose-scan-nested-'));
+  try {
+    const write = async (rel, name) => {
+      await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
+      await writeFile(path.join(root, rel), `export function ${name}() {\n  return <div />;\n}\n`, 'utf-8');
+    };
+    await write('src/Button.tsx', 'Button');
+    await write('.claude/worktrees/feature-x/src/Button.tsx', 'Button');
+    await write('packages/other/src/Widget.tsx', 'Widget');
+    await writeFile(path.join(root, 'packages', 'other', '.git'), 'gitdir: /elsewhere\n', 'utf-8');
+    await write('packages/mine/src/Card.tsx', 'Card');
+    const { components } = await scanComponents(root, { force: true });
+    assert.deepEqual(components.map((c) => c.file).sort(), [path.join('packages', 'mine', 'src', 'Card.tsx'), path.join('src', 'Button.tsx')]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -20,7 +20,7 @@ import { Toast, ToastMessage } from '../components/Canvas/Toast';
 import { ShortcutsDialog } from '../components/Canvas/ShortcutsDialog';
 import VerticalNavigationBar from '../components/Canvas/VerticalNavigationBar';
 import { FileBar, FILE_BAR_HEIGHT } from '../components/Canvas/FileBar';
-import { FeedbackTray, TRAY_COLLAPSED_WIDTH, TRAY_OPEN_WIDTH, TrayScope } from '../components/Sidebar/FeedbackTray';
+import { FeedbackTray, TRAY_INSET, TRAY_OPEN_WIDTH, TrayScope } from '../components/Sidebar/FeedbackTray';
 import { ProjectContextPanel } from '../components/Sidebar/ProjectContextPanel';
 import { Check, Copy, Loader2, X } from 'lucide-react';
 import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
@@ -130,7 +130,9 @@ const CanvasPage: React.FC = () => {
   const [trayOpen, setTrayOpenState] = useState<boolean>(readTrayOpen);
   const [trayScope, setTrayScope] = useState<TrayScope>('sketch');
   const [activeComment, setActiveComment] = useState<{ nodeId: string; commentId: string } | null>(null);
-  const trayWidth = trayOpen ? TRAY_OPEN_WIDTH : TRAY_COLLAPSED_WIDTH;
+  // The tray floats over the canvas, so the canvas and file bar keep the full
+  // width; only the toasts at the bottom steer clear of it.
+  const trayClearance = trayOpen ? TRAY_OPEN_WIDTH + TRAY_INSET * 2 : 0;
 
   const setTrayOpen = (open: boolean) => {
     setTrayOpenState(open);
@@ -923,7 +925,7 @@ const CanvasPage: React.FC = () => {
             refreshKey={filesRefreshKey}
             onFlush={handleFlush}
             onNavigate={handleNavigate}
-            style={{ right: trayWidth }}
+            style={{ right: 0 }}
           />
         )}
 
@@ -974,7 +976,7 @@ const CanvasPage: React.FC = () => {
         <div
           ref={canvasRef}
           className={`absolute bottom-0 left-0 overflow-auto canvas-scroll ${canvasDrag.active ? 'cursor-grabbing' : 'cursor-default'} ${isGesturing ? 'select-none' : ''}`}
-          style={{ top: FILE_BAR_HEIGHT, right: trayWidth }}
+          style={{ top: FILE_BAR_HEIGHT, right: 0 }}
           onPointerDown={handleCanvasPointerDown}
           onScroll={updateViewRect}
         >
@@ -1095,7 +1097,7 @@ const CanvasPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute bottom-4 z-40 flex justify-center" style={{ left: 16, right: trayWidth + 16 }}>
+        <div className="pointer-events-none absolute bottom-4 z-40 flex justify-center" style={{ left: 16, right: trayClearance + 16 }}>
           <Toast toast={toast} onDismiss={dismissToast} />
         </div>
       </div>

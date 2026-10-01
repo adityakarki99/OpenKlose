@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createKloseServer } from '../server/http.js';
+import { loadTheme } from '../server/theme.js';
 
 let playwright;
 try {
@@ -261,6 +262,61 @@ test("repo tokens reach the sandbox, and a lazily loaded library still renders",
       if (background !== 'rgb(255, 51, 102)') await new Promise((r) => setTimeout(r, 100));
     }
     assert.equal(background, 'rgb(255, 51, 102)');
+  } finally {
+    await browser?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('@theme colours defined via :root variables in index.html resolve in the sandbox', { skip: canRun ? false : 'Chromium or built web assets unavailable' }, async () => {
+  // This repo's own setup: app.css has `--color-app-surface: rgb(var(--app-surface))`
+  // and the raw `--app-surface` values live in index.html's <style> block.
+  const { css } = await loadTheme(root, { force: true });
+  const server = createKloseServer({ cwd: root, publicDir });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ executablePath: executable, headless: true });
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.evaluate(async (themeCss) => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = '/preview.html';
+      document.body.appendChild(frame);
+      const send = (message) => frame.contentWindow.postMessage(message, '*');
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Preview did not render')), 15_000);
+        addEventListener('message', function handler(event) {
+          if (event.source !== frame.contentWindow || event.data?.source !== 'klose-sandbox') return;
+          if (event.data.type === 'ready') {
+            send({ type: 'theme', css: themeCss });
+            send({
+              type: 'render',
+              code: "export default function Demo(){ return <div role=\"region\" aria-label=\"Panel\" className=\"bg-app-surface border border-app-border text-app-primary p-4\">Panel</div>; }",
+            });
+          }
+          if (event.data.type === 'error') reject(new Error(event.data.message));
+          if (event.data.type === 'rendered') {
+            clearTimeout(timeout);
+            removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+    }, css);
+    const panel = page.frameLocator('iframe[src="/preview.html"]').getByRole('region', { name: 'Panel' });
+    let colors = {};
+    for (let i = 0; i < 50 && colors.background !== 'rgb(15, 23, 42)'; i++) {
+      colors = await panel.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { background: style.backgroundColor, border: style.borderTopColor, text: style.color };
+      });
+      if (colors.background !== 'rgb(15, 23, 42)') await new Promise((r) => setTimeout(r, 100));
+    }
+    // The default (dark) :root values, not the light variant and not transparent.
+    assert.deepEqual(colors, { background: 'rgb(15, 23, 42)', border: 'rgb(55, 65, 81)', text: 'rgb(248, 250, 252)' });
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));

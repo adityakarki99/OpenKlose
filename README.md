@@ -370,11 +370,12 @@ be useful, but when it has it, you see the actual thing, interactive.
 ### Resize, screenshot, and read the code
 
 Drag any frame handle to resize a sketch — edges snap to the grid, **Shift** on a corner keeps the
-ratio, **Alt** ignores the grid, and a live readout shows the exact size. **Details** in the
-sketch's toolbar takes exact width/height values and a few device presets, and **Fit to preview**
-snaps the frame to the size its preview actually wants.
+ratio, **Alt** ignores the grid, and a live readout shows the exact size. A small size panel floats
+off the selected sketch's top-left corner with exact width/height fields and device presets (mobile,
+tablet, desktop, card), and the toolbar's **Fit** button snaps the frame to the size its preview
+actually wants. Name, description and notes live under **Details…** in the toolbar's ⋯ menu.
 
-**Screenshot** in the toolbar's ⋯ menu saves a 2× PNG of the preview (hold **Alt** to copy it to the
+**Screenshot** in the toolbar saves a 2× PNG of the preview (hold **Alt** to copy it to the
 clipboard instead) — taken inside the sandbox, so nothing leaves your machine. The `</>` button flips
 the frame to the preview's source: the exact code the sandbox renders, with a copy button.
 
@@ -384,13 +385,17 @@ the frame to the preview's source: the exact code the sandbox renders, with a co
 <img src="docs/images/inspector.png" alt="Comments on a sketch in the feedback tray, with a Copy feedback for agent button" width="760">
 </div>
 
-Leave freeform feedback on any sketch in the feedback tray. Switch it between **This sketch** and
-**All sketches**, and **Copy feedback for agent** formats those comments — plus names and IDs — into a
-tidy block you paste back into Claude Code. A copy carries only the comments the agent hasn't seen
-yet, and marks them **Sent**; with nothing new, it re-sends everything still open. The agent resolves
-what it fixes (`klose resolve`), those comments move to a **Resolved** section with its note, and
-they stop being sent. Collapse the tray to a thin strip when you need the room; it remembers how you
-left it.
+Leave freeform feedback on any sketch in the feedback tray. Its comments float straight over the
+canvas — only the cards are solid — and under them one panel holds the chat box and the copy row.
+Select a sketch and it appears as a tag inside the chat box: that's the sketch you're commenting on,
+and it filters the list to that sketch (✕ shows every sketch again). **Copy** formats those comments
+— plus names and IDs — into a tidy block you paste back into Claude Code; each card also has its own
+**Copy** for just that comment. A copy carries only the comments the agent hasn't seen yet, and marks
+them **Sent**; with nothing new, it re-sends everything still open. The agent resolves what it fixes
+(`klose resolve`), those comments move to a **Resolved** section with its note, and they stop being
+sent. Collapse the tray (the button at the end of the copy row) when you need the room: it becomes a
+summary as wide as the tray at the canvas's top right — the open-comment count, which reopens it, and
+the copy button — and it remembers how you left it.
 
 ### Canvas navigation
 
@@ -539,6 +544,8 @@ klose update [--force]                            Upgrade the klose package and 
 klose cleanup [--built] [--empty-projects] [--yes]   Remove built sketches / empty projects (dry run unless --yes)
 klose components [query] [--json]                 Search the repo's real components (name, file, props)
 klose components "<need>" --rank [--top=N] [--json]   Rank components by fit using Jev (optional, needs TYPESAFE_API_KEY)
+klose components "<need>" --rank --all-repos      The same, across every repo the hub knows
+klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose project list                                List projects
 klose project create <name>                       Create a project
@@ -614,12 +621,22 @@ file in your source tree.
 No. Klose runs a local server and stores JSON files. The "intelligence" is your coding agent, which
 you're already running.
 
-The one optional exception is `klose components "<need>" --rank`, which asks
-[Jev](https://docs.typesafe.ai) (TypeSafe AI) which of your existing components fits a plain-language
-description, so the agent finds reuse candidates whose names don't match your words. It only runs
-when you pass `--rank` with `TYPESAFE_API_KEY` set, sends each component's name, path, props and doc
-comment (never source code) to `api.typesafe.ai`, and falls back to the local text search on any
-error. Without a key, nothing leaves your machine.
+The one optional exception is [Jev](https://docs.typesafe.ai) (TypeSafe AI), used for two things
+when `TYPESAFE_API_KEY` is set in the environment Klose starts in:
+
+- **Search by meaning** — `klose components "<need>" --rank`, or **Ask Jev** on the Components page:
+  which existing component fits a plain-language description, and whether anything does, so reuse
+  candidates turn up even when their names don't match your words. `--all-repos` (or **All repos**
+  on the hub) searches every repo the hub knows at once. One request per search.
+- **Classification** — `klose components --classify`, or **Classify with Jev**: what each component
+  is (a primitive, a composite, a screen, a provider) and what kind of UI (input, navigation,
+  overlay…). The Components page can then filter by role, and flags primitives that look like
+  duplicates of each other. One request per component the first time; the answers are cached on
+  your machine in `~/.klose/index/`, so later runs only pay for new or changed components.
+
+Both only run when you ask, send each component's name, path, props and doc comment (never source
+code) to `api.typesafe.ai`, and leave the plain index working on any error. Without a key, nothing
+leaves your machine.
 
 **Where does my data live?**
 In `.klose/projects/*.json` at the root of the repo you ran `klose init` in. Commit it to keep design

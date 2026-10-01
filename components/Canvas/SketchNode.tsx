@@ -5,7 +5,7 @@ import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
 import Preview, { PreviewHandle } from '../Runtime/Preview';
 import CodeView from './CodeView';
-import { SketchToolbar } from './SketchToolbar';
+import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
 import { openComments } from '../../lib/feedback.js';
 
@@ -189,7 +189,6 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           zoom={zoom}
           hasPreview={hasPreview}
           showCode={showCode}
-          canFit={canFit}
           capture={capture}
           onToggleCode={() => setShowCode((v) => !v)}
           onComment={() => {
@@ -197,12 +196,13 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             onComment?.(node.id);
           }}
           onScreenshot={handleScreenshot}
-          onFit={handleFit}
           onDuplicate={() => onDuplicate(node.id)}
           onDelete={() => onDelete(node.id)}
           onUpdate={onUpdate}
-          onResize={onResize}
         />
+      )}
+      {isSelected && !isGesturing && (
+        <SketchSizePanel node={node} zoom={zoom} onResize={onResize} onFit={hasPreview ? handleFit : undefined} canFit={canFit} />
       )}
 
       {/* The toolbar takes this spot on the selected sketch. */}

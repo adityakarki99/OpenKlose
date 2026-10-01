@@ -372,13 +372,15 @@ the frame to the preview's source: the exact code the sandbox renders, with a co
 <img src="docs/images/inspector.png" alt="Comments on a sketch in the feedback tray, with a Copy feedback for agent button" width="760">
 </div>
 
-Leave freeform feedback on any sketch in the feedback tray. Switch it between **This sketch** and
-**All sketches**, and **Copy feedback for agent** formats those comments — plus names and IDs — into a
+Leave freeform feedback on any sketch in the feedback tray. Its top bar is the filter: **All
+sketches**, or the selected sketch's tag (selecting a sketch switches to it), and **Copy feedback for
+agent** formats those comments — plus names and IDs — into a
 tidy block you paste back into Claude Code. A copy carries only the comments the agent hasn't seen
 yet, and marks them **Sent**; with nothing new, it re-sends everything still open. The agent resolves
 what it fixes (`klose resolve`), those comments move to a **Resolved** section with its note, and
-they stop being sent. Collapse the tray to a thin strip when you need the room; it remembers how you
-left it.
+they stop being sent. Collapse the tray when you need the room: it becomes a small summary floating
+over the canvas — the open-comment count, which reopens it, and the copy button — and it remembers
+how you left it.
 
 ### Canvas navigation
 

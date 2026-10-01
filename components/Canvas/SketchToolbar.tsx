@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Code2, Copy, Eye, FileText, Loader2, MessageSquarePlus, Monitor, MoreHorizontal, RectangleHorizontal, Scan, Smartphone, Tablet, Trash2 } from 'lucide-react';
-import type { ComponentNode } from '../../types';
+import { AlertTriangle, Camera, Check, Code2, Copy, Eye, FileText, Loader2, MessageSquarePlus, Monitor, MoreHorizontal, Palette, RectangleHorizontal, Scan, Smartphone, Sparkles, Tablet, Trash2, X } from 'lucide-react';
+import type { ComponentNode, LintResult } from '../../types';
 import { MIN_NODE_HEIGHT, MIN_NODE_WIDTH, SIZE_PRESETS } from '../../constants';
+import { buildLintText, findingLine } from '../../lib/lintText.js';
 
 type CaptureState = 'idle' | 'working' | 'done' | 'error';
 
@@ -17,6 +18,12 @@ interface SketchToolbarProps {
   onDuplicate: () => void;
   onDelete: () => void;
   onUpdate: (id: string, updates: Partial<ComponentNode>) => void;
+  /** Whether the server has a TYPESAFE_API_KEY, so Jev can classify the sketch and suggest token replacements. */
+  jevAvailable?: boolean;
+  /** Ask Jev what this sketch is, and which repo primitives it looks like a copy of. */
+  onClassify?: () => Promise<void>;
+  /** Check the preview code's literal colours, radii and shadows against the repo's tokens. */
+  onLint?: () => Promise<LintResult>;
 }
 
 /** Closes a popover when the pointer goes down anywhere outside it. */
@@ -81,11 +88,111 @@ const SketchDetails: React.FC<{
           className={`${field} h-20 resize-none`}
         />
       </label>
+      {node.classification && (
+        <p className="text-xs leading-relaxed text-app-muted">
+          Jev: <span className="text-app-secondary">{node.classification.role} · {node.classification.kind}</span>
+          {node.classification.overlaps && node.classification.overlaps.length > 0 && (
+            <>
+              {' '}· looks like a second {node.classification.kind} primitive next to{' '}
+              {node.classification.overlaps.map((o, i) => (
+                <React.Fragment key={o.id}>
+                  {i > 0 && ', '}
+                  <span className="font-mono text-amber-300" title={o.file}>{o.name}</span>
+                </React.Fragment>
+              ))}
+            </>
+          )}
+        </p>
+      )}
       <p className="text-xs leading-relaxed text-app-muted">
         {node.status === 'built' && node.builtFilePath
           ? <>Built at <span className="break-all font-mono text-app-secondary">{node.builtFilePath}</span></>
           : <>Ask your coding agent (e.g. <code>/klose</code>) to build this sketch. It will mark it built once the real file exists.</>}
       </p>
+    </div>
+  );
+};
+
+const VERDICT_CLASS: Record<string, string> = {
+  replace: 'text-emerald-300',
+  maybe: 'text-amber-300',
+  keep: 'text-app-muted',
+};
+
+/**
+ * The sketch's token check: which literal colours, radii and shadows its
+ * preview uses where the repo has a token, and (with Jev) what to use
+ * instead. Runs when opened; "Copy for agent" hands the list to the agent.
+ */
+const SketchLintPanel: React.FC<{ node: ComponentNode; jevAvailable: boolean; onLint: () => Promise<LintResult>; onClose: () => void }> = ({ node, jevAvailable, onLint, onClose }) => {
+  const [result, setResult] = useState<LintResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setResult(null);
+    setError(null);
+    onLint()
+      .then((r) => { if (!cancelled) setResult(r); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'The check failed'); });
+    return () => { cancelled = true; };
+    // Re-run only when the code changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id, node.code]);
+
+  const copy = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(buildLintText(result));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Copy to clipboard failed:', err);
+    }
+  };
+
+  const tokenLine = result ? Object.entries(result.tokens).map(([k, n]) => `${n} ${k}`).join(', ') : '';
+  return (
+    <div role="dialog" aria-label="Token check" className="flex w-96 flex-col gap-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-app-muted">Tokens in the preview</span>
+        <button type="button" onClick={onClose} className="grid h-6 w-6 place-items-center rounded text-app-muted hover:bg-app-surface-muted/10 hover:text-app-primary" aria-label="Close token check">
+          <X size={13} />
+        </button>
+      </div>
+      {!result && !error && (
+        <p className="flex items-center gap-2 py-2 text-xs text-app-muted"><Loader2 size={13} className="animate-spin" /> Checking{jevAvailable ? ' with Jev' : ''}…</p>
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {result && (
+        <>
+          <p className="text-xs leading-relaxed text-app-muted">
+            {result.findings.length === 0
+              ? `Nothing to change: no stock palette colours or arbitrary values where this repo has tokens (${tokenLine || 'no tokens found'}).`
+              : `${result.findings.length} literal value${result.findings.length === 1 ? '' : 's'} where this repo has tokens (${tokenLine}).`}
+          </p>
+          {result.findings.length > 0 && (
+            <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto canvas-scroll font-mono text-[11px] leading-relaxed">
+              {result.findings.map((f) => (
+                <li key={f.class} className={`break-all ${VERDICT_CLASS[f.verdict || ''] || 'text-app-secondary'}`}>{findingLine(f)}</li>
+              ))}
+              {result.truncated && <li className="text-app-muted">… and more; re-run after fixing these</li>}
+            </ul>
+          )}
+          {result.jev.error && (
+            <p className="flex items-start gap-1.5 text-xs leading-relaxed text-amber-300"><AlertTriangle size={13} className="mt-0.5 flex-shrink-0" /> Jev couldn't suggest replacements: {result.jev.error}</p>
+          )}
+          {!jevAvailable && result.findings.some((f) => f.candidates > 0) && (
+            <p className="text-xs leading-relaxed text-app-muted">Set <code className="font-mono">TYPESAFE_API_KEY</code> before starting Klose to have Jev suggest which token each should become.</p>
+          )}
+          {result.findings.length > 0 && (
+            <button type="button" onClick={copy} className="flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500">
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? 'Copied' : 'Copy for agent'}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -217,8 +324,12 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
   onDuplicate,
   onDelete,
   onUpdate,
+  jevAvailable = false,
+  onClassify,
+  onLint,
 }) => {
-  const [open, setOpen] = useState<'details' | 'menu' | null>(null);
+  const [open, setOpen] = useState<'details' | 'menu' | 'lint' | null>(null);
+  const [classifying, setClassifying] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(open !== null, ref, () => setOpen(null));
   useEffect(() => setOpen(null), [node.id]);
@@ -270,6 +381,31 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
             <button type="button" role="menuitem" className={menuItem} onClick={() => setOpen('details')}>
               <span className="flex items-center gap-2"><FileText size={14} /> Details…</span>
             </button>
+            {hasPreview && onLint && (
+              <button type="button" role="menuitem" className={menuItem} onClick={() => setOpen('lint')} title="Which literal colours, radii and shadows the preview uses where the repo has a token">
+                <span className="flex items-center gap-2"><Palette size={14} /> Check tokens…</span>
+              </button>
+            )}
+            {jevAvailable && onClassify && (
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItem}
+                disabled={classifying}
+                title="Ask Jev what this sketch is (role, kind) and whether the repo already has a primitive like it. Sends its name, description and notes."
+                onClick={async () => {
+                  setClassifying(true);
+                  try {
+                    await onClassify();
+                  } finally {
+                    setClassifying(false);
+                    setOpen(null);
+                  }
+                }}
+              >
+                <span className="flex items-center gap-2">{classifying ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} Classify with Jev</span>
+              </button>
+            )}
             <span className="my-1 h-px bg-app-border" />
             <button type="button" role="menuitem" className={menuItem} onClick={() => { onDuplicate(); setOpen(null); }}>
               <span className="flex items-center gap-2"><Copy size={14} /> Duplicate</span>
@@ -284,6 +420,11 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
         {open === 'details' && (
           <div role="dialog" aria-label="Sketch details" className="absolute right-0 top-full mt-1.5 whitespace-normal rounded-xl border border-app-border bg-app-surface-elevated shadow-2xl">
             <SketchDetails key={node.id} node={node} onUpdate={onUpdate} />
+          </div>
+        )}
+        {open === 'lint' && onLint && (
+          <div className="absolute right-0 top-full mt-1.5 whitespace-normal rounded-xl border border-app-border bg-app-surface-elevated shadow-2xl">
+            <SketchLintPanel node={node} jevAvailable={jevAvailable} onLint={onLint} onClose={() => setOpen(null)} />
           </div>
         )}
       </div>

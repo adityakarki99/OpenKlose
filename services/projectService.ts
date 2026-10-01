@@ -1,4 +1,4 @@
-import { Project, ComponentNode, ProjectContext, RepoSave } from '../types';
+import { ClassifySketchesResult, Project, ComponentNode, LintResult, ProjectContext, RepoSave, TriageResult } from '../types';
 import { API_BASE, REPO_ID } from '../lib/repoScope';
 import { getRepo, getServerInfo } from './hubService';
 
@@ -52,3 +52,15 @@ export const getRepoName = async (): Promise<string> => {
 
 export const addNode = (projectId: string, node: Partial<ComponentNode>): Promise<ComponentNode> =>
   request(`/projects/${projectId}/nodes`, { method: 'POST', body: JSON.stringify(node) });
+
+/** Which literal design values a sketch uses where the repo has a token; with Jev, what to use instead. */
+export const lintNode = (projectId: string, nodeId: string, useJev = true): Promise<LintResult> =>
+  request(`/projects/${projectId}/nodes/${nodeId}/lint${useJev ? '' : '?jev=0'}`);
+
+/** Ask Jev what each sketch is (one request per sketch not yet classified) and which repo primitives it resembles. */
+export const classifySketches = (projectId: string, nodeIds?: string[]): Promise<ClassifySketchesResult> =>
+  request(`/projects/${projectId}/classify`, { method: 'POST', body: JSON.stringify(nodeIds ? { nodeIds } : {}) });
+
+/** Ask Jev what each open comment asks for and how much work it is (one request per sketch). */
+export const triageFeedback = (projectId: string, nodeIds?: string[]): Promise<TriageResult> =>
+  request('/feedback/triage', { method: 'POST', body: JSON.stringify({ projectId, ...(nodeIds ? { nodeIds } : {}) }) });

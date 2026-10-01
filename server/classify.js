@@ -183,3 +183,109 @@ export function findDuplicates(components) {
     .filter((g) => g.components.length > 1)
     .sort((a, b) => b.components.length - a.components.length || a.kind.localeCompare(b.kind));
 }
+
+// ---------------------------------------------------------------- sketches
+
+const SKETCH_TEXT_CHARS = 300;
+
+/** Exactly what is sent for one sketch — and so what its cached answer is keyed on. */
+function sketchState(node) {
+  return {
+    name: node.name || '',
+    description: (node.description || '').slice(0, SKETCH_TEXT_CHARS),
+    notes: (node.notes || '').slice(0, SKETCH_TEXT_CHARS),
+    file: node.builtFilePath || null,
+  };
+}
+
+export function sketchKey(node) {
+  return createHash('sha1').update(JSON.stringify(sketchState(node))).digest('hex').slice(0, 16);
+}
+
+/**
+ * The request for one sketch: the same role and kind questions a component
+ * gets, asked of the sketch's name, description and notes (its code is never
+ * sent). Exported so tests can pin what is sent.
+ */
+export function buildSketchClassifyRequest(node) {
+  return {
+    model: JEV_MODEL,
+    state: { sketch: sketchState(node) },
+    questions: {
+      role: {
+        type: 'choice',
+        instructions: 'What role would `sketch` play in this app\'s UI once built? Judge from its name, description, notes and, if it is built, its file path.',
+        criteria: ROLES,
+      },
+      kind: {
+        type: 'choice',
+        instructions: 'What kind of UI element is `sketch`?',
+        criteria: KINDS,
+      },
+    },
+  };
+}
+
+/** The sketches whose stored classification doesn't match what would be sent now. */
+export function unclassifiedSketches(nodes, { force = false } = {}) {
+  return nodes.filter((n) => force || n.classification?.key !== sketchKey(n));
+}
+
+/**
+ * Classify the sketches that aren't classified yet (or all of them with
+ * `force`). Resolves to { results: { [nodeId]: classification }, summary },
+ * where a classification is { role, kind, roleConfidence, kindConfidence,
+ * key, model, at } and the summary is the same shape as classifyComponents'.
+ */
+export async function classifySketches(nodes, {
+  apiKey,
+  baseUrl,
+  fetchImpl,
+  timeoutMs,
+  retryDelayMs,
+  concurrency = 4,
+  force = false,
+  onProgress = () => {},
+} = {}) {
+  if (!apiKey) throw new JevError('TYPESAFE_API_KEY is not set');
+  const pending = unclassifiedSketches(nodes, { force });
+  const results = {};
+  const summary = { total: nodes.length, classified: 0, cached: nodes.length - pending.length, failed: 0, error: null };
+
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    while (!stopped && next < pending.length) {
+      const node = pending[next++];
+      try {
+        const data = await callJev(buildSketchClassifyRequest(node), { apiKey, baseUrl, fetchImpl, timeoutMs, retryDelayMs });
+        results[node.id] = { ...readAnswer(data), key: sketchKey(node), model: data.model || JEV_MODEL, at: new Date().toISOString() };
+        summary.classified++;
+      } catch (err) {
+        if (!(err instanceof JevError)) throw err;
+        summary.failed++;
+        summary.error ??= err.message;
+        if (err.status === 401 || err.unreachable) stopped = true;
+      }
+      onProgress({ done: summary.classified + summary.failed, of: pending.length });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, pending.length)) }, worker));
+  if (stopped) summary.failed = pending.length - summary.classified;
+  return { results, summary };
+}
+
+/**
+ * The repo's primitives a sketch looks like a second copy of: a sketch Jev
+ * calls a primitive of some kind, in a repo that already has classified
+ * primitives of that kind. Variants of a composite (three pricing cards) are
+ * normal, so only primitives count. A hint for the canvas and the agent, not
+ * a verdict.
+ */
+export function sketchOverlaps(classification, components, limit = 5) {
+  if (!classification || classification.role !== 'primitive' || !classification.kind || classification.kind === 'other') return [];
+  return components
+    .filter((c) => c.role === 'primitive' && c.kind === classification.kind)
+    .slice(0, limit)
+    .map(({ id, name, file }) => ({ id, name, file }));
+}

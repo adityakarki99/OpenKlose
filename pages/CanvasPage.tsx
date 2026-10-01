@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
-import { getProject } from '../services/projectService';
+import { classifySketches, getProject, lintNode, triageFeedback } from '../services/projectService';
+import { getServerInfo } from '../services/hubService';
 import { API_BASE } from '../lib/repoScope';
 import {
   CANVAS_WIDTH,
@@ -27,7 +28,7 @@ import { clamp, moveFrame, resizeFrame } from '../lib/frameGeometry.js';
 import { targetedNodeId, targetingReason } from '../lib/targeting.js';
 import { boundsOf, fitView, isEditableTarget, stepZoom, zoomAround } from '../lib/viewport.js';
 import { changeBadge, diffSketches, summarizeChanges } from '../lib/changes.js';
-import { markSent } from '../lib/feedback.js';
+import { markSent, triageSummaryLine } from '../lib/feedback.js';
 import { mergeSketches } from '../lib/merge.js';
 import { useHistory } from '../hooks/useHistory';
 import { usePersistence, PersistenceData } from '../hooks/usePersistence';
@@ -92,6 +93,13 @@ const CanvasPage: React.FC = () => {
   const [showShortcuts, setShowShortcuts] = useState(false);
   // Sketches the agent just changed, with the badge each wears for a few seconds.
   const [agentBadges, setAgentBadges] = useState<Record<string, string>>({});
+  // Whether the server has a TYPESAFE_API_KEY: turns on the Jev actions (classify, triage, token suggestions).
+  const [jevAvailable, setJevAvailable] = useState(false);
+  useEffect(() => {
+    getServerInfo()
+      .then((info) => setJevAvailable(Boolean(info.jev?.available)))
+      .catch(() => {});
+  }, []);
   // The visible part of the canvas in canvas units, for the minimap.
   const [viewRect, setViewRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [commandCopied, setCommandCopied] = useState(false);
@@ -423,6 +431,58 @@ const CanvasPage: React.FC = () => {
   };
 
   /** Resolve a comment by hand, or reopen one (it then counts as new, so the next copy sends it again). */
+  // --- Jev: classification, triage, token check ---
+  // The server writes its answers into the project file; they are also applied
+  // here straight away (without a history entry), so a sketch with unsaved
+  // edits keeps them instead of having the next autosave write them away.
+
+  const handleClassify = async (nodeId?: string) => {
+    if (!projectId) return;
+    try {
+      const result = await classifySketches(projectId, nodeId ? [nodeId] : undefined);
+      const byId = new Map(result.sketches.filter((s) => s.classification).map((s) => [s.id, s.classification!]));
+      setNodesTransient((prev) => prev.map((n) => (byId.has(n.id) ? { ...n, classification: byId.get(n.id) } : n)));
+      const flagged = result.sketches.filter((s) => s.overlaps.length > 0);
+      const { classified, cached, failed, classifiedPrimitives } = result.summary;
+      const parts = [];
+      if (nodeId && byId.size === 1) {
+        const c = byId.get(nodeId)!;
+        parts.push(`Jev: ${c.role} · ${c.kind}`);
+      } else parts.push(`Jev classified ${classified} sketch${classified === 1 ? '' : 'es'}${cached ? ` (${cached} already known)` : ''}`);
+      if (flagged.length) parts.push(`${flagged.length} look${flagged.length === 1 ? 's' : ''} like a primitive the repo already has`);
+      else if (!classifiedPrimitives) parts.push('classify the repo\'s components first to compare against its primitives');
+      if (failed) parts.push(`${failed} failed${result.summary.error ? `: ${result.summary.error}` : ''}`);
+      showToast({ message: parts.join(' · ') });
+    } catch (err) {
+      showToast({ message: `Jev couldn't classify: ${err instanceof Error ? err.message : 'request failed'}` });
+    }
+  };
+
+  const handleTriage = async (nodeIds?: string[]) => {
+    if (!projectId) return;
+    try {
+      const result = await triageFeedback(projectId, nodeIds);
+      const byComment = new Map(result.feedback.filter((f) => f.triage).map((f) => [f.commentId, f.triage!]));
+      setNodesTransient((prev) =>
+        prev.map((n) => {
+          if (!(n.comments || []).some((c) => byComment.has(c.id))) return n;
+          return { ...n, comments: (n.comments || []).map((c) => (byComment.has(c.id) ? { ...c, triage: byComment.get(c.id) } : c)) };
+        })
+      );
+      const { triaged, cached, failed, error } = result.summary;
+      const scoped = nodeIds ? nodesRef.current.filter((n) => nodeIds.includes(n.id)) : nodesRef.current;
+      const line = triageSummaryLine(scoped.map((n) => ({ ...n, comments: (n.comments || []).map((c) => (byComment.has(c.id) ? { ...c, triage: byComment.get(c.id) } : c)) })));
+      const parts = [`Jev triaged ${triaged} comment${triaged === 1 ? '' : 's'}${cached ? ` (${cached} already known)` : ''}`];
+      if (line) parts.push(line);
+      if (failed) parts.push(`${failed} failed${error ? `: ${error}` : ''}`);
+      showToast({ message: parts.join(' · ') });
+    } catch (err) {
+      showToast({ message: `Jev couldn't triage: ${err instanceof Error ? err.message : 'request failed'}` });
+    }
+  };
+
+  const handleLint = (nodeId: string) => lintNode(projectId!, nodeId, jevAvailable);
+
   const handleSetResolved = (nodeId: string, commentId: string, resolved: boolean) => {
     setNodes((prev) =>
       prev.map((n) => {
@@ -1056,6 +1116,9 @@ const CanvasPage: React.FC = () => {
                   onInspectElement={handleInspectElement}
                   onFitToContent={handleFitToContent}
                   agentBadge={agentBadges[node.id] || null}
+                  jevAvailable={jevAvailable}
+                  onClassify={jevAvailable ? handleClassify : undefined}
+                  onLint={handleLint}
                   onSelect={(id, e) => {
                     e.stopPropagation();
                     // The preceding mousedown already selected this node (see
@@ -1127,6 +1190,8 @@ const CanvasPage: React.FC = () => {
           onClearPendingElement={() => setPendingElement(null)}
           composerRef={composerRef}
           onComposerFocusChange={(focused) => setComposerNodeId(focused && selectedNode ? selectedNode.id : null)}
+          jevAvailable={jevAvailable}
+          onTriage={handleTriage}
         />
       )}
       {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}

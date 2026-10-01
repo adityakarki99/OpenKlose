@@ -200,3 +200,66 @@ test('white text on a saturated fill stays white in the light theme', { skip }, 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test('with a key: triage labels comments, classify badges the frame, and the token check suggests a replacement', { skip }, async () => {
+  // Its own server: this one has a (fake) Jev, and a repo with a colour token.
+  const jevCwd = await mkdtemp(path.join(os.tmpdir(), 'klose-canvas-jev-'));
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  await mkdir(path.join(jevCwd, 'src'), { recursive: true });
+  await writeFile(path.join(jevCwd, 'src', 'globals.css'), '@theme { --color-brand-600: #1d4ed8; --color-brand-500: #2563eb; }', 'utf-8');
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const answers = {};
+    for (const [q, question] of Object.entries(body.questions)) {
+      if (q === 'role') answers[q] = { choice: 'primitive', confidence: 0.9 };
+      else if (q === 'kind') answers[q] = { choice: 'action', confidence: 0.8 };
+      else if (q.endsWith('_kind')) answers[q] = { choice: 'visual', confidence: 0.9 };
+      else if (q.endsWith('_effort')) answers[q] = { choice: 'quick', confidence: 0.75 };
+      else {
+        const first = Object.keys(question.criteria)[0];
+        answers[q] = { probabilities: { [first]: 0.9, none: 0.1 } };
+      }
+    }
+    return new Response(JSON.stringify({ model: 'jev-1.13.0', answers }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const jevServer = createKloseServer({ cwd: jevCwd, publicDir, jev: { apiKey: 'k', fetchImpl } });
+  await new Promise((resolve) => jevServer.listen(0, '127.0.0.1', resolve));
+  const jevOrigin = `http://127.0.0.1:${jevServer.address().port}`;
+  try {
+    const project = await store.createProject(jevCwd, 'Jev');
+    const a = await store.addNode(jevCwd, project.id, { name: 'Primary button', code: CARD, x: 100, y: 100, width: 420, height: 300, comments: [{ id: 'c1', text: 'Bigger', createdAt: 1 }] });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${jevOrigin}/canvas/${project.id}`);
+    await page.locator(`[data-node-id="${a.id}"]`).waitFor();
+
+    // Triage from the tray: the comment gets its chip, the summary says "1 quick".
+    await page.getByRole('button', { name: 'Triage' }).click();
+    await page.getByText('quick · visual').waitFor();
+    await page.getByText('1 quick', { exact: true }).waitFor();
+    await eventually(async () => (await store.getProject(jevCwd, project.id)).nodes[0].comments[0].triage?.effort === 'quick', 'triage on disk');
+
+    // Classify from the toolbar: the frame's header shows the role and kind.
+    await select(page, a.id);
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Classify with Jev' }).click();
+    await page.getByText('primitive · action').first().waitFor();
+    await eventually(async () => (await store.getProject(jevCwd, project.id)).nodes[0].classification?.role === 'primitive', 'classification on disk');
+
+    // Check tokens: the stock blue gets a brand replacement.
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Check tokens…' }).click();
+    await page.getByRole('dialog', { name: 'Token check' }).getByText(/bg-blue-600 → bg-brand-/).waitFor();
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: jevOrigin });
+    await page.getByRole('button', { name: 'Copy for agent' }).click();
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    assert.match(clip, /Token check for the "Primary button" sketch/);
+    assert.match(clip, /bg-blue-600 → bg-brand-\d+ \(--color-brand-\d+, 90%\)/);
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    await new Promise((resolve) => jevServer.close(resolve));
+    await rm(jevCwd, { recursive: true, force: true });
+  }
+});

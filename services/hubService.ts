@@ -12,7 +12,7 @@ async function get<T>(url: string): Promise<T> {
 }
 
 /** Whether this server is a hub (many repos) or a single repo's canvas. */
-export const getServerInfo = (): Promise<{ hub?: boolean; root: string | null; version: string | null }> => get('/api/health');
+export const getServerInfo = (): Promise<{ hub?: boolean; root: string | null; version: string | null; jev?: { available: boolean } }> => get('/api/health');
 
 /** Every repo the hub sees: agents first, then most recently used. */
 export const listRepos = async (): Promise<HubRepo[]> => (await get<{ repos: HubRepo[] }>('/api/repos')).repos;

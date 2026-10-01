@@ -34,6 +34,8 @@ in ways a diff won't show you.
 | `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
 | `browser-canvas.test.js` | The built canvas in headless Chromium: opening saves nothing, the agent's writes merge with unsaved edits and can't be undone, copy → sent → resolved, delete + Undo, zoom (keys, and a wheel over a preview), light-theme contrast. Same skip rule |
 | `merge.test.js` | `lib/merge.js` — merging the agent's version with edits not saved yet |
+| `lint.test.js` | `server/lint.js` and `lib/lintText.js` — class extraction, which classes are literal design values, the Jev request/answer for token replacements, and the copied text |
+| `triage.test.js` | `server/triage.js` and `klose feedback --triage` — the per-sketch request, caching by key, stopping on a rejected key, and the stored `triage` reaching `klose feedback` over the CLI and HTTP |
 
 `server/` and the CLI are covered. The React canvas under `components/` and `pages/` has
 no component-level test runner: test it end to end in `browser-canvas.test.js`,

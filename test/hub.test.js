@@ -153,7 +153,7 @@ test('hub server: one API, every repo', async (t) => {
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const health = await request('GET', '/api/health');
-  assert.deepEqual(health.body, { ok: true, root: null, version: '9.9.9', pid: process.pid, hub: true });
+  assert.deepEqual(health.body, { ok: true, root: null, version: '9.9.9', pid: process.pid, jev: { available: false }, hub: true });
 
   const list = await request('GET', '/api/repos');
   assert.equal(list.body.repos[0].name, 'live');

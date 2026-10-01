@@ -1,6 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Crosshair, FileCode2, MessageSquare } from 'lucide-react';
-import { ComponentNode, PinPosition, SelectedElementInfo } from '../../types';
+import { Crosshair, FileCode2, MessageSquare, Sparkles } from 'lucide-react';
+import { ComponentNode, LintResult, PinPosition, SelectedElementInfo } from '../../types';
 import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
 import Preview, { PreviewHandle } from '../Runtime/Preview';
@@ -45,6 +45,10 @@ interface SketchNodeProps {
   onDeleteComment: (nodeId: string, commentId: string) => void;
   /** Set for a few seconds after the agent changed this sketch, e.g. "Updated by agent". */
   agentBadge?: string | null;
+  /** Whether the server has a TYPESAFE_API_KEY (Jev). */
+  jevAvailable?: boolean;
+  onClassify?: (id: string) => Promise<void>;
+  onLint?: (id: string) => Promise<LintResult>;
 }
 
 const HANDLES: { key: string; left: string; top: string; cursor: string; label: string }[] = [
@@ -85,8 +89,13 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   onOpenInTray,
   onDeleteComment,
   agentBadge = null,
+  jevAvailable = false,
+  onClassify,
+  onLint,
 }) => {
   const isBuilt = node.status === 'built';
+  const classification = node.classification;
+  const overlaps = classification?.overlaps || [];
   // Resolved comments are history: no pins, not counted. Numbers match the tray's.
   const comments = useMemo(() => openComments(node.comments), [node.comments]);
   const commentCount = comments.length;
@@ -199,6 +208,9 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           onDuplicate={() => onDuplicate(node.id)}
           onDelete={() => onDelete(node.id)}
           onUpdate={onUpdate}
+          jevAvailable={jevAvailable}
+          onClassify={onClassify ? () => onClassify(node.id) : undefined}
+          onLint={onLint ? () => onLint(node.id) : undefined}
         />
       )}
       {isSelected && !isGesturing && (
@@ -226,6 +238,24 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         <span className="flex-shrink-0 truncate text-sm font-semibold text-app-primary" style={{ maxWidth: '60%' }}>
           {node.name || 'Untitled sketch'}
         </span>
+        {classification && (
+          <span
+            className="flex flex-shrink-0 items-center gap-1 rounded-md bg-violet-400/10 px-1.5 py-px text-[10.5px] font-medium text-violet-300"
+            title={`Jev: ${classification.role} · ${classification.kind}${classification.roleConfidence != null ? ` (${Math.round(classification.roleConfidence * 100)}% sure of the role)` : ''}`}
+          >
+            <Sparkles size={10} aria-hidden="true" />
+            {classification.role} · {classification.kind}
+          </span>
+        )}
+        {overlaps.length > 0 && (
+          <span
+            className="flex-shrink-0 truncate rounded-md bg-amber-400/15 px-1.5 py-px text-[10.5px] font-medium text-amber-300"
+            style={{ maxWidth: 140 }}
+            title={`Looks like a second ${classification?.kind} primitive. The repo already has: ${overlaps.map((o) => `${o.name} (${o.file})`).join(', ')}`}
+          >
+            ≈ {overlaps[0].name}{overlaps.length > 1 ? ` +${overlaps.length - 1}` : ''}
+          </span>
+        )}
         {/* The built path lives in the header, so it never covers the preview. */}
         <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-xs text-emerald-300" title={node.builtFilePath}>
           {isBuilt && node.builtFilePath && (

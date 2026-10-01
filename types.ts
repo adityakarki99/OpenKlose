@@ -25,6 +25,36 @@ export interface ComponentNode {
   code?: string;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
+  /** What Jev said this sketch is, once classified (server/classify.js). */
+  classification?: SketchClassification;
+}
+
+/** Jev's answer about a sketch: its role and kind, and the repo primitives it looks like a copy of. */
+export interface SketchClassification {
+  role: ComponentRole;
+  kind: ComponentKind;
+  roleConfidence?: number | null;
+  kindConfidence?: number | null;
+  /** Classified primitives of the repo with the same kind, when the sketch is itself a primitive. */
+  overlaps?: { id: string; name: string; file: string }[];
+  /** Hash of what was sent; a changed name, description or notes asks again. */
+  key?: string;
+  model?: string;
+  at?: string;
+}
+
+export type TriageKind = 'copy' | 'visual' | 'layout' | 'behaviour' | 'scope';
+export type TriageEffort = 'quick' | 'moderate' | 'rethink';
+
+/** Jev's triage of a comment (server/triage.js): what it asks for, and how much work it is. */
+export interface CommentTriage {
+  kind: TriageKind;
+  effort: TriageEffort;
+  kindConfidence?: number | null;
+  effortConfidence?: number | null;
+  key?: string;
+  model?: string;
+  at?: string;
 }
 
 export interface Comment {
@@ -39,6 +69,8 @@ export interface Comment {
   resolvedAt?: number;
   /** What the agent said it changed, when it resolved the comment. */
   resolution?: string;
+  /** Jev's triage, once asked for. */
+  triage?: CommentTriage;
 }
 
 /** A DOM element picked from a sketch's live preview, used to scope a comment to it. */
@@ -122,6 +154,43 @@ export interface ComponentRanking {
   considered: number;
   total: number;
   ranked: RepoComponent[];
+}
+
+/** One literal design value in a sketch's preview code (server/lint.js). */
+export interface LintFinding {
+  class: string;
+  utility: string;
+  property: string;
+  value: string;
+  kind: 'palette' | 'arbitrary' | 'scale';
+  namespace: string;
+  /** How many of the repo's tokens of that namespace could stand in for it. */
+  candidates: number;
+  /** With Jev: whether to replace it, maybe, or keep it. */
+  verdict?: 'replace' | 'maybe' | 'keep';
+  suggestion?: { token: string; value: string; utility: string; replacement: string; confidence: number } | null;
+}
+
+export interface LintResult {
+  projectId: string;
+  nodeId: string;
+  name: string;
+  hasCode: boolean;
+  classes: number;
+  tokens: Record<string, number>;
+  findings: LintFinding[];
+  truncated: boolean;
+  jev: { asked: boolean; model?: string; error?: string };
+}
+
+export interface ClassifySketchesResult {
+  summary: ClassifySummary & { classifiedPrimitives: number };
+  sketches: { id: string; name: string; classification: SketchClassification | null; overlaps: { id: string; name: string; file: string }[] }[];
+}
+
+export interface TriageResult {
+  summary: { total: number; triaged: number; cached: number; failed: number; error: string | null };
+  feedback: { nodeId: string; commentId: string; triage?: CommentTriage }[];
 }
 
 export interface ClassifySummary {

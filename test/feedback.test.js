@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFeedbackText, commentStatus, commentsToSend, countNew, describeElement, markSent, openComments, timeAgo } from '../lib/feedback.js';
+import { buildFeedbackText, commentStatus, commentsToSend, countNew, describeElement, markSent, openComments, timeAgo, triageSummary, triageSummaryLine } from '../lib/feedback.js';
 
 const button = { tagName: 'button', text: 'Subscribe', classes: 'rounded-xl', path: 'div > button' };
 
@@ -103,4 +103,23 @@ test('marking sent leaves untouched sketches as the same object', () => {
   const out = markSent([lifecycle[0], other], new Set(['fresh']));
   assert.equal(out[1], other);
   assert.notEqual(out[0], lifecycle[0]);
+});
+
+test('a triaged comment carries its triage line, and the summary counts by effort', () => {
+  const nodes = [{ id: 'n1', name: 'Card', comments: [
+    { id: 'a', text: 'Bigger', createdAt: 0, triage: { kind: 'visual', effort: 'quick' } },
+    { id: 'b', text: 'Rethink the tiers', createdAt: 0, triage: { kind: 'scope', effort: 'rethink' } },
+    { id: 'c', text: 'Not triaged', createdAt: 0 },
+    { id: 'd', text: 'Done', createdAt: 0, resolvedAt: 1, triage: { kind: 'copy', effort: 'quick' } },
+  ] }];
+  const text = buildFeedbackText({ projectId: 'p1', projectName: 'Billing', nodes });
+  const lines = text.split('\n');
+  assert.equal(lines[2], '1. Bigger [comment a]');
+  assert.equal(lines[3], '   ↳ triage: quick · visual');
+  assert.equal(lines[4], '2. Rethink the tiers [comment b]');
+  assert.equal(lines[5], '   ↳ triage: rethink · scope');
+  assert.equal(lines[6], '3. Not triaged [comment c]');
+  assert.deepEqual(triageSummary(nodes), { quick: 1, moderate: 0, rethink: 1, untriaged: 1, triaged: 2 });
+  assert.equal(triageSummaryLine(nodes), '1 quick · 1 rethink');
+  assert.equal(triageSummaryLine([{ id: 'n', name: 'x', comments: [] }]), '');
 });

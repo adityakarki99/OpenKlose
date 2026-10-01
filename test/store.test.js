@@ -288,3 +288,28 @@ test('a project file is never read half-written, and a write leaves no temp file
     assert.deepEqual(names, [`${created.id}.json`]);
   });
 });
+
+test('annotateNodes changes several nodes in one write, and triage reaches klose feedback', async () => {
+  await withTempRepo(async (cwd) => {
+    const project = await store.createProject(cwd, 'Annotated');
+    const a = await store.addNode(cwd, project.id, { name: 'A', comments: [{ id: 'c1', text: 'One', createdAt: 1 }, { id: 'c2', text: 'Two', createdAt: 2 }] });
+    const b = await store.addNode(cwd, project.id, { name: 'B' });
+    const before = await store.getProject(cwd, project.id);
+
+    const changed = await store.setNodeClassifications(cwd, project.id, { [b.id]: { role: 'screen', kind: 'content', key: 'k' } });
+    assert.deepEqual(changed.map((n) => n.id), [b.id]);
+    const untouched = await store.setNodeClassifications(cwd, project.id, { nope: { role: 'screen' } });
+    assert.deepEqual(untouched, []);
+
+    await store.setCommentTriage(cwd, project.id, { [a.id]: { c2: { kind: 'copy', effort: 'quick', key: 'k2' } } });
+    const after = await store.getProject(cwd, project.id);
+    assert.equal(after.nodes[1].classification.role, 'screen');
+    assert.equal(after.nodes[0].comments[0].triage, undefined);
+    assert.equal(after.nodes[0].comments[1].triage.effort, 'quick');
+    assert.ok(after.updated_at > before.updated_at);
+
+    const feedback = await store.listFeedback(cwd, { projectId: project.id });
+    assert.equal(feedback[0].triage, undefined);
+    assert.deepEqual(feedback[1].triage, { kind: 'copy', effort: 'quick', kindConfidence: null, effortConfidence: null });
+  });
+});

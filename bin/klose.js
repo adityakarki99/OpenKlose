@@ -26,6 +26,8 @@ import {
 } from '../server/hub.js';
 import { buildTray, findTray, hasClang, removeTrayInfo, trayBinary } from '../server/tray.js';
 import { classifyRepo, enrichedIndex, jevFromEnv, rankAcrossRepos } from '../server/componentIndex.js';
+import { classifyProject, lintNode, triageProject } from '../server/insights.js';
+import { JevError } from '../server/jev.js';
 import { claudeHome, readLiveSessions, readRecentCwds } from '../server/sessions.js';
 import {
   DEFAULT_PORT,
@@ -202,10 +204,18 @@ Options
 Shows the design tokens found in this repo (Tailwind config, @theme blocks,
 :root custom properties) that every preview is rendered with. --css prints the
 exact stylesheet the sandbox receives.`,
-  feedback: `Usage: klose feedback [--project=<id>] [--all]
+  feedback: `Usage: klose feedback [--project=<id>] [--all] [--triage [--force]]
 
 Prints open comments as structured JSON. Each has a status: "new" (the user
-hasn't copied it for an agent yet) or "sent". --all includes resolved ones.`,
+hasn't copied it for an agent yet) or "sent". --all includes resolved ones.
+
+--triage first asks Jev (TypeSafe AI; needs TYPESAFE_API_KEY) what each open
+comment asks for — kind: copy, visual, layout, behaviour or scope — and how
+much work it is — effort: quick, moderate or rethink — and prints each
+comment with that "triage". One request per sketch, covering only comments
+not triaged yet (--force asks again); the comment's text, the sketch's name
+and description and the targeted element's tag and text are sent. Do the
+quick ones first; raise the rethinks with the user before doing them.`,
   resolve: `Usage: klose resolve <projectId> <nodeId> [commentId...] [--note="what changed"]
 
 Marks comments on a sketch as addressed. With no comment ids, resolves every
@@ -222,6 +232,10 @@ copies for the agent. --note is shown to the user next to each comment.`,
   add-node <id> <json|@file.json>            Add a sketch to a project's canvas
   update-node <id> <nodeId> <json|@file.json>   Update a sketch (code, comments, status)
   export <id> [--out=<dir>] [--json]         Write the sketches into the repo as files
+  lint <id> <nodeId> [--no-jev] [--json]     Literal colours/radii/shadows in a sketch's preview
+                                             code where the repo has a token for them
+  classify <id> [--force] [--json]           Ask Jev what each sketch is (role, kind), and which of
+                                             the repo's primitives it looks like a second copy of
 
 Any <json> argument can be @path/to/file.json instead — easier for multi-line
 preview code than a shell argument.
@@ -231,7 +245,20 @@ sketch and project) plus a README.md carrying descriptions, notes, status and
 pending comments — a planning doc you can commit and build from. Defaults to
 the folder it was last saved to, else docs/klose/<project-slug>/; --out is
 relative to where you run the command. The canvas shows each project as Saved,
-Changed since, or not in the repo yet, and its "Save to repo" does the same.`,
+Changed since, or not in the repo yet, and its "Save to repo" does the same.
+
+lint reads the preview code's class names and the tokens "klose theme" found
+(never the code or the repo's source) and lists the stock palette colours,
+arbitrary values and stock radius/shadow steps the sketch uses where the repo
+has tokens of that kind. With TYPESAFE_API_KEY set it asks Jev, in one
+request, which token each should become, and prints the replacement class
+(--no-jev skips that). Fix the "replace" ones; "maybe" is worth a look.
+
+classify sends each sketch's name, description and notes (not its code) to
+Jev, once per sketch until they change, and stores the answer on the sketch
+("classification": role, kind, overlaps). A sketch that is a primitive of a
+kind the repo already has classified primitives of is flagged with them: run
+"klose components --classify" first so there is something to compare with.`,
 };
 
 function printJson(value) {
@@ -1000,6 +1027,26 @@ async function cmdProject(args) {
       if (!id || !nodeId || !json) fail('usage: klose project update-node <id> <nodeId> <json|@file.json>');
       return printJson(await store.updateNode(root, id, nodeId, await parseJsonArg(json)));
     }
+    case 'lint': {
+      const [id, nodeId] = rest.filter((a) => !a.startsWith('--'));
+      if (!id || !nodeId) fail('usage: klose project lint <id> <nodeId> [--no-jev] [--json]');
+      const result = await lintNode(root, id, nodeId, { jev: jevFromEnv(), useJev: !hasFlag(rest, '--no-jev') });
+      if (hasFlag(rest, '--json')) return printJson(result);
+      return printLint(result);
+    }
+    case 'classify': {
+      const id = rest.find((a) => !a.startsWith('--'));
+      if (!id) fail('usage: klose project classify <id> [--force] [--json]');
+      let result;
+      try {
+        result = await classifyProject(root, id, { home: kloseHome(), jev: jevFromEnv(), force: hasFlag(rest, '--force') });
+      } catch (err) {
+        if (err instanceof JevError) fail(`could not classify: ${err.message}`);
+        throw err;
+      }
+      if (hasFlag(rest, '--json')) return printJson(result);
+      return printSketchClassification(result);
+    }
     case 'export': {
       const id = rest.find((a) => !a.startsWith('--'));
       if (!id) fail('usage: klose project export <id> [--out=<dir>] [--json]');
@@ -1016,6 +1063,43 @@ async function cmdProject(args) {
     default:
       fail(`${sub ? `unknown project subcommand "${sub}"` : 'missing project subcommand'}\n\n${COMMAND_HELP.project}`);
   }
+}
+
+function printLint(result) {
+  const { name, findings, tokens, jev } = result;
+  const tokenLine = Object.entries(tokens).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  if (!result.hasCode) return console.log(`"${name}" has no preview code to lint.`);
+  console.log(`"${name}": ${result.classes} classes, ${findings.length} literal value${findings.length === 1 ? '' : 's'} (repo tokens: ${tokenLine})`);
+  for (const f of findings) {
+    const what = f.kind === 'palette' ? 'stock palette' : f.kind === 'arbitrary' ? 'arbitrary value' : 'stock scale';
+    let tail = `${what}, ${f.candidates} ${f.namespace} token${f.candidates === 1 ? '' : 's'} available`;
+    if (f.suggestion) {
+      const pct = Math.round(f.suggestion.confidence * 100);
+      tail = f.verdict === 'keep' ? `keep (no token fits, ${pct}% for the closest)` : `${f.verdict === 'replace' ? '→' : '?→'} ${f.suggestion.replacement} (${f.suggestion.token}, ${pct}%)`;
+    }
+    console.log(`  ${f.class.padEnd(28)} ${tail}`);
+  }
+  if (result.truncated) console.log(`  … more; showing the first ${findings.length}`);
+  if (jev.error) console.error(`Jev couldn't suggest replacements: ${jev.error}. The findings above are from the local check.`);
+  else if (!jev.asked && findings.some((f) => f.candidates > 0)) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
+}
+
+function printSketchClassification({ summary, sketches }) {
+  for (const s of sketches) {
+    const c = s.classification;
+    if (!c) {
+      console.log(`${s.name || 'Untitled sketch'}: not classified`);
+      continue;
+    }
+    const pct = c.roleConfidence != null ? ` (${Math.round(c.roleConfidence * 100)}%)` : '';
+    console.log(`${s.name || 'Untitled sketch'}: ${c.role} · ${c.kind}${pct}`);
+    for (const o of s.overlaps) console.log(`  looks like a second ${c.kind} primitive: ${o.name} (${o.file})`);
+  }
+  const parts = [`${summary.classified} classified`, `${summary.cached} cached`];
+  if (summary.failed) parts.push(`${summary.failed} failed`);
+  console.log(parts.join(', '));
+  if (summary.error) console.error(`Jev: ${summary.error}`);
+  if (!summary.classifiedPrimitives) console.error('No classified primitives in the repo to compare with — run "klose components --classify" first.');
 }
 
 // Search the host repo's real components — so the agent can reuse what already
@@ -1187,6 +1271,17 @@ async function cmdTheme(args) {
 async function cmdFeedback(args) {
   const projectArg = args.find((arg) => arg.startsWith('--project='));
   const projectId = projectArg ? projectArg.slice('--project='.length) : undefined;
+  if (hasFlag(args, '--triage')) {
+    let result;
+    try {
+      result = await triageProject(root, { projectId: projectId || null, jev: jevFromEnv(), force: hasFlag(args, '--force') });
+    } catch (err) {
+      if (err instanceof JevError) fail(`could not triage: ${err.message}`);
+      throw err;
+    }
+    if (result.summary.error) console.error(`Jev: ${result.summary.error}`);
+    return printJson({ count: result.feedback.length, triage: result.summary, feedback: result.feedback });
+  }
   const feedback = await store.listFeedback(root, { projectId, includeResolved: hasFlag(args, '--all') });
   // JSON is the default: this command is primarily an agent integration
   // surface, and stable structured output is safer than parsing prose.

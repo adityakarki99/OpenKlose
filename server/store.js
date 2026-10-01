@@ -230,6 +230,7 @@ export async function listFeedback(cwd, { projectId, includeResolved = false } =
         element: comment.element || null,
         status: comment.resolvedAt ? 'resolved' : comment.sentAt ? 'sent' : 'new',
         ...(comment.resolvedAt ? { resolvedAt: comment.resolvedAt, resolution: comment.resolution || null } : {}),
+        ...(comment.triage ? { triage: { kind: comment.triage.kind, effort: comment.triage.effort, kindConfidence: comment.triage.kindConfidence ?? null, effortConfidence: comment.triage.effortConfidence ?? null } } : {}),
       }))
     )
   );
@@ -263,6 +264,43 @@ export async function resolveComments(cwd, id, nodeId, commentIds = [], { note, 
     await writeProjectFile(cwd, project);
   }
   return { resolved, open: node.comments.filter((c) => !c.resolvedAt).length };
+}
+
+/**
+ * Changes several nodes of a project in one read-modify-write: `apply(node)`
+ * returns the replacement node, or null to leave it as it is. Used by the
+ * Jev-backed annotations (classification, feedback triage), which answer for
+ * many nodes at once and must not race each other through separate writes.
+ * Resolves to the nodes that changed.
+ */
+export async function annotateNodes(cwd, id, apply, { now = Date.now() } = {}) {
+  const project = await readProjectFile(cwd, id);
+  const changed = [];
+  project.nodes = (project.nodes || []).map((n) => {
+    const next = apply(n);
+    if (!next || next === n) return n;
+    changed.push(next);
+    return next;
+  });
+  if (changed.length) {
+    project.updated_at = nextUpdatedAt(project.updated_at, now);
+    await writeProjectFile(cwd, project);
+  }
+  return changed;
+}
+
+/** Stores what Jev said each sketch is: { [nodeId]: classification }. */
+export function setNodeClassifications(cwd, id, byNodeId) {
+  return annotateNodes(cwd, id, (n) => (byNodeId[n.id] ? { ...n, classification: byNodeId[n.id] } : null));
+}
+
+/** Stores what Jev said each comment asks for: { [nodeId]: { [commentId]: triage } }. */
+export function setCommentTriage(cwd, id, byNodeId) {
+  return annotateNodes(cwd, id, (n) => {
+    const answers = byNodeId[n.id];
+    if (!answers || !(n.comments || []).some((c) => answers[c.id])) return null;
+    return { ...n, comments: n.comments.map((c) => (answers[c.id] ? { ...c, triage: answers[c.id] } : c)) };
+  });
 }
 
 export function projectsWatchDir(cwd) {

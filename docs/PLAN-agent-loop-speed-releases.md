@@ -250,11 +250,12 @@ instead, and debounce the snapshot computation to the save timer.
 
 ### 2.3 Data integrity: the real reliability risks
 
-**Non-atomic writes.** `writeProjectFile` calls `writeFile` directly. A crash or a second writer
-mid-write leaves a truncated JSON file; the SSE watcher also fires while the file is half-written,
-so the canvas can read partial JSON (it catches and ignores, but `klose project get` from the agent
-fails outright). Fix: write to `<file>.tmp-<pid>` then `rename`, which is atomic on every platform
-Klose supports. One function, eleven call sites unaffected.
+**Non-atomic writes (fixed alongside this document).** `writeProjectFile` called `writeFile`
+directly, which empties the file before filling it. A reader in that window (the CLI, the canvas
+after an SSE event, or the browser test polling the file) got "Unexpected end of JSON input"; CI hit
+exactly this on the PR that added this plan. The fix is to write a temp file and `rename` it into
+place, which is atomic on every platform Klose supports, with a store test that reads while
+writing. One function, eleven call sites unaffected.
 
 **Lost updates between the canvas and the CLI.** Both do read-modify-write with no precondition:
 

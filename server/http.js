@@ -20,6 +20,7 @@ function sendJevError(res, err) {
 }
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
+import { classifyProject, lintNode, triageProject } from './insights.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -234,6 +235,17 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       sendJson(res, 200, { count: feedback.length, feedback });
       return true;
     }
+    // Ask Jev what each open comment asks for and how much work it is.
+    // Explicit only: it sends the comments' text.
+    if (parts[0] === 'feedback' && parts[1] === 'triage' && parts.length === 2 && req.method === 'POST') {
+      const { projectId = null, nodeIds, force } = await readBody(req);
+      try {
+        sendJson(res, 200, await triageProject(root, { projectId, nodeIds: Array.isArray(nodeIds) ? nodeIds : undefined, jev, force: force === true }));
+      } catch (err) {
+        sendJevError(res, err);
+      }
+      return true;
+    }
 
     // Repo component index — search & view the host repo's real components,
     // with whatever Jev has already said about them (never calls Jev itself).
@@ -316,6 +328,22 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
         sendJson(res, 200, { ok: true });
         return true;
       }
+      // Ask Jev what each sketch is, and which of the repo's primitives it
+      // looks like a copy of. One request per sketch not yet classified.
+      if (id && sub === 'classify' && !nodeId && req.method === 'POST') {
+        const { nodeIds, force } = await readBody(req);
+        try {
+          sendJson(res, 200, await classifyProject(root, id, { home, jev, nodeIds: Array.isArray(nodeIds) ? nodeIds : undefined, force: force === true }));
+        } catch (err) {
+          sendJevError(res, err);
+        }
+        return true;
+      }
+      // Which literal design values a sketch uses where the repo has a token.
+      if (id && sub === 'nodes' && nodeId && parts[4] === 'lint' && parts.length === 5 && req.method === 'GET') {
+        sendJson(res, 200, await lintNode(root, id, nodeId, { jev, useJev: url.searchParams.get('jev') !== '0' }));
+        return true;
+      }
       // Save this project into the repo as files. The folder is never taken
       // from the request: it is the one recorded by the last save, or the
       // default under docs/klose/.
@@ -349,7 +377,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       // `root` lets `klose status` tell this repo's server apart from one
       // another repo started on the same port; a hub has no root of its own.
       if (url.pathname === '/api/health') {
-        return sendJson(res, 200, { ok: true, root: hub ? null : cwd, version, pid: process.pid, ...(hub ? { hub: true } : {}) });
+        return sendJson(res, 200, { ok: true, root: hub ? null : cwd, version, pid: process.pid, jev: { available: Boolean(jev.apiKey) }, ...(hub ? { hub: true } : {}) });
       }
 
       if (isApi && hub) {

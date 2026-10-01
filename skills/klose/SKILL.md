@@ -69,6 +69,15 @@ comment not yet resolved, each with a `status` of `new` (the user hasn't sent it
 lead with addressing that feedback rather than waiting to be asked. You don't need the user to paste
 it: the comments are on disk.
 
+**Triage first when there is a lot of it (optional, needs `TYPESAFE_API_KEY`).** With several
+comments waiting, `npx klose feedback --project=<id> --triage` asks Jev what each one asks for and
+how much work it is, and prints each comment with a `triage`: `kind` (`copy`, `visual`, `layout`,
+`behaviour` or `scope`) and `effort` (`quick`, `moderate` or `rethink`). Do the `quick` ones in one
+pass and resolve them together; take `moderate` ones one at a time; raise each `rethink` with the
+user before changing anything — it is either ambiguous or a change of direction. The user may
+already have triaged from the tray, in which case the plain `feedback` output carries the same
+`triage` fields. Don't pass `--triage` when the key isn't set, and don't ask for one.
+
 ## 3. Ground yourself in the REAL design system
 
 Before ideating, read the *host repository's* actual design system — do not invent generic tokens.
@@ -133,6 +142,14 @@ lists primitives of the same kind (two button primitives); pick one and mention 
 adding a third. Don't run `--classify` yourself unless the user asks — it's a request per component
 on their key.
 
+**Sketches get roles too.** `npx klose project classify <projectId>` asks Jev the same role/kind
+question about each sketch (from its name, description and notes — never its code) and stores the
+answer on the node as `classification`. A sketch that comes back a `primitive` of a kind the repo
+already has classified primitives of is flagged with them (`overlaps`): that is a second button or
+input in the making, so point at the existing one and extend it instead. Run it after adding
+sketches when the key is set and the repo's components are classified; otherwise skip it — and never
+run `components --classify` on the user's behalf, it costs a request per component.
+
 - If a suitable component already exists, prefer **reusing/extending it** — read its file, then build
   on it (compose it, add a variant/prop) rather than sketching a duplicate. Tell the user you found
   an existing `<Name>` and are reusing it.
@@ -190,7 +207,17 @@ npx klose project add-node <projectId> @/tmp/sketch.json
 
 The node is created with `status: "sketch"`. If the open canvas tab doesn't visually update within a
 second or two, the server may not have picked up the file change — that's fine, a page refresh will
-show it. Iterating on a sketch's look (user asks for changes) is a normal `update-node` call with a
+show it.
+
+**Then check the tokens.** `npx klose project lint <projectId> <nodeId>` lists every stock Tailwind
+palette colour (`bg-indigo-600`), arbitrary value (`text-[#1e293b]`, `rounded-[6px]`) and stock
+radius/shadow step the preview uses where the repo has tokens of that kind — the literals step 3
+told you not to write. With `TYPESAFE_API_KEY` set it also asks Jev, in one request, which repo
+token each should become and prints the replacement class (`bg-indigo-600 → bg-brand-600`).
+Replace the ones marked `→` with `update-node`, look at the `?→` ones, leave the rest; then run
+lint again. A clean lint is what "grounded in the design system" means for the preview. Without a
+key the list still tells you what to change, just not what to change it to. The user can run the
+same check from the sketch's ⋯ menu ("Check tokens…") and paste the result to you. Iterating on a sketch's look (user asks for changes) is a normal `update-node` call with a
 new `code` (same `@file.json` approach) — no need to touch the real repo for that.
 
 ## 6. Build it for real, on confirmation
@@ -243,6 +270,9 @@ sketch and match the pins the user sees on its preview. Treat it as feedback on 
 sketches: read the sketch's current `code`/`notes` first, apply the feedback, update it
 (step 5's `update-node`, or step 6 if it's ready to build), and resolve the addressed comments as
 above. Each pasted comment ends with `[comment <id>]` — that is the id `klose resolve` takes.
+
+A pasted comment may carry a `↳ triage:` line (`quick · visual`): Jev's read of how much work it is
+and what kind — use it to order the work as described in step 2.
 
 A comment can be **scoped to a specific element** the user clicked in the live preview. In that case
 the pasted block carries a `↳ targets element:` line naming the element's tag, visible text, DOM

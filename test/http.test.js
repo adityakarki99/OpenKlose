@@ -70,7 +70,7 @@ test('GET /api/health reports the server as up without touching .klose/', async 
   const res = await request('GET', '/api/health');
   assert.equal(res.status, 200);
   // `root` is how `klose status` tells this repo's server from another repo's.
-  assert.deepEqual(res.body, { ok: true, root: cwd, version: '9.9.9', pid: process.pid });
+  assert.deepEqual(res.body, { ok: true, root: cwd, version: '9.9.9', pid: process.pid, jev: { available: false } });
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 

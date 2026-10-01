@@ -573,6 +573,9 @@ klose project add-node <id> <json|@file.json>     Add a sketch node to a project
 klose project update-node <id> <nodeId> <json|@file.json>   Update a sketch node (its code, comments, or mark it built)
 klose project export <id> [--out=<dir>] [--json]  Save a project into the repo as files (README + one .tsx per sketch)
 klose feedback [--project=<id>] [--all]           Read open feedback as structured JSON (--all adds resolved)
+klose feedback --triage [--project=<id>]          The same, after Jev says what each comment asks for and how much work it is
+klose project lint <id> <nodeId> [--no-jev]       Literal colours/radii/shadows in a sketch's preview where the repo has a token
+klose project classify <id> [--force]             Ask Jev what each sketch is, and which repo primitives it looks like a copy of
 klose resolve <id> <nodeId> [commentId...] [--note=…]   Mark comments addressed (all open ones if no ids)
 ```
 
@@ -638,7 +641,7 @@ file in your source tree.
 No. Klose runs a local server and stores JSON files. The "intelligence" is your coding agent, which
 you're already running.
 
-The one optional exception is [Jev](https://docs.typesafe.ai) (TypeSafe AI), used for two things
+The one optional exception is [Jev](https://docs.typesafe.ai) (TypeSafe AI), used for a few things
 when `TYPESAFE_API_KEY` is set in the environment Klose starts in:
 
 - **Search by meaning** — `klose components "<need>" --rank`, or **Ask Jev** on the Components page:
@@ -651,9 +654,27 @@ when `TYPESAFE_API_KEY` is set in the environment Klose starts in:
   duplicates of each other. One request per component the first time; the answers are cached on
   your machine in `~/.klose/index/`, so later runs only pay for new or changed components.
 
-Both only run when you ask, send each component's name, path, props and doc comment (never source
-code) to `api.typesafe.ai`, and leave the plain index working on any error. Without a key, nothing
-leaves your machine.
+- **Sketch classification** — `klose project classify <id>`, or **Classify with Jev** in a sketch's
+  ⋯ menu: the same role and kind for each sketch on the canvas, from its name, description and notes.
+  A sketch that is a primitive of a kind the repo already has primitives of (a second button, a
+  second text field) is flagged on its frame with the existing ones, so the duplicate is caught
+  before it is built. One request per sketch, until its name, description or notes change.
+- **Feedback triage** — `klose feedback --triage`, or **Triage** in the feedback tray: what each open
+  comment asks for (copy, visual, layout, behaviour, scope) and how much work it is (quick, moderate,
+  rethink), shown on each comment and summed up in the tray, and handed to the agent with the
+  feedback so it does the quick ones first and raises the rethinks with you. One request per sketch,
+  until a comment changes.
+- **Token suggestions** — `klose project lint <id> <nodeId>`, or **Check tokens…** in a sketch's ⋯
+  menu: the check itself is local (which stock palette colours, arbitrary values and stock
+  radius/shadow steps a preview uses where your repo has tokens of that kind); with a key, Jev also
+  says which of your tokens each should become, as a replacement class. One request per check.
+
+All of these only run when you ask. Search, classification and sketch classification send names,
+paths, props, doc comments, descriptions and notes — never source code. The token check sends class
+names and your token names and values, not the preview code. Triage is the one feature that sends
+text you wrote: the comment itself, with the sketch's name and description and the targeted
+element's tag and text. Everything goes to `api.typesafe.ai`, and every feature leaves the plain
+path working on any error. Without a key, nothing leaves your machine.
 
 **Where does my data live?**
 In `.klose/projects/*.json` at the root of the repo you ran `klose init` in. Commit it to keep design

@@ -220,6 +220,35 @@ directory watch means changes made either way show up live in the browser.
 
 ---
 
+## What Jev Says About a Project
+
+`server/insights.js` is the Jev-backed layer for a project's *own* content, next to
+`server/componentIndex.js` for the repo's components. Same rules as there: opt-in on
+`TYPESAFE_API_KEY`, explicit (a flag or a button, never on a save), metadata not source, every
+answer written back into the project file so the canvas (over SSE) and the agent (over `klose
+project get` / `klose feedback`) read the same thing, and the plain path intact on any error.
+
+- **Sketch classification** (`server/classify.js`, `classifySketches`) asks the same role/kind
+  questions a component gets, of a sketch's name, description and notes, and stores the answer on
+  the node as `classification` keyed by a hash of what was sent. `sketchOverlaps` names the repo's
+  classified primitives of the same kind when the sketch is itself a primitive: a second button in
+  the making. `klose project classify`, `POST /api/projects/:id/classify`, and **Classify with
+  Jev** in the toolbar's ⋯ menu; the frame's header shows the role and an `≈ Button` hint.
+- **Feedback triage** (`server/triage.js`) asks, per open comment, what kind of change it is and
+  how much work it is (two Choice questions, one request per sketch, batched), and stores the
+  answer on the comment as `triage` keyed the same way. `klose feedback --triage`,
+  `POST /api/feedback/triage`, the tray's **Triage** button; `lib/feedback.js` adds a `↳ triage:`
+  line to the copied text and a `triageSummaryLine` for the tray. This is the one Jev feature that
+  sends text the user wrote.
+- **Token lint** (`server/lint.js`) is local first: `extractClasses` pulls class names out of a
+  sketch's `className` attributes (strings, `cn(...)` arguments, template literals and their holes),
+  `tokensFromCss` reads the repo's tokens off the same CSS `klose theme` renders previews with, and
+  `findLiterals` keeps the stock palette colours, arbitrary values and stock radius/shadow steps
+  that the repo has a token namespace for. With a key, one request offers each finding the tokens
+  of its namespace (plus `none`) and the answer becomes a replacement class with Jev's probability.
+  `klose project lint`, `GET /api/projects/:id/nodes/:nodeId/lint`, **Check tokens…** in the ⋯
+  menu, and `lib/lintText.js` for the copied text.
+
 ## The Component Index
 
 `server/scanner.js` walks the *host* repo and indexes its real components, so both the Components tab

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, MessageSquare, Plug, RotateCcw, Send, Trash2, X } from 'lucide-react';
-import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Loader2, MessageSquare, Plug, RotateCcw, Send, Sparkles, Trash2, X } from 'lucide-react';
+import type { Comment, CommentTriage, ComponentNode, SelectedElementInfo } from '../../types';
 import {
   buildFeedbackText,
   commentStatus,
@@ -11,6 +11,7 @@ import {
   openComments,
   resolvedComments,
   timeAgo,
+  triageSummaryLine,
 } from '../../lib/feedback.js';
 import { focusMovedIntoPreview } from '../../lib/targeting.js';
 import { FILE_BAR_HEIGHT } from '../Canvas/FileBar';
@@ -48,7 +49,28 @@ interface FeedbackTrayProps {
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   /** Focusing the composer is itself a targeting mode, so the canvas needs to know. */
   onComposerFocusChange: (focused: boolean) => void;
+  /** Whether the server has a TYPESAFE_API_KEY, so comments can be triaged with Jev. */
+  jevAvailable?: boolean;
+  /** Ask Jev what each open comment on these sketches (or every sketch) asks for, and how much work it is. */
+  onTriage?: (nodeIds?: string[]) => Promise<void>;
 }
+
+const EFFORT_CHIP: Record<CommentTriage['effort'], { className: string; title: string }> = {
+  quick: { className: 'bg-emerald-400/15 text-emerald-300', title: 'Jev: a small, local change' },
+  moderate: { className: 'bg-amber-400/15 text-amber-300', title: 'Jev: a contained change that takes some care' },
+  rethink: { className: 'bg-rose-400/15 text-rose-300', title: 'Jev: changes the design or is ambiguous; worth a conversation first' },
+};
+
+/** "quick · visual": what Jev said a comment asks for, and how much work it is. */
+const TriageChip: React.FC<{ triage: CommentTriage }> = ({ triage }) => {
+  const chip = EFFORT_CHIP[triage.effort] || EFFORT_CHIP.moderate;
+  const pct = triage.effortConfidence != null ? ` (${Math.round(triage.effortConfidence * 100)}% sure of the effort)` : '';
+  return (
+    <span className={`rounded px-1.5 py-px text-[10.5px] font-medium ${chip.className}`} title={`${chip.title}${pct}`}>
+      {triage.effort} · {triage.kind}
+    </span>
+  );
+};
 
 const StatusDot: React.FC<{ node: ComponentNode }> = ({ node }) => (
   <span className={`h-2 w-2 flex-shrink-0 rounded-full ${node.status === 'built' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
@@ -120,7 +142,10 @@ const CommentRow: React.FC<{
           <span className="whitespace-pre-wrap text-[13px] leading-relaxed text-app-secondary">{comment.text}</span>
         </button>
         <span className="flex items-center justify-between gap-2">
-          <span className="text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="text-xs text-app-muted">{timeAgo(comment.createdAt)}</span>
+            {comment.triage && <TriageChip triage={comment.triage} />}
+          </span>
           <span className="flex items-center gap-0.5">
             <button
               type="button"
@@ -202,10 +227,13 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   onClearPendingElement,
   composerRef,
   onComposerFocusChange,
+  jevAvailable = false,
+  onTriage,
 }) => {
   const [draft, setDraft] = useState('');
   const { copied, copy } = useCopy();
   const [showResolved, setShowResolved] = useState(false);
+  const [triaging, setTriaging] = useState(false);
   // Counts are of open comments: resolved ones are history, not work.
   const total = countOpen(nodes);
   // "This sketch" means nothing with no sketch selected.
@@ -239,6 +267,17 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
     if (!text || !selectedNode) return;
     onAddComment(selectedNode.id, text, pendingElement);
     setDraft('');
+  };
+
+  /** Ask Jev about the open comments in view. The canvas reports the outcome in a toast. */
+  const runTriage = async () => {
+    if (!onTriage || triaging) return;
+    setTriaging(true);
+    try {
+      await onTriage(effectiveScope === 'sketch' && selectedNode ? [selectedNode.id] : undefined);
+    } finally {
+      setTriaging(false);
+    }
   };
 
   if (!open) {
@@ -283,6 +322,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
 
   const visible = scopedNodes.filter((n) => effectiveScope === 'sketch' || openComments(n.comments).length > 0);
   const scopedCount = countOpen(scopedNodes);
+  const triageLine = triageSummaryLine(scopedNodes);
   const scopedResolved = scopedNodes.flatMap((n) => resolvedComments(n.comments).map((comment) => ({ node: n, comment })));
   const copyLabel = copied
     ? 'Copied — marked as sent'
@@ -299,6 +339,12 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       style={{ width: TRAY_OPEN_WIDTH, top: FLOAT_TOP, right: TRAY_INSET, bottom: TRAY_INSET }}
     >
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 py-1 canvas-scroll">
+        {triageLine && (
+          <p className="pointer-events-auto flex items-center gap-1.5 self-start rounded-full border border-app-border bg-app-surface px-2.5 py-1 text-[11px] font-medium text-app-secondary" title="How Jev triaged the open comments, by effort">
+            <Sparkles size={11} className="text-violet-300" aria-hidden="true" />
+            {triageLine}
+          </p>
+        )}
         {visible.length === 0 && (
           <p className="py-6 text-center text-[13px] leading-relaxed text-app-muted">
             {scopedResolved.length > 0
@@ -475,16 +521,29 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
             {copied ? <Check size={15} /> : <Copy size={15} />}
             <span className="truncate">{copyLabel}</span>
           </button>
-          {/* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */}
-          <button
-            type="button"
-            disabled
-            className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Coming soon: send feedback to the agent over MCP"
-          >
-            <Plug size={14} />
-            Use MCP
-          </button>
+          {jevAvailable && onTriage ? (
+            <button
+              type="button"
+              onClick={runTriage}
+              disabled={scopedCount === 0 || triaging}
+              className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Ask Jev what each open comment asks for and how much work it is (one request per sketch; sends the comments' text)"
+            >
+              {triaging ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              Triage
+            </button>
+          ) : (
+            /* Hand comments to the agent over MCP instead of the clipboard. Not built yet. */
+            <button
+              type="button"
+              disabled
+              className="flex h-10 flex-shrink-0 items-center gap-1.5 rounded-lg border border-app-border px-3 text-[13px] font-medium text-app-secondary hover:bg-app-surface-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Coming soon: send feedback to the agent over MCP"
+            >
+              <Plug size={14} />
+              Use MCP
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onOpenChange(false)}

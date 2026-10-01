@@ -30,8 +30,13 @@ export function kloseHome() {
   return process.env.KLOSE_HOME || path.join(os.homedir(), '.klose');
 }
 
+/**
+ * Where the hub looks. `claudeDir` is Claude Code's state, `home` is Klose's
+ * own (~/.klose), and `userHome` is where machine-wide skills and the login
+ * item go — all injectable so tests never touch the real ones.
+ */
 export function defaultHubOptions() {
-  return { claudeDir: claudeHome(), home: kloseHome() };
+  return { claudeDir: claudeHome(), home: kloseHome(), userHome: os.homedir() };
 }
 
 /** Short, stable, URL-safe id for a repo root. */
@@ -141,7 +146,7 @@ function isWorktree(root) {
   }
 }
 
-function tildePath(root) {
+export function tildePath(root) {
   const home = os.homedir();
   return root === home || root.startsWith(home + path.sep) ? `~${root.slice(home.length)}` : root;
 }

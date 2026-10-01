@@ -1,4 +1,4 @@
-import { HubRepo, TrayState } from '../types';
+import { HubRepo, SetupState, TrayState } from '../types';
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -20,6 +20,27 @@ export const listRepos = async (): Promise<HubRepo[]> => (await get<{ repos: Hub
 export const getTray = (): Promise<TrayState> => get('/api/tray');
 
 export const getRepo = (id: string): Promise<HubRepo> => get(`/api/repos/${id}`);
+
+async function post<T>(url: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request to ${url} failed (${res.status})`);
+  return data;
+}
+
+export const getSetup = (): Promise<SetupState> => get('/api/setup');
+
+/** Installs the /klose skills for every repo (~/.claude/skills). */
+export const installSkills = async (): Promise<SetupState> => (await post<{ state: SetupState }>('/api/setup/skills')).state;
+
+/** Lists a folder on the hub, like `klose hub add`. */
+export const addRepoFolder = (folder: string): Promise<{ root: string; added: boolean; state: SetupState }> =>
+  post('/api/setup/repos', { path: folder });
+
+export const finishSetup = (choices: { menuBar?: boolean; startAtLogin?: boolean }): Promise<{ state: SetupState; warnings: string[] }> =>
+  post('/api/setup/finish', choices);
+
+export const resetSetup = (): Promise<SetupState> => post('/api/setup/reset');
 
 /** "now", "4m", "2h", "3d" — how long since something happened in a repo. */
 export function sinceShort(timestamp: number, now = Date.now()): string {

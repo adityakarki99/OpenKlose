@@ -19,6 +19,7 @@ function sendJevError(res, err) {
   sendJson(res, unavailable ? 400 : 502, { error: err.message, code: unavailable ? 'JEV_UNAVAILABLE' : 'JEV_FAILED' });
 }
 import { HttpError } from './errors.js';
+import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -179,8 +180,9 @@ function createRepoEvents(root) {
  * One server, two shapes:
  *
  *   - for a single repo (`cwd`): the API lives at /api/…
- *   - as a hub (`hub: { claudeDir, home }`, see server/hub.js): the same API
- *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list them.
+ *   - as a hub (`hub: { claudeDir, home, … }`, see server/hub.js): the same API
+ *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list
+ *     them, /api/tray for the menu bar and /api/setup for first-run setup.
  */
 /**
  * `jev` ({ apiKey, baseUrl, fetchImpl? }) is read from the environment unless
@@ -364,6 +366,28 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
           } catch (err) {
             return sendJevError(res, err);
           }
+        }
+        // First-run setup (the /welcome page; see server/setup.js).
+        if (parts[1] === 'setup') {
+          const action = parts[2];
+          if (!action && req.method === 'GET') return sendJson(res, 200, await setupState(hub));
+          if (req.method === 'POST' && !parts[3]) {
+            if (action === 'skills') {
+              const report = await installGlobalSkills(hub);
+              return sendJson(res, 200, { report, state: await setupState(hub) });
+            }
+            if (action === 'repos') {
+              const { path: folder } = await readBody(req);
+              const result = await addRepoFolder(hub, folder);
+              return sendJson(res, 200, { ...result, state: await setupState(hub) });
+            }
+            if (action === 'finish') {
+              const { menuBar, startAtLogin } = await readBody(req);
+              return sendJson(res, 200, await finishSetup(hub, { menuBar, startAtLogin }));
+            }
+            if (action === 'reset') return sendJson(res, 200, await resetSetup(hub));
+          }
+          return sendJson(res, 404, { error: 'Not found' });
         }
         if (parts[1] !== 'repos') {
           return sendJson(res, 400, { error: 'This is a Klose hub: address a repo as /api/repos/<id>/…', code: 'REPO_REQUIRED' });

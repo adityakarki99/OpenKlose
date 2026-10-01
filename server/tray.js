@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { kloseHome } from './hub.js';
 import { isAlive } from './sessions.js';
@@ -82,4 +83,66 @@ export async function removeTrayInfo(home = kloseHome()) {
   } catch {
     // Already gone.
   }
+}
+
+// ------------------------------------------------------- start at login
+
+const LAUNCH_AGENT_LABEL = 'dev.klose.tray';
+
+/**
+ * The LaunchAgent that starts the menu bar app at login. The app's own
+ * right-click "Start at Login" writes the same file under the same label, so
+ * either one can turn it off again.
+ */
+export function launchAgentPath(userHome = os.homedir()) {
+  return path.join(userHome, 'Library', 'LaunchAgents', `${LAUNCH_AGENT_LABEL}.plist`);
+}
+
+export function startsAtLogin(userHome = os.homedir()) {
+  return existsSync(launchAgentPath(userHome));
+}
+
+const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** The plist for `binary --home <home> --node <node> --cli <cli>`, run at load. */
+export function launchAgentPlist({ binary, home, node, cli }) {
+  const args = [binary, '--home', home, ...(node && cli ? ['--node', node, '--cli', cli] : [])];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+${args.map((a) => `    <string>${xml(a)}</string>`).join('\n')}
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>
+`;
+}
+
+/**
+ * Turns starting the menu bar app at login on or off. Turning it on builds the
+ * app first if needed (it is what the LaunchAgent runs), so it can throw the
+ * same errors as buildTray.
+ */
+export async function setStartAtLogin(enabled, { packageRoot, version, home = kloseHome(), node, cli, userHome = os.homedir() }) {
+  const file = launchAgentPath(userHome);
+  if (!enabled) {
+    try {
+      await unlink(file);
+    } catch {
+      // Already off.
+    }
+    return false;
+  }
+  const { binary } = await buildTray(packageRoot, version, home);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, launchAgentPlist({ binary, home, node, cli }), 'utf-8');
+  return true;
 }

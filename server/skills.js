@@ -81,3 +81,37 @@ export async function installSkills(fromPackageRoot, root, { force = false } = {
   await writeFile(path.join(root, MANIFEST), JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
   return report;
 }
+
+/**
+ * Where each shipped skill stands in `root`, without changing anything:
+ *
+ *   missing   not installed
+ *   current   identical to the shipped copy
+ *   outdated  Klose's own older copy — the next install replaces it
+ *   edited    changed by the user — an install leaves it alone
+ *
+ * Resolves to [{ name, state }].
+ */
+export async function skillStatus(fromPackageRoot, root) {
+  const skillsRoot = path.join(fromPackageRoot, 'skills');
+  const entries = await readdir(skillsRoot, { withFileTypes: true });
+  const manifest = await readManifest(root);
+  const status = [];
+  for (const entry of entries) {
+    const srcFile = path.join(skillsRoot, entry.name, 'SKILL.md');
+    if (!entry.isDirectory() || !existsSync(srcFile)) continue;
+    let current = null;
+    try {
+      current = await readFile(path.join(root, '.claude', 'skills', entry.name, 'SKILL.md'), 'utf-8');
+    } catch {
+      // Not installed.
+    }
+    let state = 'missing';
+    if (current !== null) {
+      const recorded = manifest[entry.name];
+      state = current === (await readFile(srcFile, 'utf-8')) ? 'current' : recorded && sha256(current) !== recorded ? 'edited' : 'outdated';
+    }
+    status.push({ name: entry.name, state });
+  }
+  return status;
+}

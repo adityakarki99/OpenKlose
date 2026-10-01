@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, unlink, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest, notFound } from './errors.js';
 
@@ -38,9 +38,23 @@ async function readProjectFile(cwd, id) {
   return JSON.parse(raw);
 }
 
+// Written to a temporary name and renamed into place, so a reader never sees
+// a truncated file: the canvas, the CLI and the directory watcher all read
+// while another process may be writing, and `writeFile` alone empties the
+// file before it fills it. The temp name doesn't end in .json, so a crash
+// between the two steps leaves nothing `listProjects` would mistake for a
+// project.
 async function writeProjectFile(cwd, project) {
   await ensureDir(cwd);
-  await writeFile(projectFile(cwd, project.id), JSON.stringify(project, null, 2), 'utf-8');
+  const file = projectFile(cwd, project.id);
+  const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(project, null, 2), 'utf-8');
+    await rename(tmp, file);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 // Files whose names aren't well-formed UUIDs (or that don't parse as JSON) are

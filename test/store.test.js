@@ -259,3 +259,32 @@ test('addNode places a sketch without a position to the right of the others', as
     assert.deepEqual([pinned.x, pinned.y], [10, 20]);
   });
 });
+
+test('a project file is never read half-written, and a write leaves no temp file behind', async () => {
+  await withTempRepo(async (cwd) => {
+    const created = await store.createProject(cwd, 'Busy');
+    // Large enough that a non-atomic write would be caught mid-way.
+    const code = 'x'.repeat(200 * 1024);
+    const node = await store.addNode(cwd, created.id, { name: 'Big', code });
+
+    // Read as fast as possible while writes keep landing.
+    let reads = 0;
+    let stop = false;
+    const reader = (async () => {
+      while (!stop) {
+        const project = await store.getProject(cwd, created.id); // throws on a truncated file
+        assert.equal(project.nodes[0].code.length, code.length);
+        reads++;
+      }
+    })();
+    for (let i = 0; i < 50; i++) {
+      await store.updateNode(cwd, created.id, node.id, { notes: `round ${i}` });
+    }
+    stop = true;
+    await reader;
+    assert.ok(reads > 0);
+
+    const names = await readdir(path.join(cwd, '.klose', 'projects'));
+    assert.deepEqual(names, [`${created.id}.json`]);
+  });
+});

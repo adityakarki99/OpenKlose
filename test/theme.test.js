@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { extractFromCss, themeToCssVars, loadTheme } from '../server/theme.js';
+import { extractFromCss, styleBlocksFromHtml, themeToCssVars, loadTheme } from '../server/theme.js';
 
 async function withTempRepo(files, fn) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-theme-test-'));
@@ -91,6 +91,55 @@ test('a config that fails to load is a warning, not an error', async () => {
       assert.equal(theme.tokenCount, 0);
       assert.equal(theme.warnings.length, 1);
       assert.match(theme.warnings[0], /Could not load tailwind\.config\.js/);
+    }
+  );
+});
+
+test('extractFromCss keeps theme-variant blocks with their selector', () => {
+  const { rootVars, variantBlocks } = extractFromCss(`
+    :root { --surface: 15 23 42; color-scheme: dark; }
+    :root[data-theme="light"] { --surface: 255 255 255; color-scheme: light; }
+    .dark { --surface: 0 0 0; }
+    .card { --surface: 1 2 3; }
+  `);
+  assert.deepEqual(rootVars, ['--surface: 15 23 42']);
+  assert.deepEqual(variantBlocks, [':root[data-theme="light"] {\n  --surface: 255 255 255;\n}', '.dark {\n  --surface: 0 0 0;\n}']);
+});
+
+test('styleBlocksFromHtml reads CSS <style> blocks only', () => {
+  const css = styleBlocksFromHtml(`
+    <style>:root { --a: 1; }</style>
+    <!-- <style>:root { --commented: 1; }</style> -->
+    <style type="text/tailwindcss">@theme { --color-b: red; }</style>
+    <style type="text/x-template">:root { --c: 1; }</style>
+  `);
+  assert.match(css, /--a: 1/);
+  assert.match(css, /--color-b: red/);
+  assert.doesNotMatch(css, /--commented|--c:/);
+});
+
+test('loadTheme resolves an @theme block against :root variables from index.html', async () => {
+  await withTempRepo(
+    {
+      'app.css': '@import "tailwindcss";\n@theme { --color-app-surface: rgb(var(--app-surface)); }\n',
+      'index.html': `<!doctype html><html><head><style>
+        :root { --app-surface: 15 23 42; color-scheme: dark; }
+        :root[data-theme="light"] { --app-surface: 255 255 255; }
+        body { background: rgb(var(--app-surface)); }
+      </style></head><body></body></html>`,
+      'docs/page.html': '<style>:root { --docs-only: red; }</style>',
+    },
+    async (dir) => {
+      const theme = await loadTheme(dir, { force: true });
+      assert.deepEqual(theme.sources.map((s) => [s.file, s.kind, s.count]), [
+        ['app.css', 'css', 1],
+        ['index.html', 'html', 1],
+      ]);
+      assert.match(theme.css, /@theme \{ --color-app-surface: rgb\(var\(--app-surface\)\); \}/);
+      // The default value is a plain :root rule; the light one only applies under data-theme.
+      assert.match(theme.css, /(^|\n):root \{\n {2}--app-surface: 15 23 42;\n\}/);
+      assert.match(theme.css, /:root\[data-theme="light"\] \{\n {2}--app-surface: 255 255 255;\n\}/);
+      assert.doesNotMatch(theme.css, /color-scheme|background|--docs-only/);
     }
   );
 });

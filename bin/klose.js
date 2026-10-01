@@ -25,6 +25,7 @@ import {
   writeHubInfo,
 } from '../server/hub.js';
 import { buildTray, findTray, removeTrayInfo, trayBinary } from '../server/tray.js';
+import { classifyRepo, enrichedIndex, jevFromEnv, rankAcrossRepos } from '../server/componentIndex.js';
 import {
   DEFAULT_PORT,
   displayUrl,
@@ -158,19 +159,29 @@ unless --force, which keeps the old copy as SKILL.md.bak.`,
 Removes sketches already built into real files and/or empty projects. With
 neither filter, does both. Dry run unless --yes.`,
   components: `Usage: klose components [query] [--json]
-       klose components "<what you want to build>" --rank [--top=N] [--json]
+       klose components "<what you want to build>" --rank [--all-repos] [--top=N] [--json]
+       klose components --classify [--json]
 
 Searches every exported .tsx/.jsx component in the repo by name, file, props
-and doc comment.
+and doc comment. Components Jev has classified show their role (primitive,
+composite, screen, provider) and kind (input, navigation, overlay, …).
 
 Options
-  --rank     Rank components by how well they fit a plain-language need, using
-             Jev (TypeSafe AI). Opt-in: needs TYPESAFE_API_KEY, and sends each
-             component's name, path, category, prop names and doc comment (no
-             source code) to api.typesafe.ai. Says whether anything fits:
-             reuse, partial or new. Falls back to the text search on any error.
-  --top=N    How many ranked components to show (default 5)
-  --json     Machine-readable output`,
+  --rank       Rank components by how well they fit a plain-language need, using
+               Jev (TypeSafe AI). Opt-in: needs TYPESAFE_API_KEY, and sends each
+               component's name, path, category, prop names and doc comment (no
+               source code) to api.typesafe.ai. Says whether anything fits:
+               reuse, partial or new. Falls back to the text search on any error.
+  --all-repos  With --rank: search every repo the hub knows about (see
+               "klose hub status"), not just this one — for "didn't I build this
+               somewhere already?". Doesn't need the hub to be running.
+  --classify   Ask Jev what each component is, and remember the answers on this
+               machine (~/.klose/index/). One request per component it hasn't
+               seen, sending the same metadata as --rank; later runs only pay
+               for new or changed components. Also reports primitives that look
+               like duplicates of each other.
+  --top=N      How many ranked components to show (default 5)
+  --json       Machine-readable output`,
   theme: `Usage: klose theme [--json | --css]
 
 Shows the design tokens found in this repo (Tailwind config, @theme blocks,
@@ -938,10 +949,15 @@ async function cmdComponents(args) {
   const flags = args.filter((a) => a.startsWith('--'));
   const query = args.filter((a) => !a.startsWith('--')).join(' ');
   const json = flags.includes('--json');
-  const data = await scanComponents(root, { force: true });
+  const home = kloseHome();
+
+  if (flags.includes('--classify')) await classifyOrFail(json);
+  const data = await enrichedIndex(root, { home, force: true });
 
   if (flags.includes('--rank')) {
-    const ranking = await rankOrWarn(data.components, query, flags);
+    const ranking = flags.includes('--all-repos')
+      ? await rankAllOrWarn(query, flags)
+      : await rankOrWarn(data.components, query, flags);
     if (ranking) return printRanking(data, query, ranking, flags);
   }
 
@@ -959,11 +975,61 @@ async function cmdComponents(args) {
   console.log(`Repo: ${where}`);
   console.log(`${components.length} component${components.length === 1 ? '' : 's'}${query ? ` matching "${query}"` : ''}:\n`);
   for (const c of components) printComponent(c);
+  printDuplicates(data.duplicates);
+}
+
+// Runs before listing, so the listing shows the answers. Asked for explicitly,
+// so a missing key or a failed run is an error, not a quiet fallback.
+async function classifyOrFail(json) {
+  const jev = jevFromEnv();
+  if (!jev.apiKey) fail('--classify needs TYPESAFE_API_KEY (from https://typesafe.ai). Without it, the plain index still works.');
+  process.stderr.write('klose: asking Jev what each new component is (names, paths, props and doc comments; no source code)…\n');
+  let last = 0;
+  const summary = await classifyRepo(root, {
+    home: kloseHome(),
+    jev,
+    onProgress: ({ done, of }) => {
+      if (json || (done !== of && Date.now() - last < 1000)) return;
+      last = Date.now();
+      process.stderr.write(`klose:   ${done}/${of}\n`);
+    },
+  });
+  const parts = [`${summary.classified} classified`, `${summary.cached} already known`];
+  if (summary.failed) parts.push(`${summary.failed} failed`);
+  process.stderr.write(`klose: ${parts.join(', ')}${summary.error ? ` (first error: ${summary.error})` : ''}\n`);
+  if (summary.failed && !summary.classified && !summary.cached) fail(`Jev couldn't classify any component: ${summary.error}`);
+}
+
+function printDuplicates(duplicates = []) {
+  if (!duplicates.length) return;
+  console.log('\nPrimitives that may do the same job (worth a look before adding another):');
+  for (const d of duplicates) console.log(`  ${d.kind.padEnd(11)} ${d.components.map((c) => c.name).join(', ')}`);
+}
+
+// --all-repos: every repo the hub would list, plus this one.
+async function rankAllOrWarn(query, flags) {
+  const repos = await listRepos();
+  if (!repos.some((r) => r.root === root)) repos.push({ id: 'here', name: path.basename(root), root });
+  const fallback = (why) => {
+    process.stderr.write(`klose: --rank skipped (${why}); showing text matches in this repo instead.\n`);
+    return null;
+  };
+  const jev = jevFromEnv();
+  if (!jev.apiKey) return fallback('TYPESAFE_API_KEY is not set');
+  if (!query.trim()) return fallback('describe what you want to build');
+  process.stderr.write(`klose: asking Jev to rank components across ${repos.length} repo${repos.length === 1 ? '' : 's'} (names, paths, props and doc comments; no source code)…\n`);
+  try {
+    return await rankAcrossRepos(repos, query, { jev });
+  } catch (err) {
+    return fallback(`Jev: ${err.message}`);
+  }
 }
 
 function printComponent(c, prefix = '') {
   const props = c.props.length ? `  props: ${c.props.map((p) => p.name + (p.optional ? '?' : '')).join(', ')}` : '';
-  console.log(`  ${prefix}${c.name}  —  ${c.file}:${c.line}`);
+  const tag = c.role ? `  [${c.role} · ${c.kind}]` : '';
+  const where = c.repo ? `${c.repo.name}: ` : '';
+  console.log(`  ${prefix}${c.name}  —  ${where}${c.file}:${c.line}${tag}`);
   if (c.description) console.log(`    ${' '.repeat(prefix.length)}${c.description}`);
   if (props) console.log(`${' '.repeat(prefix.length)}${props}`);
 }
@@ -1017,8 +1083,9 @@ function printRanking(data, query, ranking, flags) {
       components: shown,
     });
   }
+  const acrossRepos = ranking.ranked.some((c) => c.repo);
   const where = `${data.repo.name}${data.repo.branch ? ` (${data.repo.branch})` : ''} — ${data.repo.root}`;
-  console.log(`Repo: ${where}`);
+  console.log(acrossRepos ? `Across every repo the hub knows (${new Set(ranking.ranked.map((c) => c.repo.name)).size})` : `Repo: ${where}`);
   console.log(`Ranked by Jev for "${query}"`);
   console.log(`Fit: ${ranking.exists.toFixed(2)} — ${VERDICT_TEXT[ranking.verdict]}`);
   if (ranking.considered < ranking.total) {

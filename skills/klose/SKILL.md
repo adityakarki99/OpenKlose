@@ -120,6 +120,19 @@ Each component carries a `relevance` (0–1) for the ordering. If the key isn't 
 unreachable, the command says so on stderr and returns the plain text matches instead — carry on
 with those. Don't use `--rank` when the user hasn't set a key, and don't ask them for one.
 
+Add `--all-repos` when the user works across several repos (the hub lists them) and might have
+built this somewhere else — each result then carries a `repo`. Treat a match in *another* repo as a
+reference for the look and API, not something this repo can import: say where it is, and build here.
+
+**Roles, when classified.** If the user has run `klose components --classify` (or pressed
+"Classify with Jev" on the Components page), each component in `--json` output also has a
+`role` — `primitive`, `composite`, `screen` or `provider` — and a `kind` (`input`,
+`navigation`, `overlay`, …). Use them: build new UI from the `primitive`s, extend a `composite`
+rather than copying it, and never reuse a `screen` as a building block. The output's `duplicates`
+lists primitives of the same kind (two button primitives); pick one and mention the other rather than
+adding a third. Don't run `--classify` yourself unless the user asks — it's a request per component
+on their key.
+
 - If a suitable component already exists, prefer **reusing/extending it** — read its file, then build
   on it (compose it, add a variant/prop) rather than sketching a duplicate. Tell the user you found
   an existing `<Name>` and are reusing it.

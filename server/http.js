@@ -4,10 +4,20 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import * as store from './store.js';
-import { scanComponents, filterComponents, readComponentSource } from './scanner.js';
+import { filterComponents, readComponentSource } from './scanner.js';
 import { loadTheme } from './theme.js';
 import { exportProject, repoState } from './export.js';
-import { createRepoIndex, listRepos, trayState } from './hub.js';
+import { createRepoIndex, kloseHome, listRepos, trayState } from './hub.js';
+import { JevError, rankComponents } from './jev.js';
+import { classifyRepo, enrichedIndex, jevFromEnv, rankAcrossRepos } from './componentIndex.js';
+
+// Jev answers through our API, so its failures mustn't borrow our status
+// codes (an upstream 401 is not the canvas being unauthorised).
+function sendJevError(res, err) {
+  if (!(err instanceof JevError)) throw err;
+  const unavailable = /TYPESAFE_API_KEY is not set/.test(err.message);
+  sendJson(res, unavailable ? 400 : 502, { error: err.message, code: unavailable ? 'JEV_UNAVAILABLE' : 'JEV_FAILED' });
+}
 import { HttpError } from './errors.js';
 
 const MIME = {
@@ -172,7 +182,14 @@ function createRepoEvents(root) {
  *   - as a hub (`hub: { claudeDir, home }`, see server/hub.js): the same API
  *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list them.
  */
-export function createKloseServer({ cwd = process.cwd(), publicDir, version = null, hub = null } = {}) {
+/**
+ * `jev` ({ apiKey, baseUrl, fetchImpl? }) is read from the environment unless
+ * given; without a key, everything Jev-backed answers JEV_UNAVAILABLE and the
+ * plain index keeps working.
+ */
+export function createKloseServer({ cwd = process.cwd(), publicDir, version = null, hub = null, jev = jevFromEnv() } = {}) {
+  // Where cached classifications live: the hub's home, or ~/.klose for a single repo.
+  const home = hub ? hub.home : kloseHome();
   const repoIndex = hub ? createRepoIndex(hub) : null;
   const events = new Map(); // root -> createRepoEvents(root)
   const eventsFor = (root) => {
@@ -216,12 +233,38 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       return true;
     }
 
-    // Repo component index — search & view the host repo's real components.
+    // Repo component index — search & view the host repo's real components,
+    // with whatever Jev has already said about them (never calls Jev itself).
     if (only('components') && req.method === 'GET') {
-      const data = await scanComponents(root, { force: url.searchParams.get('refresh') === '1' });
+      const data = await enrichedIndex(root, { home, force: url.searchParams.get('refresh') === '1' });
       const q = url.searchParams.get('q');
       const components = q ? filterComponents(data.components, q) : data.components;
-      sendJson(res, 200, { ...data, count: components.length, components });
+      sendJson(res, 200, { ...data, count: components.length, components, jev: { available: Boolean(jev.apiKey) } });
+      return true;
+    }
+    // Ask Jev about every component it hasn't classified yet. Explicit only:
+    // it costs a request per new component.
+    if (parts[0] === 'components' && parts[1] === 'classify' && parts.length === 2 && req.method === 'POST') {
+      try {
+        sendJson(res, 200, await classifyRepo(root, { home, jev }));
+      } catch (err) {
+        sendJevError(res, err);
+      }
+      return true;
+    }
+    // Search this repo's components by meaning: which one fits, and does any?
+    if (parts[0] === 'components' && parts[1] === 'rank' && parts.length === 2 && req.method === 'GET') {
+      const q = (url.searchParams.get('q') || '').trim();
+      if (!q) {
+        sendJson(res, 400, { error: 'q (what you want to build) is required', code: 'QUERY_REQUIRED' });
+        return true;
+      }
+      try {
+        const { components } = await enrichedIndex(root, { home });
+        sendJson(res, 200, await rankComponents(components, q, jev));
+      } catch (err) {
+        sendJevError(res, err);
+      }
       return true;
     }
     if (parts[0] === 'component-source' && req.method === 'GET') {
@@ -311,6 +354,16 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
         // Everything the menu bar icon and its popover need, in one request.
         if (parts[1] === 'tray' && !parts[2] && req.method === 'GET') {
           return sendJson(res, 200, trayState(await listRepos(hub)));
+        }
+        // "Does anything in any of my repos already do this?"
+        if (parts[1] === 'rank' && !parts[2] && req.method === 'GET') {
+          const q = (url.searchParams.get('q') || '').trim();
+          if (!q) return sendJson(res, 400, { error: 'q (what you want to build) is required', code: 'QUERY_REQUIRED' });
+          try {
+            return sendJson(res, 200, await rankAcrossRepos(await listRepos(hub), q, { jev }));
+          } catch (err) {
+            return sendJevError(res, err);
+          }
         }
         if (parts[1] !== 'repos') {
           return sendJson(res, 400, { error: 'This is a Klose hub: address a repo as /api/repos/<id>/…', code: 'REPO_REQUIRED' });

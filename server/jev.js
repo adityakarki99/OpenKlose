@@ -73,6 +73,8 @@ export function buildRequest(candidates, query) {
   const components = {};
   candidates.forEach((c, i) => {
     components[optionId(i)] = {
+      // Only when ranking across repos, where two repos can both have a `Card`.
+      ...(c.repo ? { repo: c.repo.name } : {}),
       name: c.name,
       file: c.file,
       category: c.category,
@@ -121,7 +123,10 @@ async function post(url, apiKey, body, { fetchImpl, timeoutMs }) {
     });
   } catch (err) {
     const timedOut = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
-    throw new JevError(timedOut ? `no answer within ${timeoutMs / 1000}s` : `could not reach TypeSafe (${err.message})`);
+    const failure = new JevError(timedOut ? `no answer within ${timeoutMs / 1000}s` : `could not reach TypeSafe (${err.message})`);
+    // Nothing came back at all: the next request would very likely fare the same.
+    failure.unreachable = !timedOut;
+    throw failure;
   }
   if (response.ok) return response.json();
   let detail = '';
@@ -133,6 +138,30 @@ async function post(url, apiKey, body, { fetchImpl, timeoutMs }) {
     529: 'TypeSafe is overloaded',
   }[response.status] || `HTTP ${response.status}${detail ? `: ${detail}` : ''}`;
   throw new JevError(reason, response.status);
+}
+
+/**
+ * One System One request, with the single retry rate limits and overload
+ * deserve. Throws JevError; shared by ranking (here) and classification
+ * (server/classify.js).
+ */
+export async function callJev(body, {
+  apiKey,
+  baseUrl = JEV_DEFAULT_BASE_URL,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  retryDelayMs = RETRY_DELAY_MS,
+} = {}) {
+  if (!apiKey) throw new JevError('TYPESAFE_API_KEY is not set');
+  const url = `${baseUrl.replace(/\/+$/, '')}/v1/systemone`;
+  try {
+    return await post(url, apiKey, body, { fetchImpl, timeoutMs });
+  } catch (err) {
+    // Rate limits and overload are transient; one retry, then give up.
+    if (err.status !== 429 && err.status !== 529) throw err;
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    return post(url, apiKey, body, { fetchImpl, timeoutMs });
+  }
 }
 
 /**
@@ -157,17 +186,7 @@ export async function rankComponents(components, query, {
 
   const candidates = preselect(components, query);
   const body = buildRequest(candidates, query.trim());
-  const url = `${baseUrl.replace(/\/+$/, '')}/v1/systemone`;
-
-  let data;
-  try {
-    data = await post(url, apiKey, body, { fetchImpl, timeoutMs });
-  } catch (err) {
-    // Rate limits and overload are transient; one retry, then give up.
-    if (err.status !== 429 && err.status !== 529) throw err;
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    data = await post(url, apiKey, body, { fetchImpl, timeoutMs });
-  }
+  const data = await callJev(body, { apiKey, baseUrl, fetchImpl, timeoutMs, retryDelayMs });
 
   const where = data?.answers?.where;
   const exists = data?.answers?.exists;

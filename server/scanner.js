@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest } from './errors.js';
@@ -20,6 +21,8 @@ export const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit',
   'coverage', '.cache', '.vercel', '.turbo', '.parcel-cache', 'vendor',
   '.klose', '.idea', '.vscode', 'tmp', 'temp',
+  // Claude Code keeps agent worktrees (full copies of the repo) in here.
+  '.claude',
 ]);
 
 const SOURCE_EXTS = new Set(['.tsx', '.jsx']);
@@ -218,6 +221,9 @@ async function walk(dir, root, out) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name)) continue;
+      // A folder with its own .git is another repo or a worktree of this one:
+      // its components belong to it, and listing them here doubles the index.
+      if (existsSync(path.join(full, '.git'))) continue;
       await walk(full, root, out);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name);

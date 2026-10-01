@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, ChevronsRight, Copy, Layers, MessageSquare, RotateCcw, Send, Trash2 } from 'lucide-react';
 import type { Comment, ComponentNode, SelectedElementInfo } from '../../types';
 import {
   buildFeedbackText,
@@ -301,14 +301,14 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
               onClick={() => onScopeChange('sketch')}
               className={`flex min-w-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] ${
                 effectiveScope === 'sketch'
-                  ? 'bg-blue-500/15 font-medium text-blue-200 ring-1 ring-blue-500/40'
+                  ? 'bg-app-surface-muted/10 font-medium text-app-primary ring-1 ring-blue-500/50'
                   : 'text-app-muted hover:text-app-secondary'
               }`}
               title={`Show feedback on ${selectedNode.name || 'Untitled sketch'} only`}
             >
               <StatusDot node={selectedNode} />
               <span className="truncate">{selectedNode.name || 'Untitled sketch'}</span>
-              <span className="font-mono text-[11px] opacity-80">{openComments(selectedNode.comments).length}</span>
+              <span className="font-mono text-[11px] text-app-muted">{openComments(selectedNode.comments).length}</span>
             </button>
           )}
         </div>
@@ -320,6 +320,18 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
           title="Collapse feedback"
         >
           <ChevronsRight size={16} />
+        </button>
+      </div>
+
+      <div className="border-b border-app-border px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => copyForAgent()}
+          disabled={scopedCount === 0}
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {copied ? <Check size={15} /> : <Copy size={15} />}
+          {copyLabel}
         </button>
       </div>
 
@@ -393,21 +405,12 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       <div className="flex flex-shrink-0 flex-col gap-2 border-t border-app-border px-4 pb-4 pt-3">
         {selectedNode ? (
           <>
-            <label htmlFor="feedback-composer" className="text-xs text-app-muted">
-              Comment on <span className="font-semibold text-app-primary">{selectedNode.name || 'Untitled sketch'}</span>
-            </label>
-            {pendingElement && (
-              <div className="flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 py-1 pl-2 pr-1 font-mono text-[11px] text-blue-200">
-                <span className="min-w-0 flex-1 truncate">{describeElement(pendingElement)}</span>
-                <button type="button" onClick={onClearPendingElement} className="flex-shrink-0 rounded p-0.5 hover:text-app-primary" aria-label="Don't attach this element">
-                  <X size={12} />
-                </button>
-              </div>
-            )}
             <div className="relative">
               <textarea
                 id="feedback-composer"
                 ref={composerRef}
+                /* The filter bar names the sketch; the element rides in the placeholder. */
+                aria-label={`Comment on ${selectedNode.name || 'Untitled sketch'}`}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onFocus={() => onComposerFocusChange(true)}
@@ -432,7 +435,7 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
                     onClearPendingElement();
                   }
                 }}
-                placeholder={pendingElement ? 'Feedback on this element…' : 'Leave feedback on this design…'}
+                placeholder={pendingElement ? `Feedback on ${describeElement(pendingElement)}… (Esc to detach)` : 'Leave feedback on this design…'}
                 className={`block h-20 w-full resize-none rounded-lg border bg-app-surface py-2 pl-3 pr-12 text-[13px] leading-relaxed text-app-primary outline-none ${
                   isTargeting ? 'border-blue-500' : 'border-app-border focus:border-blue-500'
                 }`}
@@ -455,15 +458,6 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
         ) : (
           <p className="text-xs leading-relaxed text-app-muted">Select a sketch to comment on it.</p>
         )}
-        <button
-          type="button"
-          onClick={() => copyForAgent()}
-          disabled={scopedCount === 0}
-          className="mt-1 flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 text-[13px] font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copyLabel}
-        </button>
       </div>
     </aside>
   );

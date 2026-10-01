@@ -1,0 +1,90 @@
+name: Release (npm)
+
+# Publishes the klose package when a version tag is pushed:
+#
+#   npm version 0.3.0 --no-git-tag-version   # bump package.json, commit it
+#   git tag klose-v0.3.0 && git push origin klose-v0.3.0
+#
+# The tag prefix leaves room for desktop app releases (klose-app-v*) later,
+# the way antiburn keeps its app and engine releases apart.
+on:
+  push:
+    tags: ['klose-v*']
+
+# One release at a time, and never cancel one halfway through a publish.
+concurrency:
+  group: release-npm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Forks get the workflow file too; only this repo publishes.
+    if: github.repository == 'adityakarki99/OpenKlose'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      # A tag that disagrees with package.json would publish the wrong version.
+      - name: Check the tag matches package.json
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#klose-v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME is version $TAG_VERSION, but package.json says $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      # The same gates as CI, so a tag can't skip them.
+      - name: Test
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack-and-install smoke test
+        run: npm run smoke
+
+      # web/dist is git-ignored, so check it is really in the tarball: without
+      # it the published canvas server has no canvas.
+      - name: Check the package contents
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const files = require('./pack.json')[0].files.map((f) => f.path);
+            for (const need of ['bin/klose.js', 'web/dist/index.html', 'skills/klose/SKILL.md', 'server/setup.js']) {
+              if (!files.includes(need)) { console.error('missing from the package: ' + need); process.exit(1); }
+            }
+            console.log(files.length + ' files');
+          "
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Never "Latest": that badge is what the desktop app's updater will
+      # follow (releases/latest/download/latest.json), as in antiburn.
+      - name: GitHub release
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "Klose ${GITHUB_REF_NAME#klose-v}" --generate-notes --latest=false
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -49,6 +49,9 @@ server/instance.js     .klose/server.json bookkeeping: is this repo's server run
 server/skills.js       Installs skill files without clobbering the user's edits
 server/theme.js        Extracts the repo's design tokens for the preview sandbox
 server/scanner.js      Indexes the repo's real components
+server/hub.js          The hub: one server for every repo, found from Claude Code's session files
+server/setup.js        First-run setup for the hub (`klose setup`, the /welcome page)
+server/tray.js         Builds the macOS menu bar app; its start-at-login LaunchAgent
 skills/klose/SKILL.md  Source of the /klose skill (copied into consumer repos by `klose init`)
 scripts/               smoke-pack.mjs (pack-and-install first-run test), prepare.mjs (git installs)
 web/                    The canvas UI source (built to web/dist for packaging)
@@ -66,6 +69,18 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
    `.klose/.gitignore` for the per-machine files (plus `projects/` with `--ignore-projects`).
 3. Reports the design tokens (`server/theme.js`) and components (`server/scanner.js`) it found, and
    the prompt to try first.
+
+### Machine-wide: `klose setup`
+
+`npx klose setup` sets up every repo at once instead: it installs the skills into
+`~/.claude/skills/` (the same installer as `init`, so hand edits are kept), starts the hub in the
+background, starts the macOS menu bar app, and opens the hub's `/welcome` page. The page
+(`pages/WelcomePage.tsx`) walks four steps — welcome, the repos found, the skill, ready — and reads
+everything fresh from `GET /api/setup` (`server/setup.js`), so it never shows a stale step. Its
+choices (menu bar, start at login) are applied only by the final `POST /api/setup/finish`, which
+also records `onboardingCompletedAt` in `~/.klose/settings.json`; until then the hub's home page
+redirects to `/welcome`. The flow follows antiburn's onboarding: draft choices until the last
+click, system side effects only after it.
 
 ## What Happens On `/klose`
 

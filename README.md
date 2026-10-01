@@ -172,7 +172,19 @@ repo.
 
 ## Install
 
-From the root of the repo you want to design in:
+**Once for the whole machine** (recommended): one command installs `/klose` for every repo, starts
+the hub, puts Klose in the macOS menu bar, and opens a short welcome page where you check which
+repos it found and choose whether it starts at login:
+
+```bash
+npx klose setup
+```
+
+It's safe to run again; anything already done is left as it is. The welcome page lives at
+`http://localhost:<port>/welcome` on the hub (the hub's home page sends you there until setup is
+finished or skipped), and its **Setup** button runs it again.
+
+**Or per repo**, from the root of the repo you want to design in:
 
 ```bash
 npm install -D klose
@@ -454,7 +466,13 @@ Running a canvas per repo gets old when you work in several. `klose hub` runs **
 the whole machine and finds your repos by itself:
 
 ```bash
-npx klose init --global        # once: install the /klose skill for every repo (~/.claude/skills)
+npx klose setup                # once: /klose for every repo, the hub, the menu bar, a welcome page
+```
+
+That is the same as running these two yourself:
+
+```bash
+npx klose init --global        # install the /klose skill for every repo (~/.claude/skills)
 npx klose hub --detach --open  # one canvas for every repo; stop with `npx klose hub stop`
 ```
 
@@ -503,6 +521,7 @@ Everything the `/klose` skill does is a plain CLI call you can run yourself. `kl
 shows each command's options.
 
 ```
+klose setup [--no-open] [--no-tray] [--port=N]     Set up every repo on this machine and open the welcome page
 klose init [--no-demo] [--ignore-projects] [--wire-claude-md] [--force] [--here]
                                                   Install the klose skills and local storage in this repo
 klose serve [--port=N] [--open] [--detach]        Start this repo's canvas (default port 5171)

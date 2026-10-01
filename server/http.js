@@ -9,6 +9,7 @@ import { loadTheme } from './theme.js';
 import { exportProject, repoState } from './export.js';
 import { createRepoIndex, listRepos, trayState } from './hub.js';
 import { HttpError } from './errors.js';
+import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -169,8 +170,9 @@ function createRepoEvents(root) {
  * One server, two shapes:
  *
  *   - for a single repo (`cwd`): the API lives at /api/…
- *   - as a hub (`hub: { claudeDir, home }`, see server/hub.js): the same API
- *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list them.
+ *   - as a hub (`hub: { claudeDir, home, … }`, see server/hub.js): the same API
+ *     for every discovered repo at /api/repos/<id>/…, plus /api/repos to list
+ *     them, /api/tray for the menu bar and /api/setup for first-run setup.
  */
 export function createKloseServer({ cwd = process.cwd(), publicDir, version = null, hub = null } = {}) {
   const repoIndex = hub ? createRepoIndex(hub) : null;
@@ -311,6 +313,28 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
         // Everything the menu bar icon and its popover need, in one request.
         if (parts[1] === 'tray' && !parts[2] && req.method === 'GET') {
           return sendJson(res, 200, trayState(await listRepos(hub)));
+        }
+        // First-run setup (the /welcome page; see server/setup.js).
+        if (parts[1] === 'setup') {
+          const action = parts[2];
+          if (!action && req.method === 'GET') return sendJson(res, 200, await setupState(hub));
+          if (req.method === 'POST' && !parts[3]) {
+            if (action === 'skills') {
+              const report = await installGlobalSkills(hub);
+              return sendJson(res, 200, { report, state: await setupState(hub) });
+            }
+            if (action === 'repos') {
+              const { path: folder } = await readBody(req);
+              const result = await addRepoFolder(hub, folder);
+              return sendJson(res, 200, { ...result, state: await setupState(hub) });
+            }
+            if (action === 'finish') {
+              const { menuBar, startAtLogin } = await readBody(req);
+              return sendJson(res, 200, await finishSetup(hub, { menuBar, startAtLogin }));
+            }
+            if (action === 'reset') return sendJson(res, 200, await resetSetup(hub));
+          }
+          return sendJson(res, 404, { error: 'Not found' });
         }
         if (parts[1] !== 'repos') {
           return sendJson(res, 400, { error: 'This is a Klose hub: address a repo as /api/repos/<id>/…', code: 'REPO_REQUIRED' });

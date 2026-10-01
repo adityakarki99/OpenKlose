@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, GitBranch, Layers, MessageSquare, Moon, Search, Sun } from 'lucide-react';
+import { FileText, GitBranch, Layers, MessageSquare, Moon, Search, Settings2, Sun } from 'lucide-react';
 import { HubRepo } from '../types';
-import { agentLine, listRepos, sinceShort } from '../services/hubService';
+import { agentLine, getSetup, listRepos, sinceShort } from '../services/hubService';
 import { repoHref } from '../lib/repoScope';
 import { useSettings } from '../contexts/SettingsContext';
 import { AgentDot } from '../components/Hub/AgentDot';
@@ -82,6 +82,15 @@ const HubHomePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
+  // Until setup is finished (or skipped), the hub's front door is setup.
+  useEffect(() => {
+    getSetup()
+      .then((s) => {
+        if (!s.onboarding.completed) window.location.replace('/welcome');
+      })
+      .catch(() => {});
+  }, []);
+
   // Agent state changes on its own schedule, so this page asks again every
   // few seconds — but only while someone is looking at it.
   useEffect(() => {
@@ -123,15 +132,25 @@ const HubHomePage: React.FC = () => {
           <span className="font-logo text-lg font-bold tracking-tight text-app-primary">Klose</span>
           <span className="rounded-md border border-app-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-app-muted">hub</span>
         </div>
-        <button
-          type="button"
-          onClick={() => updateSettings({ themeMode: isLightMode ? 'dark' : 'light' })}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted transition-all duration-200 hover:bg-app-surface-soft hover:text-app-primary focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-          aria-label={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
-          title={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
-        >
-          {isLightMode ? <Moon size={18} /> : <Sun size={18} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/welcome"
+            className="flex h-10 items-center gap-1.5 rounded-full border border-app-border bg-app-surface px-3.5 text-xs font-medium text-app-muted transition-all duration-200 hover:bg-app-surface-soft hover:text-app-primary"
+            title="Run setup again"
+          >
+            <Settings2 size={14} />
+            Setup
+          </a>
+          <button
+            type="button"
+            onClick={() => updateSettings({ themeMode: isLightMode ? 'dark' : 'light' })}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted transition-all duration-200 hover:bg-app-surface-soft hover:text-app-primary focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+            aria-label={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
+            title={isLightMode ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            {isLightMode ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto px-8 pb-12 pt-8 md:px-12 canvas-scroll">

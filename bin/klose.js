@@ -24,7 +24,8 @@ import {
   repoUrl,
   writeHubInfo,
 } from '../server/hub.js';
-import { buildTray, findTray, removeTrayInfo, trayBinary } from '../server/tray.js';
+import { buildTray, findTray, hasClang, removeTrayInfo, trayBinary } from '../server/tray.js';
+import { claudeHome, readLiveSessions, readRecentCwds } from '../server/sessions.js';
 import {
   DEFAULT_PORT,
   displayUrl,
@@ -48,6 +49,8 @@ const HELP = `Klose ${VERSION} — a local design canvas for your coding agent.
 Usage: klose <command> [options]
 
 Getting started
+  setup         Set up Klose for every repo on this machine: install /klose,
+                start the hub (and the macOS menu bar app), open the welcome page
   init          Install the /klose skills and local storage in this repo
   serve         Start this repo's canvas server
   status        Check whether this repo's canvas is running
@@ -74,6 +77,18 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
+  setup: `Usage: klose setup [--no-open] [--no-tray] [--port=N]
+
+Sets Klose up once for the whole machine, so no repo needs its own init:
+
+  1. Checks for Claude Code (~/.claude) and says what it found there.
+  2. Installs the /klose skills for every repo (~/.claude/skills).
+  3. Starts the hub in the background, if it isn't running.
+  4. On macOS, starts the menu bar app (skip with --no-tray).
+  5. Opens the welcome page, where you pick the repos and finish setup
+     (skip with --no-open; the URL is printed either way).
+
+Safe to run again: anything already done is left as it is.`,
   init: `Usage: klose init [options]
 
 Installs the /klose, /klose-update and /klose-cleanup skills into
@@ -567,6 +582,63 @@ async function cmdStop(args) {
   console.log(`Stopped klose at ${found.url}`);
 }
 
+
+// ----------------------------------------------------------------- setup
+
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+// One command for the whole machine, in the order a new user needs it. The
+// choices (which repos, start at login) are made on the welcome page, which
+// the hub serves — so the terminal never asks a question.
+async function cmdSetup(args) {
+  console.log(`Klose ${VERSION} — setting up this machine\n`);
+
+  const claudeDir = claudeHome();
+  if (existsSync(claudeDir)) {
+    const [sessions, recent] = await Promise.all([readLiveSessions(claudeDir), readRecentCwds(claudeDir)]);
+    const open = sessions.length ? `${plural(sessions.length, 'session')} open, ` : '';
+    console.log(`  ✓ Claude Code  found ${claudeDir.replace(os.homedir(), '~')} (${open}${plural(recent.length, 'folder')} used in the last 2 weeks)`);
+  } else {
+    console.log(`  ! Claude Code  not found at ${claudeDir}. Klose works alongside it — install it from`);
+    console.log('                 https://claude.com/claude-code, then open it in a repo.');
+  }
+
+  const report = await installSkills(packageRoot, os.homedir());
+  const changed = [...report.installed, ...report.updated];
+  const names = (list) => list.map((n) => `/${n}`).join(', ');
+  const skillsDir = path.join(os.homedir(), '.claude', 'skills').replace(os.homedir(), '~');
+  console.log(changed.length ? `  ✓ Skills       ${names(changed)} → ${skillsDir}/` : `  ✓ Skills       ${names(report.unchanged)} (already up to date)`);
+  for (const name of report.skipped) console.log(`  ! /${name}: you've edited this skill, so it was left alone (klose init --global --force replaces it)`);
+  for (const name of report.backedUp) console.log(`  ! /${name}: your previous SKILL.md was saved as SKILL.md.bak`);
+
+  let hub = await findHub();
+  if (hub.state === 'running') {
+    console.log(`  ✓ Hub          already running at ${hub.url}`);
+  } else {
+    hub = await startHubDetached(args.filter((a) => a !== '--no-open' && a !== '--no-tray'), false, { quiet: true });
+    console.log(`  ✓ Hub          running at ${hub.url} (in the background)`);
+  }
+
+  if (process.platform === 'darwin' && !hasFlag(args, '--no-tray')) {
+    if ((await findTray()).state === 'running') {
+      console.log('  ✓ Menu bar     already running');
+    } else if (!hasClang()) {
+      console.log("  – Menu bar     skipped: it needs Apple's command line tools (xcode-select --install),");
+      console.log('                 then run: npx klose tray');
+    } else {
+      // Its own process, so a failure here can't stop setup from finishing.
+      const result = spawnSync(process.execPath, [__filename, 'tray'], { encoding: 'utf-8', timeout: 60000 });
+      console.log(result.status === 0 ? '  ✓ Menu bar     Klose is up by the clock' : `  ! Menu bar     didn't start: ${(result.stderr || '').replace(/^klose: /, '').trim()}`);
+    }
+  }
+
+  const welcome = `${hub.url}/welcome`;
+  console.log(`\nNext: pick your repos and finish on the welcome page:\n  ${welcome}`);
+  if (!hasFlag(args, '--no-open')) openBrowser(welcome);
+  console.log("\nThen, in Claude Code: /klose a pricing card for our billing page");
+  console.log("If /klose isn't in Claude Code's command list yet, restart Claude Code.");
+}
+
 // ------------------------------------------------------------------- hub
 
 // If a hub is running, the URL of this repo's canvas on it — and make sure
@@ -582,7 +654,7 @@ function isRepo(dir) {
   return dir !== os.homedir() && (existsSync(path.join(dir, '.git')) || existsSync(path.join(dir, '.klose')));
 }
 
-async function startHubDetached(args, open) {
+async function startHubDetached(args, open, { quiet = false } = {}) {
   const home = kloseHome();
   const logFile = path.join(home, 'hub.log');
   await mkdir(home, { recursive: true });
@@ -604,10 +676,12 @@ async function startHubDetached(args, open) {
   while (Date.now() < deadline && exited === null) {
     const found = await findHub();
     if (found.state === 'running' && found.pid === child.pid) {
-      console.log(`The Klose hub is running at ${found.url} (in the background, pid ${found.pid})`);
-      console.log('Stop it with: npx klose hub stop');
+      if (!quiet) {
+        console.log(`The Klose hub is running at ${found.url} (in the background, pid ${found.pid})`);
+        console.log('Stop it with: npx klose hub stop');
+      }
       if (open) openBrowser(found.url);
-      return;
+      return found;
     }
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -633,7 +707,9 @@ async function hubStart(args) {
 
   const publicDir = path.join(packageRoot, 'web', 'dist');
   const hasUi = existsSync(path.join(publicDir, 'index.html'));
-  const server = createKloseServer({ hub: defaultHubOptions(), publicDir: hasUi ? publicDir : undefined, version: VERSION });
+  // packageRoot and cli let the hub's setup page install the skills and start the menu bar app.
+  const hub = { ...defaultHubOptions(), packageRoot, version: VERSION, cli: __filename };
+  const server = createKloseServer({ hub, publicDir: hasUi ? publicDir : undefined, version: VERSION });
   const port = await listen(server, basePort, explicit);
   const url = displayUrl(port);
 
@@ -1062,6 +1138,7 @@ async function cmdResolve(args) {
 // ------------------------------------------------------------------ main
 
 const COMMANDS = {
+  setup: cmdSetup,
   init: cmdInit,
   serve: cmdServe,
   status: cmdStatus,
@@ -1093,7 +1170,7 @@ async function main() {
 
   root = command === 'init' && hasFlag(args, '--here') ? invokedFrom : resolveRoot(invokedFrom);
   // The hub and a global init aren't about this repo, so which root was picked is noise.
-  const machineWide = command === 'hub' || command === 'tray' || (command === 'init' && hasFlag(args, '--global'));
+  const machineWide = command === 'hub' || command === 'tray' || command === 'setup' || (command === 'init' && hasFlag(args, '--global'));
   if (root !== invokedFrom && !machineWide) process.stderr.write(`klose: using repo root ${root}\n`);
   return run(args);
 }

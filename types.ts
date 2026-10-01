@@ -216,6 +216,20 @@ export interface TrayState {
   repos: HubRepo[];
 }
 
+/** First-run setup, as the hub sees it right now (GET /api/setup). */
+export interface SetupState {
+  claudeCode: { found: boolean; dir: string; sessions: number; working: number; recentFolders: number };
+  repos: HubRepo[];
+  skills: {
+    /** Where machine-wide skills live, e.g. ~/.claude/skills. */
+    dir: string;
+    installed: boolean;
+    list: { name: string; state: 'missing' | 'current' | 'outdated' | 'edited' }[];
+  };
+  menuBar: { supported: boolean; canBuild: boolean; running: boolean; startAtLogin: boolean };
+  onboarding: { completed: boolean; completedAt: string | null };
+}
+
 export interface UserSettings {
   themeMode: ThemeMode;
   cssLogicalProperties: boolean;

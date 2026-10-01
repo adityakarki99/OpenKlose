@@ -1,0 +1,16 @@
+{
+  "name": "klose-desktop",
+  "private": true,
+  "description": "The Klose desktop app: a menu bar (macOS) / system tray (Windows) shell around the hub.",
+  "type": "module",
+  "scripts": {
+    "sidecar": "node scripts/prepare-sidecar.mjs",
+    "icons": "node scripts/generate-icons.mjs && tauri icon icons/app-icon.png -o src-tauri/icons",
+    "dev": "node scripts/prepare-sidecar.mjs && tauri dev",
+    "build": "node scripts/prepare-sidecar.mjs && tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}

@@ -37,7 +37,7 @@ export const installSkills = async (): Promise<SetupState> => (await post<{ stat
 export const addRepoFolder = (folder: string): Promise<{ root: string; added: boolean; state: SetupState }> =>
   post('/api/setup/repos', { path: folder });
 
-export const finishSetup = (choices: { menuBar?: boolean; startAtLogin?: boolean }): Promise<{ state: SetupState; warnings: string[] }> =>
+export const finishSetup = (choices: { menuBar?: boolean; startAtLogin?: boolean; shell?: 'desktop' }): Promise<{ state: SetupState; warnings: string[] }> =>
   post('/api/setup/finish', choices);
 
 export const resetSetup = (): Promise<SetupState> => post('/api/setup/reset');

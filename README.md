@@ -172,7 +172,24 @@ repo.
 
 ## Install
 
-**Once for the whole machine** (recommended): one command installs `/klose` for every repo, starts
+**The desktop app** (macOS and Windows) puts Klose in your menu bar or system tray, bundles
+everything it needs (no Node install required), walks you through setup on first launch, and keeps
+itself up to date:
+
+```bash
+# macOS
+curl -fsSL https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.ps1 | iex
+```
+
+Or download the `.dmg` / `-setup.exe` from the [latest release](https://github.com/adityakarki99/OpenKlose/releases/latest).
+See [apps/desktop](apps/desktop/README.md) for how it works.
+
+**Once for the whole machine, from the terminal**: one command installs `/klose` for every repo, starts
 the hub, puts Klose in the macOS menu bar, and opens a short welcome page where you check which
 repos it found and choose whether it starts at login:
 

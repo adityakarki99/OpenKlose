@@ -1,0 +1,35 @@
+[package]
+name = "klose-desktop"
+version = "0.0.0"  # the app's version comes from the klose package.json, via tauri.conf.json
+description = "Klose in the menu bar: a shell around the hub"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "klose_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
+serde_json = "1"
+# Only ever talks to the hub on 127.0.0.1, so no TLS.
+ureq = { version = "3", default-features = false }
+url = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

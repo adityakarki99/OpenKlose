@@ -382,8 +382,8 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
               return sendJson(res, 200, { ...result, state: await setupState(hub) });
             }
             if (action === 'finish') {
-              const { menuBar, startAtLogin } = await readBody(req);
-              return sendJson(res, 200, await finishSetup(hub, { menuBar, startAtLogin }));
+              const { menuBar, startAtLogin, shell } = await readBody(req);
+              return sendJson(res, 200, await finishSetup(hub, { menuBar, startAtLogin, shell }));
             }
             if (action === 'reset') return sendJson(res, 200, await resetSetup(hub));
           }

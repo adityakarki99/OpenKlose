@@ -25,5 +25,7 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  // The desktop app has its own build (Rust, and a copy of this package).
+  "exclude": ["node_modules", "apps"]
 }

@@ -95,6 +95,14 @@ test('finishSetup marks setup done; resetSetup forgets it and nothing else', asy
   assert.deepEqual(await readSetupSettings(options.home), { other: 1 });
 });
 
+test('inside the desktop app, finishing only records the login choice', async (t) => {
+  const { options } = await emptyMachine(t);
+  const { state } = await finishSetup(options, { menuBar: true, startAtLogin: false, shell: 'desktop' });
+  assert.equal(state.onboarding.completed, true);
+  assert.equal((await readSetupSettings(options.home)).desktopStartAtLogin, false);
+  assert.equal(existsSync(launchAgentPath(options.userHome)), false);
+});
+
 test('the login item runs the menu bar app with the hub arguments', () => {
   const plist = launchAgentPlist({ binary: '/k/klose-tray', home: '/u/.klose', node: '/bin/node', cli: '/a&b/klose.js' });
   assert.match(plist, /<string>dev\.klose\.tray<\/string>/);

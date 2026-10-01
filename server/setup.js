@@ -128,9 +128,20 @@ function startMenuBar(options) {
  * The last step: applies the choices, then marks setup finished. Choices are
  * applied only here, not as they're toggled, so leaving the page halfway
  * changes nothing on the machine. Resolves to { state, warnings }.
+ *
+ * Inside the desktop app (`shell: 'desktop'`) the app is the menu bar icon
+ * and owns its own login item, so the choice is only recorded, as
+ * `desktopStartAtLogin`, for the app to apply when the page closes.
  */
-export async function finishSetup(options, { menuBar, startAtLogin } = {}) {
+export async function finishSetup(options, { menuBar, startAtLogin, shell } = {}) {
   const warnings = [];
+  if (shell === 'desktop') {
+    await writeSetupSettings(options.home, {
+      onboardingCompletedAt: new Date().toISOString(),
+      ...(typeof startAtLogin === 'boolean' ? { desktopStartAtLogin: startAtLogin } : {}),
+    });
+    return { state: await setupState(options), warnings };
+  }
   if (process.platform === 'darwin' && options.cli) {
     if (typeof startAtLogin === 'boolean' && startAtLogin !== startsAtLogin(userHomeOf(options))) {
       try {

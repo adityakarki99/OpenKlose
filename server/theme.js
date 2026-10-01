@@ -11,8 +11,12 @@ import { IGNORED_DIRS } from './scanner.js';
  *
  * Three sources, all optional:
  *   - `@theme { ... }` blocks in the repo's CSS (Tailwind v4), copied as-is;
- *   - `:root { --x: ... }` custom properties in the repo's CSS, copied as-is
- *     (only the custom properties, not other declarations on :root);
+ *   - `:root { --x: ... }` custom properties in the repo's CSS and in the
+ *     `<style>` blocks of HTML entry files, copied as-is (only the custom
+ *     properties, not other declarations on :root). Theme variants such as
+ *     `:root[data-theme="light"]` or `.dark` keep their selector, so the
+ *     preview — which sets neither — renders with the default values while
+ *     `@theme { --color-x: rgb(var(--x)) }` still resolves;
  *   - a Tailwind v3 `tailwind.config.*` at the repo root, whose theme is
  *     converted to the equivalent v4 `@theme` variables.
  *
@@ -52,11 +56,29 @@ function blockBody(css, open) {
   return null;
 }
 
-/** Pulls `@theme` blocks and `:root` custom properties out of one stylesheet. */
+function customProperties(body) {
+  const decls = [];
+  for (const decl of body.split(';')) {
+    const trimmed = decl.trim();
+    if (/^--[A-Za-z0-9_-]+\s*:/.test(trimmed)) decls.push(trimmed);
+  }
+  return decls;
+}
+
+// `:root[data-theme="light"]`, `html.dark`, `.dark`, `[data-theme=dark]` — the
+// usual ways a light/dark variant redefines the :root variables.
+const VARIANT_SELECTOR =
+  /(?:^|[{};,\s])((?::root|html)(?:\[[^\]{}]*\]|\.[A-Za-z0-9_-]+)+|\.dark|\[data-(?:theme|mode)(?:[~|^$*]?=[^\]{}]*)?\])\s*\{/g;
+
+/**
+ * Pulls `@theme` blocks, `:root` custom properties and theme-variant blocks
+ * (custom properties only, selector kept) out of one stylesheet.
+ */
 export function extractFromCss(source) {
   const css = stripComments(source);
   const themeBlocks = [];
   const rootVars = [];
+  const variantBlocks = [];
 
   for (const match of css.matchAll(/@theme\b[^{;]*\{/g)) {
     const body = blockBody(css, match.index + match[0].length - 1);
@@ -64,13 +86,25 @@ export function extractFromCss(source) {
   }
   for (const match of css.matchAll(/:root\s*\{/g)) {
     const body = blockBody(css, match.index + match[0].length - 1);
-    if (!body) continue;
-    for (const decl of body.split(';')) {
-      const trimmed = decl.trim();
-      if (/^--[A-Za-z0-9_-]+\s*:/.test(trimmed)) rootVars.push(trimmed);
-    }
+    if (body) rootVars.push(...customProperties(body));
   }
-  return { themeBlocks, rootVars };
+  for (const match of css.matchAll(VARIANT_SELECTOR)) {
+    const body = blockBody(css, match.index + match[0].length - 1);
+    const decls = body ? customProperties(body) : [];
+    if (decls.length) variantBlocks.push(`${match[1]} {\n  ${decls.join(';\n  ')};\n}`);
+  }
+  return { themeBlocks, rootVars, variantBlocks };
+}
+
+/** The contents of an HTML file's inline `<style>` blocks, as one stylesheet. */
+export function styleBlocksFromHtml(html) {
+  const out = [];
+  for (const match of html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)) {
+    // Skip `type="text/babel"` and friends; no type, text/css and text/tailwindcss are CSS.
+    const type = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(match[1])?.[1].toLowerCase();
+    if (!type || type === 'text/css' || type === 'text/tailwindcss') out.push(match[2]);
+  }
+  return out.join('\n');
 }
 
 function isPlainObject(value) {
@@ -139,7 +173,13 @@ async function loadTailwindConfig(root, warnings) {
   return null;
 }
 
-async function walkCss(dir, out) {
+// HTML files whose `<style>` blocks count: entry points, where apps commonly
+// define their CSS variables inline (Vite's index.html, a static site's root).
+function isEntryHtml(name, depth) {
+  return name === 'index.html' || (depth === 0 && name.endsWith('.html'));
+}
+
+async function walkCss(dir, out, depth = 0) {
   if (out.length >= MAX_CSS_FILES) return;
   let entries;
   try {
@@ -152,8 +192,10 @@ async function walkCss(dir, out) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-      await walkCss(full, out);
-    } else if (entry.isFile() && entry.name.endsWith('.css') && !entry.name.endsWith('.min.css')) {
+      await walkCss(full, out, depth + 1);
+    } else if (!entry.isFile()) {
+      continue;
+    } else if ((entry.name.endsWith('.css') && !entry.name.endsWith('.min.css')) || isEntryHtml(entry.name, depth)) {
       out.push(full);
     }
   }
@@ -191,14 +233,16 @@ export async function loadTheme(root, { force = false } = {}) {
     } catch {
       continue;
     }
-    const { themeBlocks, rootVars } = extractFromCss(source);
-    if (!themeBlocks.length && !rootVars.length) continue;
+    const isHtml = full.endsWith('.html');
+    const { themeBlocks, rootVars, variantBlocks } = extractFromCss(isHtml ? styleBlocksFromHtml(source) : source);
+    if (!themeBlocks.length && !rootVars.length && !variantBlocks.length) continue;
     const rel = path.relative(root, full);
+    // Variant values are alternatives to the :root ones, not extra tokens.
     const count = rootVars.length + themeBlocks.reduce((n, b) => n + (b.match(/--[A-Za-z0-9_-]+\s*:/g) || []).length, 0);
     parts.push(`/* ${rel} */`);
     if (rootVars.length) parts.push(`:root {\n  ${rootVars.join(';\n  ')};\n}`);
-    parts.push(...themeBlocks);
-    sources.push({ file: rel, kind: 'css', count });
+    parts.push(...variantBlocks, ...themeBlocks);
+    sources.push({ file: rel, kind: isHtml ? 'html' : 'css', count });
     tokenCount += count;
   }
 

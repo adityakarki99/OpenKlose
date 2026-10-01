@@ -358,11 +358,12 @@ be useful, but when it has it, you see the actual thing, interactive.
 ### Resize, screenshot, and read the code
 
 Drag any frame handle to resize a sketch — edges snap to the grid, **Shift** on a corner keeps the
-ratio, **Alt** ignores the grid, and a live readout shows the exact size. **Details** in the
-sketch's toolbar takes exact width/height values and a few device presets, and **Fit to preview**
-snaps the frame to the size its preview actually wants.
+ratio, **Alt** ignores the grid, and a live readout shows the exact size. A small size panel floats
+off the selected sketch's top-left corner with exact width/height fields and device presets (mobile,
+tablet, desktop, card), and the toolbar's **Fit** button snaps the frame to the size its preview
+actually wants. Name, description and notes live under **Details…** in the toolbar's ⋯ menu.
 
-**Screenshot** in the toolbar's ⋯ menu saves a 2× PNG of the preview (hold **Alt** to copy it to the
+**Screenshot** in the toolbar saves a 2× PNG of the preview (hold **Alt** to copy it to the
 clipboard instead) — taken inside the sandbox, so nothing leaves your machine. The `</>` button flips
 the frame to the preview's source: the exact code the sandbox renders, with a copy button.
 
@@ -378,9 +379,9 @@ agent** formats those comments — plus names and IDs — into a
 tidy block you paste back into Claude Code. A copy carries only the comments the agent hasn't seen
 yet, and marks them **Sent**; with nothing new, it re-sends everything still open. The agent resolves
 what it fixes (`klose resolve`), those comments move to a **Resolved** section with its note, and
-they stop being sent. Collapse the tray when you need the room: it becomes a small summary floating
-over the canvas — the open-comment count, which reopens it, and the copy button — and it remembers
-how you left it.
+they stop being sent. The tray floats over the canvas rather than taking a column from it. Collapse
+it when you need the room: it becomes a small summary at the canvas's top right — the open-comment
+count, which reopens it, and the copy button — and it remembers how you left it.
 
 ### Canvas navigation
 

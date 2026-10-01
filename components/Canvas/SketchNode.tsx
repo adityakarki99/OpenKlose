@@ -5,7 +5,7 @@ import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
 import Preview, { PreviewHandle } from '../Runtime/Preview';
 import CodeView from './CodeView';
-import { SketchToolbar } from './SketchToolbar';
+import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
 import { openComments } from '../../lib/feedback.js';
 
@@ -201,9 +201,9 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           onDuplicate={() => onDuplicate(node.id)}
           onDelete={() => onDelete(node.id)}
           onUpdate={onUpdate}
-          onResize={onResize}
         />
       )}
+      {isSelected && !isGesturing && <SketchSizePanel node={node} zoom={zoom} onResize={onResize} />}
 
       {/* The toolbar takes this spot on the selected sketch. */}
       {agentBadge && !isSelected && (

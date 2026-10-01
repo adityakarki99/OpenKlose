@@ -13,10 +13,12 @@ import {
   timeAgo,
 } from '../../lib/feedback.js';
 import { focusMovedIntoPreview } from '../../lib/targeting.js';
+import { FILE_BAR_HEIGHT } from '../Canvas/FileBar';
 
 export const TRAY_OPEN_WIDTH = 380;
-/** Collapsed, the tray floats over the canvas and takes no width from it. */
-export const TRAY_COLLAPSED_WIDTH = 0;
+/** Open or collapsed, the tray floats this far in from the canvas's edges. */
+export const TRAY_INSET = 12;
+const FLOAT_TOP = FILE_BAR_HEIGHT + TRAY_INSET;
 
 export type TrayScope = 'sketch' | 'all';
 
@@ -169,8 +171,10 @@ const ResolvedRow: React.FC<{ comment: Comment; onReopen: () => void; onDelete: 
  * The feedback tray on the right of the canvas. Open, it lists every comment,
  * with numbers that match the pins on the previews, and holds the composer.
  * Its top bar is the filter: "All sketches", or the selected sketch's tag —
- * selecting a sketch switches to it. Collapsed, it is a small summary floating
- * over the canvas: the open-comment count (click to open) and "Copy for agent".
+ * selecting a sketch switches to it. It floats over the canvas, inset from
+ * the edges, rather than being pinned to them. Collapsed, it is a small
+ * summary at the canvas's top right: the open-comment count (click to open)
+ * and "Copy for agent".
  */
 export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   open,
@@ -231,7 +235,8 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
       <div
         role="region"
         aria-label="Feedback, collapsed"
-        className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-2xl border border-app-border bg-app-surface-elevated p-1.5 shadow-2xl shadow-black/40"
+        className="absolute z-30 flex items-center gap-1 rounded-2xl border border-app-border bg-app-surface-elevated p-1.5 shadow-2xl shadow-black/40"
+        style={{ top: FLOAT_TOP, right: TRAY_INSET }}
       >
         <button
           type="button"
@@ -278,8 +283,8 @@ export const FeedbackTray: React.FC<FeedbackTrayProps> = ({
   return (
     <aside
       aria-label="Feedback"
-      className="absolute bottom-0 right-0 top-0 z-30 flex flex-col border-l border-app-border bg-app-surface-elevated shadow-2xl"
-      style={{ width: TRAY_OPEN_WIDTH }}
+      className="absolute z-30 flex flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface-elevated shadow-2xl shadow-black/40"
+      style={{ width: TRAY_OPEN_WIDTH, top: FLOAT_TOP, right: TRAY_INSET, bottom: TRAY_INSET }}
     >
       <div className="flex items-center gap-2 border-b border-app-border px-3 py-2.5">
         <div role="group" aria-label="Show feedback for" className="flex min-w-0 flex-1 gap-0.5 rounded-lg p-0.5">

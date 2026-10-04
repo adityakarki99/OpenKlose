@@ -1,12 +1,16 @@
-//! The Klose desktop app: an icon in the menu bar (macOS) or system tray
-//! (Windows) around the hub, the way bin/tray/KloseTray.m is on macOS today.
+//! The Klose desktop app: the canvas in a window of its own, plus an icon in
+//! the menu bar (macOS) or system tray (Windows) that keeps the hub running.
 //!
+//! - Opening the app shows the Klose window: the hub's pages, in the app.
+//!   Links that leave the hub open in the default browser. Closing the window
+//!   leaves the icon and the hub running; Quit stops both.
 //! - The icon shows what needs you: blue while an agent works, amber when
 //!   comments are waiting in a repo no agent is busy in (GET /api/tray).
-//! - Clicking it opens a popover showing the hub's own /tray page; anything
-//!   clicked in it opens in the default browser, where the canvas lives.
+//! - Clicking it opens a popover showing the hub's own /tray page; a repo
+//!   clicked in it opens in the Klose window.
 //! - On first launch, a window shows the hub's /welcome setup; when it
 //!   finishes, the app applies the start-at-login choice and opens the canvas.
+//! - Started at login, the app stays in the menu bar until it's opened.
 //! - Release builds update themselves from GitHub Releases (latest.json):
 //!   a new version installs and relaunches on its own once no agent is
 //!   working, so an edit is never cut off halfway.
@@ -31,8 +35,11 @@ use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
 const TRAY_ID: &str = "klose";
+const MAIN: &str = "main";
 const POPOVER: &str = "popover";
 const SETUP: &str = "setup";
+/// What the login item starts the app with, so a login doesn't open a window.
+const AT_LOGIN: &str = "--at-login";
 const POLL: Duration = Duration::from_secs(5);
 const UPDATE_FIRST_CHECK: Duration = Duration::from_secs(30);
 const UPDATE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -71,6 +78,23 @@ fn on_hub(app: &AppHandle, url: &Url) -> bool {
 fn page(url: &Url) -> &str {
     let path = url.path().trim_end_matches('/');
     if path.is_empty() { "/" } else { path }
+}
+
+/// Whether a window showing a local hub page is on a port the hub has left.
+fn on_hub_port_changed(url: &Url, port: u16) -> bool {
+    matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port().is_some_and(|p| p != port)
+}
+
+/// The path, query and fragment of a hub URL: what to open in the window.
+fn hub_path(url: &Url) -> String {
+    let mut path = url.path().to_string();
+    if let Some(query) = url.query() {
+        path = format!("{path}?{query}");
+    }
+    if let Some(fragment) = url.fragment() {
+        path = format!("{path}#{fragment}");
+    }
+    path
 }
 
 // ------------------------------------------------------------------- icon
@@ -121,6 +145,17 @@ fn refresh(app: &AppHandle, misses: &mut u32) {
         return;
     };
     *misses = 0;
+    // A hub that came back on another port: take the window along.
+    if let (Some(win), Some(port)) = (app.get_webview_window(MAIN), shell.hub.port()) {
+        if let Ok(url) = win.url() {
+            if on_hub_port_changed(&url, port) {
+                let mut moved = url.clone();
+                if moved.set_port(Some(port)).is_ok() {
+                    let _ = win.navigate(moved);
+                }
+            }
+        }
+    }
     let n = |key: &str| tray.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
     shell.agent_working.store(n("working") > 0, Ordering::Relaxed);
     let dot = match tray.get("state").and_then(|v| v.as_str()) {
@@ -176,13 +211,19 @@ fn toggle_popover(app: &AppHandle) {
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
-        // The popover only ever shows /tray. A repo, "Open canvas", any link:
-        // those belong in the browser.
+        // The popover only ever shows /tray. A repo or "Open canvas" opens in
+        // the Klose window; any other link in the browser.
         .on_navigation(move |url| {
-            if on_hub(&handle, url) && page(url) == "/tray" {
-                return true;
+            if on_hub(&handle, url) {
+                if page(url) == "/tray" {
+                    return true;
+                }
+                let app = handle.clone();
+                let path = hub_path(url);
+                std::thread::spawn(move || open_window(&app, &path));
+            } else {
+                open_in_browser(url.as_str());
             }
-            open_in_browser(url.as_str());
             if let Some(win) = handle.get_webview_window(POPOVER) {
                 let _ = win.hide();
             }
@@ -204,9 +245,110 @@ fn toggle_popover(app: &AppHandle) {
     let _ = win.set_focus();
 }
 
+/// The Klose window: the hub's pages in the app, the way an Electron app
+/// would show them. `path` "/" brings the window forward where it was;
+/// any other path navigates it there.
+fn open_window(app: &AppHandle, path: &str) {
+    let Some(url) = app.state::<Shell>().hub.url(path).and_then(|u| Url::parse(&u).ok()) else { return };
+
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+    if let Some(win) = app.get_webview_window(MAIN) {
+        // Also when the hub has come back on another port.
+        let port = win.url().ok().and_then(|u| u.port());
+        if path != "/" || port != url.port() {
+            let _ = win.navigate(url);
+        }
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        return;
+    }
+
+    let on_nav = app.clone();
+    let on_new = app.clone();
+    let on_download = app.clone();
+    let built = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::External(url))
+        .title("Klose")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 600.0)
+        .center()
+        // The hub's pages stay in the app (data: and blob: are the canvas's
+        // exports); anything else is the web, and opens in the browser.
+        .on_navigation(move |url| {
+            if on_hub(&on_nav, url) || matches!(url.scheme(), "data" | "blob" | "about") {
+                return true;
+            }
+            open_in_browser(url.as_str());
+            false
+        })
+        // target="_blank" and window.open: a hub page opens in this window,
+        // anything else in the browser.
+        .on_new_window(move |url, _features| {
+            let app = on_new.clone();
+            if on_hub(&app, &url) {
+                let path = hub_path(&url);
+                std::thread::spawn(move || open_window(&app, &path));
+            } else {
+                open_in_browser(url.as_str());
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        // Exports (PNG, code) go to Downloads, as they would from a browser.
+        .on_download(move |_webview, event| {
+            if let tauri::webview::DownloadEvent::Requested { url, destination } = event {
+                let name = destination
+                    .file_name()
+                    .map(|n| n.to_owned())
+                    .or_else(|| url.path_segments().and_then(|mut s| s.next_back()).map(Into::into))
+                    .unwrap_or_else(|| "klose-export".into());
+                if let Ok(dir) = on_download.path().download_dir() {
+                    *destination = unique_path(&dir, &PathBuf::from(name));
+                }
+            }
+            true
+        })
+        .build();
+    if let Ok(win) = built {
+        let handle = app.clone();
+        win.on_window_event(move |event| {
+            if let WindowEvent::Destroyed = event {
+                hide_dock_icon_unless(&handle, SETUP);
+            }
+        });
+        let _ = win.set_focus();
+    }
+}
+
+/// `dir/name`, or `dir/name (2)` and so on when that's taken.
+fn unique_path(dir: &std::path::Path, name: &std::path::Path) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let stem = name.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = name.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    (2..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
+}
+
+/// On macOS the app is only in the Dock while one of its windows is open.
+/// Called as a window closes, with the label of the other one to check.
+fn hide_dock_icon_unless(app: &AppHandle, other: &str) {
+    #[cfg(target_os = "macos")]
+    if app.get_webview_window(other).is_none() {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, other);
+}
+
 /// The hub's /welcome page, in a window of its own. When it finishes (or is
 /// skipped) the page heads for the hub's home: that is the cue to apply the
-/// login choice, open the canvas in the browser, and close.
+/// login choice, open the Klose window, and close.
 fn show_setup(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(SETUP) {
         let _ = win.show();
@@ -244,10 +386,7 @@ fn show_setup(app: &AppHandle) {
         let handle = app.clone();
         win.on_window_event(move |event| {
             if let WindowEvent::Destroyed = event {
-                #[cfg(target_os = "macos")]
-                let _ = handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
-                #[cfg(not(target_os = "macos"))]
-                let _ = &handle;
+                hide_dock_icon_unless(&handle, MAIN);
             }
         });
         let _ = win.set_focus();
@@ -256,7 +395,8 @@ fn show_setup(app: &AppHandle) {
 
 fn finish_setup(app: &AppHandle, home_url: &str) {
     apply_login_choice(app);
-    open_in_browser(home_url);
+    let path = Url::parse(home_url).map(|u| hub_path(&u)).unwrap_or_else(|_| "/".into());
+    open_window(app, &path);
     if let Some(win) = app.get_webview_window(SETUP) {
         let _ = win.close();
     }
@@ -284,16 +424,16 @@ fn setup_pending(app: &AppHandle) -> bool {
         .is_some_and(|done| !done)
 }
 
-/// What opening the app again (Dock, Start menu, Finder) does: setup if it
-/// isn't finished, else the canvas.
+/// What opening the app (Dock, Start menu, Finder) does: setup if it isn't
+/// finished, else the Klose window.
 fn reopen(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         if setup_pending(&app) {
             let handle = app.clone();
             let _ = app.run_on_main_thread(move || show_setup(&handle));
-        } else if let Some(url) = app.state::<Shell>().hub.url("/") {
-            open_in_browser(&url);
+        } else {
+            open_window(&app, "/");
         }
     });
 }
@@ -379,7 +519,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| reopen(app)))
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![AT_LOGIN])))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init());
     if with_updates {
@@ -439,9 +579,8 @@ pub fn run() {
                 })
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => {
-                        if let Some(url) = app.state::<Shell>().hub.url("/") {
-                            open_in_browser(&url);
-                        }
+                        let app = app.clone();
+                        std::thread::spawn(move || open_window(&app, "/"));
                     }
                     "setup" => show_setup(app),
                     "login" => {
@@ -476,6 +615,8 @@ pub fn run() {
                         if setup_pending(&poller) {
                             let app = poller.clone();
                             let _ = poller.run_on_main_thread(move || show_setup(&app));
+                        } else if !std::env::args().any(|a| a == AT_LOGIN) {
+                            open_window(&poller, "/");
                         }
                     }
                     Err(err) => set_icon(&poller, Dot::Plain, &format!("Klose — {err}")),

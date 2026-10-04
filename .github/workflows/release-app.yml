@@ -17,6 +17,14 @@ name: Release (desktop app)
 #                                                     repo variable TAURI_UPDATER_PUBKEY
 # Without Apple's, the Mac app is ad-hoc signed: it runs, but a browser
 # download needs right-click → Open the first time (install.sh avoids that).
+# A tagged release needs the updater key: without it, everyone who installs
+# that release would be stuck on it.
+#
+# Every release also carries the installers under names without the version,
+# so a website can link to the newest one and never change the link:
+#   https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-apple-silicon.dmg
+#   https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-intel.dmg
+#   https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-windows-setup.exe
 on:
   push:
     tags: ['klose-app-v*']
@@ -125,6 +133,10 @@ jobs:
           HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
           UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && { [ "$HAS_UPDATER_KEY" != "true" ] || [ -z "$UPDATER_PUBKEY" ]; }; then
+            echo "::error::A release needs the TAURI_SIGNING_PRIVATE_KEY secret and the TAURI_UPDATER_PUBKEY variable, or its users never get another update"
+            exit 1
+          fi
           node -e '
             const overlay = { bundle: {} };
             if (process.env.RUNNER_OS === "macOS" && !process.env.APPLE_SIGNING_IDENTITY) {
@@ -231,7 +243,12 @@ jobs:
             rm latest-*.json
           fi
           cp ../apps/desktop/install.sh ../apps/desktop/install.ps1 .
-          sha256sum Klose_* > SHA256SUMS
+          # The same installers under names that stay put from release to
+          # release, for releases/latest/download/… links on the website.
+          cp "Klose_${VERSION}_aarch64.dmg" Klose-mac-apple-silicon.dmg
+          cp "Klose_${VERSION}_x64.dmg" Klose-mac-intel.dmg
+          cp "Klose_${VERSION}_x64-setup.exe" Klose-windows-setup.exe
+          sha256sum Klose_* Klose-* > SHA256SUMS
           ls -la
           test "$(ls Klose_*.dmg | wc -l)" -eq 2
           test "$(ls Klose_*-setup.exe | wc -l)" -eq 1
@@ -249,4 +266,6 @@ jobs:
             --notes "Install on macOS: \`curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sh\`
           Install on Windows (PowerShell): \`irm https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.ps1 | iex\`
 
-          Or download the .dmg (Mac: aarch64 = Apple Silicon, x64 = Intel) or the -setup.exe (Windows) below."
+          Or download the .dmg (Mac: aarch64 = Apple Silicon, x64 = Intel) or the -setup.exe (Windows) below.
+
+          Already installed? Klose updates itself."

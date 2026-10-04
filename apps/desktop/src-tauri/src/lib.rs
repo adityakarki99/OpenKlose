@@ -7,7 +7,9 @@
 //!   clicked in it opens in the default browser, where the canvas lives.
 //! - On first launch, a window shows the hub's /welcome setup; when it
 //!   finishes, the app applies the start-at-login choice and opens the canvas.
-//! - Release builds update themselves from GitHub Releases (latest.json).
+//! - Release builds update themselves from GitHub Releases (latest.json):
+//!   a new version installs and relaunches on its own once no agent is
+//!   working, so an edit is never cut off halfway.
 //!
 //! The hub itself is the klose package, run by the Node bundled with the app
 //! (see hub.rs and scripts/prepare-sidecar.mjs).
@@ -16,6 +18,7 @@ mod hub;
 
 use hub::Hub;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::image::Image;
@@ -33,6 +36,8 @@ const SETUP: &str = "setup";
 const POLL: Duration = Duration::from_secs(5);
 const UPDATE_FIRST_CHECK: Duration = Duration::from_secs(30);
 const UPDATE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// How often a downloaded-but-waiting update looks again for a quiet moment.
+const UPDATE_WAIT: Duration = Duration::from_secs(60);
 
 #[cfg(target_os = "macos")]
 const TRAY_POSITION: Position = Position::TrayCenter;
@@ -44,6 +49,9 @@ struct Shell {
     login_item: CheckMenuItem<Wry>,
     update_item: Option<MenuItem<Wry>>,
     pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// Whether an agent was working at the last look at the hub. An update
+    /// waits for this to clear before it relaunches the app and the hub.
+    agent_working: AtomicBool,
     /// When the popover last hid itself on losing focus. A click on the icon
     /// right after is the same click that took the focus away, not a request
     /// to open it again.
@@ -100,6 +108,7 @@ fn refresh(app: &AppHandle, misses: &mut u32) {
     let shell = app.state::<Shell>();
     let tray = shell.hub.port().and_then(|port| hub::get_json(port, "/api/tray"));
     let Some(tray) = tray else {
+        shell.agent_working.store(false, Ordering::Relaxed);
         *misses += 1;
         set_icon(app, Dot::Plain, "Klose — the hub isn't running");
         // Twice in a row: the hub stopped (or was never found). Start it again.
@@ -113,6 +122,7 @@ fn refresh(app: &AppHandle, misses: &mut u32) {
     };
     *misses = 0;
     let n = |key: &str| tray.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
+    shell.agent_working.store(n("working") > 0, Ordering::Relaxed);
     let dot = match tray.get("state").and_then(|v| v.as_str()) {
         Some("feedback") => Dot::Feedback,
         Some("working") => Dot::Working,
@@ -310,7 +320,7 @@ async fn check_for_update(app: AppHandle, manual: bool) {
     };
     match result {
         Ok(Some(update)) => {
-            let _ = item.set_text(format!("Install Klose {}…", update.version));
+            let _ = item.set_text(format!("Restart to Install Klose {}", update.version));
             *shell.pending_update.lock().unwrap() = Some(update);
         }
         Ok(None) if manual => {
@@ -411,6 +421,7 @@ pub fn run() {
                 login_item,
                 update_item,
                 pending_update: Mutex::new(None),
+                agent_working: AtomicBool::new(false),
                 popover_hidden_at: Mutex::new(None),
             });
 
@@ -481,6 +492,19 @@ pub fn run() {
                     tokio_sleep(UPDATE_FIRST_CHECK).await;
                     loop {
                         check_for_update(app.clone(), false).await;
+                        // Install a new version by itself, but not while an
+                        // agent is mid-edit: the relaunch restarts the hub.
+                        loop {
+                            let shell = app.state::<Shell>();
+                            if shell.pending_update.lock().unwrap().is_none() {
+                                break;
+                            }
+                            if !shell.agent_working.load(Ordering::Relaxed) {
+                                install_update(app.clone()).await;
+                                break;
+                            }
+                            tokio_sleep(UPDATE_WAIT).await;
+                        }
                         tokio_sleep(UPDATE_EVERY).await;
                     }
                 });

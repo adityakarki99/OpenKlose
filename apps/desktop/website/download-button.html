@@ -1,0 +1,58 @@
+<!--
+  Klose download button, for klosegrid.com (or any page).
+
+  WordPress: add a "Custom HTML" block and paste everything from the
+  <div id="klose-download"> line down.
+
+  The links point at releases/latest/download/…, which GitHub sends to the
+  newest published desktop release, so the button never needs editing.
+  Without the script (WordPress.com strips <script> on some plans) it still
+  works: the main button is the Apple Silicon Mac app, and the line under it
+  links Intel Macs and Windows. With the script, the main button matches the
+  visitor's computer.
+-->
+<div id="klose-download" style="display:flex;flex-direction:column;align-items:center;gap:10px;margin:24px auto;text-align:center;font-family:inherit;">
+  <a data-primary href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-apple-silicon.dmg" style="display:inline-flex;align-items:center;gap:10px;padding:14px 26px;border-radius:999px;background:#111827;color:#ffffff;font-size:17px;font-weight:600;line-height:1;text-decoration:none;box-shadow:0 1px 2px rgba(0,0,0,.12),0 4px 14px rgba(17,24,39,.18);">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+    <span data-label>Download Klose for Mac</span>
+  </a>
+  <p style="margin:0;font-size:14px;line-height:1.5;color:#6b7280;">
+    <a data-mac-arm href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-apple-silicon.dmg" style="color:inherit;">Mac (Apple Silicon)</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-intel.dmg" style="color:inherit;">Mac (Intel)</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-windows-setup.exe" style="color:inherit;">Windows</a>
+  </p>
+  <p style="margin:0;font-size:13px;line-height:1.5;color:#9ca3af;">Free · macOS 11+ or Windows 10+ · Updates itself</p>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('klose-download');
+  if (!root) return;
+  var base = 'https://github.com/adityakarki99/OpenKlose/releases/latest/download/';
+  var button = root.querySelector('[data-primary]');
+  var label = root.querySelector('[data-label]');
+  var ua = navigator.userAgent;
+  function use(file, text) { button.href = base + file; label.textContent = text; }
+
+  if (/iPhone|iPad|iPod|Android/.test(ua)) {
+    // Nothing to install on a phone: send them to the release page to come back to.
+    button.href = 'https://github.com/adityakarki99/OpenKlose/releases/latest';
+    label.textContent = 'Get Klose for Mac or Windows';
+  } else if (/Windows/.test(ua)) {
+    use('Klose-windows-setup.exe', 'Download Klose for Windows');
+  } else if (/Mac/.test(ua)) {
+    // Only Chromium browsers say which chip a Mac has; Safari and Firefox
+    // keep the Apple Silicon default, with Intel one link below.
+    var data = navigator.userAgentData;
+    if (data && data.getHighEntropyValues) {
+      data.getHighEntropyValues(['architecture']).then(function (v) {
+        if (v.architecture === 'x86') use('Klose-mac-intel.dmg', 'Download Klose for Mac (Intel)');
+      }).catch(function () {});
+    }
+  } else {
+    button.href = 'https://github.com/adityakarki99/OpenKlose/releases/latest';
+    label.textContent = 'Get Klose for Mac or Windows';
+  }
+})();
+</script>

@@ -17,6 +17,9 @@ The app has no Klose logic of its own:
   applies "Start at login" (the app's own login item) and opens the canvas in the browser.
 - **The menu** (right-click) has Open Klose, Run Setup…, Start at Login, Check for Updates… and
   Quit Klose. Check for Updates… only appears in release builds that have an updater key.
+- **Updates** are checked 30 seconds after launch and every 6 hours. A new version downloads,
+  installs and relaunches the app on its own, but waits while an agent is working, since the
+  relaunch restarts the hub. Until then the menu offers Restart to Install Klose x.y.z.
 
 ## Develop
 
@@ -59,7 +62,20 @@ as workflow artifacts.
 |---|---|
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | Developer ID signing. Without it the app is ad-hoc signed: it runs, but a browser download needs right-click → Open once. `install.sh` downloads with curl, which never adds the quarantine flag, so it avoids that step. |
 | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Notarization |
-| `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) and the variable `TAURI_UPDATER_PUBKEY` | Signed updates: `latest.json` and the in-app updater. Generate the pair with `npx tauri signer generate`. |
+| `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) and the variable `TAURI_UPDATER_PUBKEY` | Signed updates: `latest.json` and the in-app updater. Generate the pair with `npx tauri signer generate`. **Required for a tagged release**, which fails without them: an app that can't update strands everyone who installed it. Keep a backup of the private key. Lose it and installed apps can never take another update. |
+
+## Download links for a website
+
+Each release also carries its installers under names that never change, so these links always
+fetch the newest published release:
+
+- `https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-apple-silicon.dmg`
+- `https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-intel.dmg`
+- `https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-windows-setup.exe`
+
+[`website/download-button.html`](website/download-button.html) is a ready-made button for a page
+(on WordPress, paste it into a Custom HTML block). It picks the visitor's platform when the page
+allows scripts, and falls back to plain links when it doesn't.
 
 ## Install
 

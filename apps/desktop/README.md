@@ -1,7 +1,7 @@
 # Klose desktop app
 
-Klose in the macOS menu bar or the Windows system tray: a [Tauri 2](https://tauri.app) shell around
-the hub. Its shape, release pipeline and install scripts follow
+Klose as a desktop app: the canvas in a window of its own, plus an icon in the macOS menu bar or the
+Windows system tray. It's a [Tauri 2](https://tauri.app) shell around the hub. Its shape, release pipeline and install scripts follow
 [antiburn](https://github.com/antiburn/antiburn)'s desktop app.
 
 The app has no Klose logic of its own:
@@ -9,12 +9,17 @@ The app has no Klose logic of its own:
 - **The hub** is the klose npm package, run by a copy of Node bundled inside the app
   (`node <resources>/klose-package/bin/klose.js hub`). If a hub is already running
   (`npx klose hub`), the app uses that one instead and leaves it running on quit.
+- **The Klose window** shows the hub's pages in the app, like an Electron app would. Opening the
+  app (Dock, Finder, Start menu) or choosing Open Klose shows it. Links that leave the hub open in
+  the browser, and exports are saved to Downloads. Closing the window leaves the icon and the hub
+  running; Quit stops both. On macOS the Dock icon shows while a window is open. Started at login,
+  the app stays in the menu bar until it's opened.
 - **The icon** polls `GET /api/tray` every 5 seconds. It is blue while an agent works and amber
   when comments are waiting in a repo no agent is busy in.
-- **The popover** (left-click) shows the hub's `/tray` page. Anything clicked in it opens in the
-  browser, where the canvas lives.
+- **The popover** (left-click) shows the hub's `/tray` page. A repo clicked in it opens in the
+  Klose window; other links open in the browser.
 - **Setup** shows the hub's `/welcome?shell=desktop` in a window until it's finished. Finishing
-  applies "Start at login" (the app's own login item) and opens the canvas in the browser.
+  applies "Start at login" (the app's own login item) and opens the Klose window.
 - **The menu** (right-click) has Open Klose, Run Setup…, Start at Login, Check for Updates… and
   Quit Klose. Check for Updates… only appears in release builds that have an updater key.
 - **Updates** are checked 30 seconds after launch and every 6 hours. A new version downloads,

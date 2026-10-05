@@ -94,6 +94,18 @@ curl -fsSL https://github.com/adityakarki99/OpenKlose/releases/latest/download/i
 irm https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.ps1 | iex
 ```
 
+Both scripts find the newest published release, download the build for this computer (the Mac
+one tells an Apple Silicon Mac from an Intel one even in a Rosetta terminal), check it against the
+release's `SHA256SUMS`, install it and open it. Run again later, they replace an older copy and
+leave a current one alone (`KLOSE_FORCE=1` reinstalls; `KLOSE_NO_LAUNCH=1` installs without
+opening; `KLOSE_VERSION=0.2.1` picks a version). The Mac script copies into `/Applications`, or
+`~/Applications` when that isn't writable (`KLOSE_INSTALL_DIR` overrides it); the Windows one
+installs per user, so no admin prompt.
+
+A `.dmg` or `-setup.exe` downloaded in the browser works too: on a Mac that says the app can't be
+checked (the build is ad-hoc signed until there is a Developer ID certificate), right-click
+Klose.app → Open, once. The scripts skip that step because they verify the download themselves.
+
 ## Notes
 
 - `Entitlements.plist` gives the bundled Node permission for its JIT. Signing (even ad-hoc)

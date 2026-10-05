@@ -19,11 +19,20 @@ import {
   Sun,
   Loader2,
   Check,
+  Download,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { createProject, listProjects } from '../services/projectService';
+import { SuggestedPrompts } from '../components/Hub/SuggestedPrompts';
 
 const REPO_URL = 'https://github.com/adityakarki99/OpenKlose';
+// releases/latest/download/… always points at the newest published desktop release.
+const DOWNLOAD_BASE = `${REPO_URL}/releases/latest/download/`;
+const DOWNLOADS = [
+  { label: 'Mac (Apple Silicon)', file: 'Klose-mac-apple-silicon.dmg' },
+  { label: 'Mac (Intel)', file: 'Klose-mac-intel.dmg' },
+  { label: 'Windows', file: 'Klose-windows-setup.exe' },
+];
 
 // ---------- Mini canvas (hero visual) ----------
 
@@ -403,9 +412,24 @@ const LandingPage: React.FC = () => {
               <br />
               <span className="text-app-subtle select-none">$ </span>npx klose init
             </div>
-            <div className="flex items-center gap-2 px-1 text-sm text-app-muted">
-              <span>Then, in Claude Code:</span>
-              <code className="rounded-md border border-app-border bg-app-surface px-2 py-0.5 text-app-primary">/klose</code>
+            <div className="px-1 pt-2 text-sm text-app-muted">Then, in Claude Code, try one of these (click to copy):</div>
+            <SuggestedPrompts compact />
+          </div>
+          <div className="mt-6 rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-secondary">
+            <p className="font-semibold text-app-primary">Prefer an app? Klose for Mac and Windows needs no Node install.</p>
+            <p className="mt-1 text-app-muted">
+              It lives in the menu bar or system tray, finds every repo you use Claude Code in, and updates itself.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {DOWNLOADS.map((d) => (
+                <a
+                  key={d.file}
+                  href={DOWNLOAD_BASE + d.file}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-1.5 text-xs font-medium text-app-primary transition-colors hover:bg-app-surface-soft"
+                >
+                  <Download size={13} /> {d.label}
+                </a>
+              ))}
             </div>
           </div>
           <div className="mt-7 flex flex-wrap gap-3">

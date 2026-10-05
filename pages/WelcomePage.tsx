@@ -1,14 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, Copy, FolderPlus, Loader2, Lock, MousePointerClick, Sparkles, Terminal } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, FolderPlus, Loader2, Lock, MousePointerClick, Sparkles, Terminal } from 'lucide-react';
 import { SetupState } from '../types';
 import { addRepoFolder, finishSetup, getSetup, installSkills } from '../services/hubService';
 import { HUB_HOME } from '../lib/repoScope';
 import { AgentDot } from '../components/Hub/AgentDot';
+import { SuggestedPrompts } from '../components/Hub/SuggestedPrompts';
 
 const STEPS = ['welcome', 'repos', 'skill', 'ready'] as const;
 type Step = (typeof STEPS)[number];
-
-const FIRST_PROMPT = '/klose a pricing card for our billing page';
 
 /**
  * Set when the desktop app shows this page (it opens /welcome?shell=desktop).
@@ -260,14 +259,7 @@ const ReadyStep: React.FC<{
   setMenuBar: (v: boolean) => void;
   setStartAtLogin: (v: boolean) => void;
 }> = ({ state, menuBar, startAtLogin, setMenuBar, setStartAtLogin }) => {
-  const [copied, setCopied] = useState(false);
   const { menuBar: mb } = state;
-  const copy = () => {
-    navigator.clipboard?.writeText(FIRST_PROMPT).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  };
 
   return (
     <div>
@@ -315,15 +307,8 @@ const ReadyStep: React.FC<{
       )}
 
       <div className="mt-6 text-[11px] font-medium uppercase tracking-[0.14em] text-app-subtle">Try it in Claude Code</div>
-      <button
-        type="button"
-        onClick={copy}
-        className="mt-2 flex w-full items-center justify-between rounded-xl border border-app-border bg-app-surface-elevated px-4 py-3 text-left font-mono text-sm text-app-primary transition-colors hover:border-app-border-strong"
-        title="Copy"
-      >
-        {FIRST_PROMPT}
-        {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} className="text-app-subtle" />}
-      </button>
+      <p className="mb-2 mt-1 text-xs text-app-muted">Open Claude Code in one of your repos and paste one of these. Click to copy.</p>
+      <SuggestedPrompts />
     </div>
   );
 };

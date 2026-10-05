@@ -5,6 +5,7 @@ import { agentLine, getSetup, listRepos, sinceShort } from '../services/hubServi
 import { repoHref } from '../lib/repoScope';
 import { useSettings } from '../contexts/SettingsContext';
 import { AgentDot } from '../components/Hub/AgentDot';
+import { SuggestedPrompts } from '../components/Hub/SuggestedPrompts';
 
 const POLL_MS = 5000;
 
@@ -214,6 +215,14 @@ const HubHomePage: React.FC = () => {
                 into a repo's <code className="font-mono text-app-secondary">.klose/</code> once you sketch there, not before.
               </p>
             </>
+          )}
+
+          {repos !== null && (
+            <div className="mt-10">
+              <SectionLabel>Try in Claude Code</SectionLabel>
+              <p className="mb-2 text-xs text-app-muted">Open Claude Code in one of these repos and paste one of these. Click to copy.</p>
+              <SuggestedPrompts compact />
+            </div>
           )}
         </div>
       </div>

@@ -4,10 +4,12 @@
 #
 # Downloads the installer from the latest GitHub release, checks it against
 # the release's SHA256SUMS, installs it for the current user (no admin
-# needed), and starts Klose — the first launch walks you through setup.
-# Adapted from antiburn's install.ps1.
+# needed), and starts Klose — the first launch walks you through setup. Run
+# again, it updates an older copy and leaves a current one alone. Adapted
+# from antiburn's install.ps1.
 #
 #   $env:KLOSE_VERSION = "0.3.0"   install that version instead of the latest
+#   $env:KLOSE_FORCE = "1"         reinstall even when this version is already installed
 #   $env:KLOSE_NO_LAUNCH = "1"     don't start the app afterwards
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +40,25 @@ function Invoke-KloseInstall {
   $version = $tag.Substring('klose-app-v'.Length)
   Write-Host "  Release      $tag"
 
+  # Already this version? Just start it.
+  $exe = Join-Path $env:LOCALAPPDATA 'Klose\Klose.exe'
+  if (Test-Path $exe) {
+    $raw = (Get-Item $exe).VersionInfo.ProductVersion
+    # The file version pads to four parts (0.2.1.0); compare the three that matter.
+    $installed = (($raw -split '[.+-]')[0..2] -join '.')
+    if ($installed -eq $version -and -not $env:KLOSE_FORCE) {
+      Write-Host "  Installed    $exe ($version) is already the latest"
+      if (-not $env:KLOSE_NO_LAUNCH) {
+        Start-Process -FilePath $exe
+        Write-Host ''
+        Write-Host 'Klose is in your system tray.'
+      }
+      Write-Host ''
+      return
+    }
+    Write-Host "  Found        $exe ($installed), will be replaced"
+  }
+
   $work = Join-Path ([IO.Path]::GetTempPath()) ("klose-" + [Guid]::NewGuid())
   New-Item -ItemType Directory -Path $work | Out-Null
   try {
@@ -53,19 +74,22 @@ function Invoke-KloseInstall {
     if ($expected -ne $actual) { throw "Checksum mismatch for $asset (expected $expected, got $actual)" }
     Write-Host "  Verified     SHA-256 of $asset"
 
-    # The installer isn't Authenticode-signed yet, so SmartScreen may ask.
+    # Verified against the release's checksums, so drop the "downloaded from
+    # the internet" mark that would otherwise add a prompt. The installer
+    # isn't Authenticode-signed yet, so SmartScreen may still ask once.
+    Unblock-File -Path "$work\$asset" -ErrorAction SilentlyContinue
     Get-Process -Name 'Klose' -ErrorAction SilentlyContinue | Stop-Process -Force
     $install = Start-Process -FilePath "$work\$asset" -ArgumentList '/S' -Wait -PassThru
     if ($install.ExitCode -ne 0) { throw "The installer exited with code $($install.ExitCode)" }
 
-    $exe = Join-Path $env:LOCALAPPDATA 'Klose\Klose.exe'
     if (-not (Test-Path $exe)) { throw "Klose.exe isn't where the installer should have put it ($exe)" }
     Write-Host "  Installed    $exe ($version)"
 
     if (-not $env:KLOSE_NO_LAUNCH) {
       Start-Process -FilePath $exe
       Write-Host ''
-      Write-Host 'Klose is in your system tray. Setup opens on first launch.'
+      Write-Host 'Klose is in your system tray. Setup opens on first launch;'
+      Write-Host 'then, in Claude Code: /klose audit every page against our design system'
     }
     Write-Host ''
   } finally {

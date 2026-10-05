@@ -98,6 +98,41 @@ test('help: bare, --help and "help <command>" succeed; unknown commands fail', (
   assert.match(unknown.stderr, /unknown command "nope"/);
 });
 
+test('klose lint audits real files against the repo tokens, with lines, and needs a path', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'klose-cli-test-'));
+  try {
+    await mkdir(path.join(cwd, 'src', 'app'), { recursive: true });
+    await writeFile(path.join(cwd, 'src', 'app', 'globals.css'), '@theme { --color-brand-500: #2563eb; }');
+    await writeFile(path.join(cwd, 'src', 'app', 'page.tsx'), 'export default () => (\n  <div className="bg-indigo-600 p-4">hi</div>\n);');
+    const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf-8', env: { ...process.env, TYPESAFE_API_KEY: '' } });
+
+    const json = run('lint', 'src', '--json');
+    assert.equal(json.status, 0, json.stderr);
+    const result = JSON.parse(json.stdout);
+    assert.equal(result.files.length, 1);
+    assert.equal(result.files[0].file, path.join('src', 'app', 'page.tsx'));
+    assert.deepEqual(result.files[0].findings.map((f) => [f.class, f.lines]), [['bg-indigo-600', [2]]]);
+
+    const text = run('lint', 'src/app/page.tsx');
+    assert.equal(text.status, 0, text.stderr);
+    assert.match(text.stdout, /page\.tsx: 1 literal value in 2 classes/);
+    assert.match(text.stdout, /bg-indigo-600\s+line 2\s+stock palette, 1 color token available/);
+    assert.match(text.stdout, /1 file, 1 literal value in 1 file/);
+
+    const missing = run('lint', 'nowhere', '--json');
+    assert.equal(missing.status, 0);
+    assert.match(missing.stderr, /no file or folder at nowhere/);
+    assert.deepEqual(JSON.parse(missing.stdout).files, []);
+
+    const none = run('lint');
+    assert.notEqual(none.status, 0);
+    assert.match(none.stderr, /lint needs a file or folder/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('init from a subfolder installs at the repo root and reports what it found', async () => {
   await withTempRepo(async (dir) => {
     await mkdir(path.join(dir, 'src', 'components'), { recursive: true });
@@ -112,7 +147,7 @@ test('init from a subfolder installs at the repo root and reports what it found'
     assert.ok(!existsSync(path.join(dir, 'src', 'components', '.klose')));
     assert.match(result.stdout, /CSS tokens\s+src[/\\]app\.css \(1 token\)/);
     assert.match(result.stdout, /1 exported component/);
-    assert.match(result.stdout, /\/klose a pricing card/);
+    assert.match(result.stdout, /\/klose audit every page against our design system/);
     assert.match(await readFile(path.join(dir, '.klose', '.gitignore'), 'utf-8'), /server\.json/);
   });
 });

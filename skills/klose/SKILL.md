@@ -1,6 +1,6 @@
 ---
 name: klose
-description: Open the local Klose design-ideation canvas for this repo, ideate a new UI component against the project's real design system, render a live preview of it on the canvas, and build it as a real file once the user confirms. Use when the user says "/klose", asks to sketch/ideate a component visually, wants to design something before building it, or asks you to address feedback or comments left on the canvas.
+description: Open the local Klose design-ideation canvas for this repo. Ideate a new UI component or feature against the project's real design system, render a live preview of it on the canvas, and build it as a real file once the user confirms; or audit the app's pages (every page, or one page and an interaction) against that design system and put the findings on the canvas. Use when the user says "/klose", asks to sketch/ideate a component visually, wants to design something before building it, asks for a design or design-system audit of pages or an interaction, or asks you to address feedback or comments left on the canvas.
 ---
 
 # Klose: ideate on the canvas, build in the repo
@@ -77,6 +77,77 @@ pass and resolve them together; take `moderate` ones one at a time; raise each `
 user before changing anything — it is either ambiguous or a change of direction. The user may
 already have triaged from the tray, in which case the plain `feedback` output carries the same
 `triage` fields. Don't pass `--triage` when the key isn't set, and don't ask for one.
+
+## Three ways people start
+
+Most `/klose` requests are one of these. Each is the same loop (steps 3–6 below) with a
+different starting point; the differences are spelled out here so the result is the same
+whoever asks.
+
+### A. "Audit every page against our design system"
+
+An audit **reads** the app and reports; it changes no real file until the user asks.
+
+1. Do steps 1–3 as usual. Create a project named for the audit (`Design audit`, or the area if
+   the user named one).
+2. **Find the pages.** Next.js: `app/**/page.{tsx,jsx}` or `pages/**`; React Router /
+   TanStack: the route config or `routes/`; SvelteKit: `**/+page.svelte`; Nuxt/Vue:
+   `pages/**`; Astro: `src/pages/**`. Tell the user how many you found and list the routes;
+   if there are more than about fifteen, ask which area to start with instead of auditing them all
+   at once.
+3. **Run the token check on the real source**, not just the sketches:
+
+   ```
+   npx klose lint src/app            # or the pages folder; --json for structure
+   ```
+
+   It lists, per file and line, every stock Tailwind palette colour, arbitrary value and stock
+   radius/shadow step used where the repo has a token of that kind. Then read each page for what
+   lint can't see: a hand-rolled button, input or card where `npx klose components <name>` finds
+   one; spacing and type that don't follow the scale; states that are missing (empty, loading,
+   error); basic accessibility (labels, contrast, focus).
+4. **One sketch per page**, left to right in route order, same frame size:
+   - `name`: the route (`/pricing`); `description`: what the page is for and a one-line verdict.
+   - `notes`: the findings, each with `file:line`, how serious it is, and the fix (which token
+     or component to use).
+   - `code`: a self-contained restatement of the page's key section (the top of the page, or the
+     part with the most findings) **as it should look** in the repo's tokens and components, so
+     the user can hold the canvas next to the real app. Keep `klose project lint` clean on it.
+
+   Put a summary sketch first: a card per page with its finding count and the worst one.
+5. Give the user the canvas URL and the totals (pages, findings, the most common one). Comments
+   they leave are the fix list: on "fix it", edit the real files (step 6), mark the sketch
+   `built` with the page's path, resolve the comments, and re-run `npx klose lint` on that file
+   to show it clean.
+
+### B. "Audit the <page> and <interaction>"
+
+Audit A for one page, with its interaction opened up:
+
+1. Read the page and the components the interaction goes through (the form, its fields, the
+   submit handler, the toast or error it ends in). Run `npx klose lint` on those files.
+2. **Walk the interaction as states**, and give each one a sketch, left to right in the order a
+   user meets them: initial, hover/focus, in progress, validation error, server error, success,
+   empty. Name them `<Page> — <state>` (`Checkout — card declined`). Each sketch's `notes` carry
+   that state's findings with `file:line`; its `code` shows the state as it should look. Note
+   the states the real code doesn't handle at all — those are usually the real findings.
+3. The user points at elements and comments; on "fix it", change the real files, mark the
+   sketches built and resolve the comments, as in A.
+
+### C. "Ideate <feature> using only our existing components"
+
+The main loop, with the constraint made explicit:
+
+1. Steps 3 and 3b first, every time: `npx klose components <query>` (with `--rank` when the key
+   is set, and roles if the repo is classified). List what you will build it from — the
+   primitives and composites by name and path — before sketching anything.
+2. Sketch it composed from those parts, in the repo's tokens. Run `npx klose project lint` and fix
+   every `→` before showing it; a clean lint is what "without breaking the design system" means
+   on the canvas. If the sketch's `classification` overlaps an existing primitive, it is a second
+   button or input in the making: use the existing one.
+3. If the feature genuinely needs a new primitive, say so and sketch it on its own, named as a
+   primitive, so the user decides whether to add one to the system.
+4. Build (step 6) imports the real components you listed in 1, not copies of them.
 
 ## 3. Ground yourself in the REAL design system
 

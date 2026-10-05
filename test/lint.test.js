@@ -9,6 +9,8 @@ import {
   buildLintRequest,
   extractClasses,
   findLiterals,
+  linesWith,
+  lintFiles,
   lintSketch,
   splitClass,
   tokensFromCss,
@@ -77,6 +79,7 @@ test('findLiterals flags palette colours, arbitrary values and stock steps only 
   assert.ok(!('bg-white' in byClass), 'white and black are not palette literals');
   assert.ok(!('p-6' in byClass), 'stock spacing is fine');
   assert.ok(!('ring-2' in byClass));
+  assert.deepEqual(findLiterals('<div className="rounded-card shadow-soft rounded-none shadow-none" />', tokens), [], 'a repo radius or shadow token in use is not a literal');
 
   // Without radius or shadow tokens the stock steps are not findings.
   const colourOnly = tokens.filter((t) => t.kind === 'color');
@@ -211,4 +214,53 @@ test('buildLintText reads as a to-do list the agent can act on', async () => {
   assert.match(lines.at(-1), /npx klose project lint p1 n1/);
   assert.equal(findingLine({ class: 'bg-blue-500', kind: 'palette', namespace: 'color', candidates: 2 }), 'bg-blue-500: stock palette colour, 2 color tokens in the repo could replace it');
   assert.match(buildLintText({ projectId: 'p', nodeId: 'n', name: '', findings: [], tokens: {}, jev: { asked: false } }), /nothing to change/);
+});
+
+test('linesWith reports the lines a class is on as a whole token, not inside a longer class', () => {
+  const source = ['<div className="bg-indigo-600 text-[#1e293b]">', '  <span className="bg-indigo-600/50 hover:bg-indigo-600" />', '</div>'].join('\n');
+  assert.deepEqual(linesWith(source, 'bg-indigo-600'), [1], 'bg-indigo-600/50 and hover:bg-indigo-600 are other classes');
+  assert.deepEqual(linesWith(source, 'text-[#1e293b]'), [1], 'brackets and # are matched literally');
+  assert.deepEqual(linesWith(source, 'hover:bg-indigo-600'), [2]);
+  assert.deepEqual(linesWith(source, 'p-4'), []);
+});
+
+test('lintFiles walks a folder (skipping build output, tests and saved sketches), reads named files, and puts a line on each finding', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-lint-files-'));
+  try {
+    await mkdir(path.join(dir, 'src', 'app', 'pricing'), { recursive: true });
+    await mkdir(path.join(dir, 'src', 'node_modules', 'pkg'), { recursive: true });
+    await mkdir(path.join(dir, 'docs', 'klose', 'plan'), { recursive: true });
+    await writeFile(path.join(dir, 'src', 'app', 'globals.css'), CSS);
+    await writeFile(
+      path.join(dir, 'src', 'app', 'pricing', 'page.tsx'),
+      ['export default function Page() {', '  return (', '    <section className="rounded-xl bg-indigo-600 p-6">', '      <h1 className="text-[#1e293b]">Plans</h1>', '    </section>', '  );', '}'].join('\n')
+    );
+    await writeFile(path.join(dir, 'src', 'app', 'clean.tsx'), 'export default () => <div className="bg-brand-500 rounded-card p-4" />;');
+    await writeFile(path.join(dir, 'src', 'app', 'page.test.tsx'), '<div className="bg-indigo-600" />');
+    await writeFile(path.join(dir, 'src', 'node_modules', 'pkg', 'index.jsx'), '<div className="bg-indigo-600" />');
+    await writeFile(path.join(dir, 'docs', 'klose', 'plan', 'card.tsx'), `// Klose sketch — "Card" (sketch)\nexport default () => <div className="bg-indigo-600" />;`);
+    await writeFile(path.join(dir, 'README.md'), '<p class="text-[#1e293b]">a class attribute in a file lint would not walk into</p>');
+
+    const result = await lintFiles(dir, ['src', 'README.md', 'nope.tsx'], { cwd: dir, jev: { apiKey: '' } });
+    assert.deepEqual(result.missing, ['nope.tsx']);
+    assert.deepEqual(
+      result.files.map((f) => f.file).sort(),
+      ['README.md', path.join('src', 'app', 'clean.tsx'), path.join('src', 'app', 'pricing', 'page.tsx')].sort(),
+      'the test file, node_modules and the saved sketch are skipped; a named file is read whatever its extension'
+    );
+    const page = result.files.find((f) => f.file.endsWith('page.tsx'));
+    const byClass = Object.fromEntries(page.findings.map((f) => [f.class, f]));
+    assert.deepEqual(byClass['bg-indigo-600'].lines, [3]);
+    assert.deepEqual(byClass['rounded-xl'].lines, [3], 'a stock radius step is a finding because the repo has a radius token');
+    assert.deepEqual(byClass['text-[#1e293b]'].lines, [4]);
+    assert.equal(result.files.find((f) => f.file.endsWith('clean.tsx')).findings.length, 0);
+    assert.equal(result.scanned, 3);
+    assert.equal(result.withFindings, 2);
+    assert.equal(result.findings, page.findings.length + 1);
+    assert.deepEqual(result.tokens, { color: 3, radius: 1, shadow: 1, spacing: 1 });
+    assert.equal(result.jev.asked, 0, 'Jev is only asked with useJev');
+    assert.equal(result.truncated, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

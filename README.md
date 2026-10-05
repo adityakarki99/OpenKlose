@@ -18,9 +18,59 @@ and let the agent build it into your repo — as a real file, on a real path.
 
 </div>
 
+## Download
+
+Klose is a small app that lives in your menu bar (macOS) or system tray (Windows). It needs no
+Node install, finds every repo you use Claude Code in, and updates itself.
+
+<p align="center">
+  <a href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-apple-silicon.dmg"><img alt="Download for Mac (Apple Silicon)" src="https://img.shields.io/badge/Download_for_Mac-Apple_Silicon-111827?style=for-the-badge&logo=apple&logoColor=white"></a>&nbsp;
+  <a href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-mac-intel.dmg"><img alt="Download for Mac (Intel)" src="https://img.shields.io/badge/Download_for_Mac-Intel-111827?style=for-the-badge&logo=apple&logoColor=white"></a>&nbsp;
+  <a href="https://github.com/adityakarki99/OpenKlose/releases/latest/download/Klose-windows-setup.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download_for-Windows-111827?style=for-the-badge"></a>
+</p>
+
+Or paste one line into a terminal. It fetches the right build for your computer, checks it against
+the release's checksums, installs it and opens it:
+
+```bash
+# macOS (Terminal)
+curl -fsSL https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.ps1 | iex
+```
+
+The first launch walks you through setup in about a minute. Then open Claude Code in one of your
+repos and try one of these:
+
+| Try | What you get |
+| :--- | :--- |
+| `/klose audit every page against our design system` | One sketch per page: what is off-system, in which file and line, and what it should be. |
+| `/klose audit the checkout page and what happens when the form fails` | Every state of that interaction side by side, so you can point at the exact element that is wrong. |
+| `/klose ideate a notifications panel using only our existing components` | A new feature composed from the components you already have, in your tokens, checked before it is written. |
+
+<details>
+<summary>Which Mac do I have? And what if macOS won't open it?</summary>
+
+Apple menu → **About This Mac**. A chip called *Apple M1*, *M2*, *M3*… is **Apple Silicon**; an
+Intel processor is **Intel**. The terminal command picks the right one for you.
+
+If a `.dmg` downloaded in the browser opens to *"Klose can't be checked for malicious software"*,
+right-click **Klose.app → Open** once. The app is ad-hoc signed until there is a Developer ID
+certificate; the terminal command verifies the download itself and skips that prompt. On Windows,
+SmartScreen may ask once for the same reason — choose **More info → Run anyway**.
+
+Already have Node and prefer the terminal for everything? See [Install](#install) below.
+
+</details>
+
 ---
 
 ## Table of contents
+
+- [Download](#download)
 
 - [What is Klose?](#what-is-klose)
 - [The loop](#the-loop-sketch--preview--comment--build)
@@ -172,22 +222,11 @@ repo.
 
 ## Install
 
-**The desktop app** (macOS and Windows) puts Klose in your menu bar or system tray, bundles
-everything it needs (no Node install required), walks you through setup on first launch, and keeps
-itself up to date:
-
-```bash
-# macOS
-curl -fsSL https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.sh | sh
-```
-
-```powershell
-# Windows (PowerShell)
-irm https://github.com/adityakarki99/OpenKlose/releases/latest/download/install.ps1 | iex
-```
-
-Or download the `.dmg` / `-setup.exe` from the [latest release](https://github.com/adityakarki99/OpenKlose/releases/latest).
-See [apps/desktop](apps/desktop/README.md) for how it works.
+**The desktop app** (macOS and Windows) is the easiest way in: it puts Klose in your menu bar or
+system tray, bundles everything it needs (no Node install required), walks you through setup on
+first launch, and keeps itself up to date. The buttons and one-line installers are under
+[Download](#download) at the top; [apps/desktop](apps/desktop/README.md) explains how it works and
+what the install scripts do.
 
 **Once for the whole machine, from the terminal**: one command installs `/klose` for every repo, starts
 the hub, puts Klose in the macOS menu bar, and opens a short welcome page where you check which
@@ -234,8 +273,10 @@ What Klose found in this repo
 Sketches in .klose/projects/ are plain JSON and will be committed with the repo as design
 history. To keep them local instead, run: npx klose init --ignore-projects
 
-Next: in Claude Code, try
-  /klose a pricing card for our billing page
+Next: in Claude Code, try one of
+  /klose audit every page against our design system
+  /klose audit the checkout page and what happens when the form fails
+  /klose ideate a notifications panel using only our existing components
 ```
 
 Then, in Claude Code:
@@ -331,8 +372,16 @@ file.
 
 ## Use cases
 
-Klose fits anywhere you'd otherwise jump between chat, a design tool, and your editor. A few concrete
-ways people use it:
+Klose fits anywhere you'd otherwise jump between chat, a design tool, and your editor. The three
+things people ask for most often, each a prompt the `/klose` skill knows how to carry out:
+
+| | Ask | What the agent does |
+| :--- | :--- | :--- |
+| **1** | `/klose audit every page against our design system` | Finds the app's pages, runs `klose lint` over their source (every stock palette colour, arbitrary value and stock radius/shadow step where your repo has a token, with file and line), reads each page for what lint can't see (a hand-rolled button where `<Button>` exists, missing states), and puts one sketch per page on the canvas: the findings in its notes, the page as it *should* look in its preview. Your comments are the fix list. |
+| **2** | `/klose audit the checkout page and what happens when the form fails` | The same for one page, with the interaction opened up: one sketch per state (initial, in progress, validation error, server error, success, empty) left to right, so the states the code doesn't handle stand out and you can point at the exact element that is wrong. |
+| **3** | `/klose ideate a notifications panel using only our existing components` | The normal loop with the constraint made explicit: search the component index first and name what it will build from, compose the sketch from those parts in your tokens, keep the token check clean, and import those same components in the build. A feature that needs a new primitive gets it proposed as its own sketch, not slipped in. |
+
+More ways people use it:
 
 **Building & iterating**
 - **New component from scratch** — "a notification toast with success/error variants." See it before
@@ -564,6 +613,7 @@ klose components "<need>" --rank [--top=N] [--json]   Rank components by fit usi
 klose components "<need>" --rank --all-repos      The same, across every repo the hub knows
 klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
+klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)
@@ -597,6 +647,10 @@ The `/klose` skill (installed at `.claude/skills/klose/SKILL.md`) tells the agen
 5. **Ideate with you** in chat, using that context.
 6. **Write the sketch to the canvas** with live-preview code grounded in step 3.
 7. **Build the real component** on confirmation, then mark the sketch built with its file path.
+
+The skill also spells out the three most common starting points — audit every page, audit one page
+and an interaction, ideate a feature from existing components — as variations of that loop, so
+"audit" means the same thing whoever asks (see [Use cases](#use-cases)).
 
 It's all driven through the CLI above, so nothing is a black box — you can inspect or script any of it.
 
@@ -694,6 +748,12 @@ pull.
 It listens on `127.0.0.1` only, so nothing else on your network can reach it. It also refuses
 requests addressed to any host other than `localhost` (DNS rebinding) and API calls from any page that
 isn't the canvas itself, so a website open in another tab can't read or edit your projects.
+
+**Can I run the token check on my real code, not just sketches?**
+Yes: `npx klose lint src/app` (a folder or files) lists every stock palette colour, arbitrary value
+and stock radius/shadow step used where your repo has a token of that kind, with the lines they are
+on. It is what "/klose audit every page" runs. Add `--jev` (with `TYPESAFE_API_KEY`) to have Jev
+say which token each should become.
 
 **My preview doesn't use my brand colors.**
 Run `npx klose theme` to see which tokens Klose found. Previews get your `tailwind.config.*` theme,

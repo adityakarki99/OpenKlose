@@ -27,6 +27,8 @@ import {
 import { buildTray, findTray, hasClang, removeTrayInfo, trayBinary } from '../server/tray.js';
 import { classifyRepo, enrichedIndex, jevFromEnv, rankAcrossRepos } from '../server/componentIndex.js';
 import { classifyProject, lintNode, triageProject } from '../server/insights.js';
+import { lintFiles } from '../server/lint.js';
+import { SUGGESTED_PROMPTS } from '../server/prompts.js';
 import { JevError } from '../server/jev.js';
 import { claudeHome, readLiveSessions, readRecentCwds } from '../server/sessions.js';
 import {
@@ -71,6 +73,8 @@ Canvas data
   resolve       Mark comments as addressed, so the canvas shows them done
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
+  lint          Audit real source files: literal colours, radii and shadows
+                where the repo has a token for them
 
 Maintenance
   update        Upgrade klose and refresh the installed skills
@@ -222,6 +226,26 @@ Marks comments on a sketch as addressed. With no comment ids, resolves every
 open comment on that sketch. The canvas shows them as resolved (the user can
 reopen one), and they drop out of "klose feedback" and out of what the canvas
 copies for the agent. --note is shown to the user next to each comment.`,
+  lint: `Usage: klose lint <file|folder>... [--jev] [--json]
+
+Audits the app's own source — what "/klose audit every page" runs — against
+the design tokens "klose theme" found. For each file it lists the stock
+Tailwind palette colours (bg-indigo-600), arbitrary values (text-[#1e293b],
+rounded-[6px]) and stock radius/shadow steps used where the repo has tokens of
+that kind, with the lines they are on. A folder is walked (build output,
+dependencies and sketches saved into the repo are skipped); a file is read
+whatever its extension.
+
+  klose lint src/app                 every page and component under src/app
+  klose lint src/app/pricing/page.tsx
+
+Options
+  --jev          With TYPESAFE_API_KEY set, ask Jev which token each literal
+                 should become (one request per file with findings)
+  --json         Machine-readable output, one entry per file
+
+Only class names and token names leave the machine, and only with --jev. The
+same check runs on a sketch's preview with "klose project lint".`,
   project: `Usage: klose project <subcommand>
 
   list                                       List projects
@@ -454,8 +478,8 @@ async function cmdInit(args) {
           'history. To keep them local instead, run: npx klose init --ignore-projects'
   );
 
-  console.log('\nNext: in Claude Code, try');
-  console.log('  /klose a pricing card for our billing page');
+  console.log('\nNext: in Claude Code, try one of');
+  for (const p of SUGGESTED_PROMPTS) console.log(`  ${p.prompt}`);
   console.log('The skill starts the canvas for you (or run "npx klose serve --open" yourself).');
   console.log("If /klose isn't in Claude Code's command list yet, restart Claude Code.");
 }
@@ -673,7 +697,8 @@ async function cmdSetup(args) {
   const welcome = `${hub.url}/welcome`;
   console.log(`\nNext: pick your repos and finish on the welcome page:\n  ${welcome}`);
   if (!hasFlag(args, '--no-open')) openBrowser(welcome);
-  console.log("\nThen, in Claude Code: /klose a pricing card for our billing page");
+  console.log('\nThen, in Claude Code, try one of');
+  for (const p of SUGGESTED_PROMPTS) console.log(`  ${p.prompt}`);
   console.log("If /klose isn't in Claude Code's command list yet, restart Claude Code.");
 }
 
@@ -1084,6 +1109,49 @@ function printLint(result) {
   else if (!jev.asked && findings.some((f) => f.candidates > 0)) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
 }
 
+async function cmdLint(args) {
+  const inputs = args.filter((a) => !a.startsWith('--'));
+  if (!inputs.length) fail(`lint needs a file or folder\n\n${COMMAND_HELP.lint}`);
+  const useJev = hasFlag(args, '--jev');
+  const result = await lintFiles(root, inputs, { cwd: invokedFrom, jev: jevFromEnv(), useJev });
+  for (const m of result.missing) process.stderr.write(`klose: no file or folder at ${m}\n`);
+  if (hasFlag(args, '--json')) return printJson(result);
+  return printFileLint(result, useJev);
+}
+
+function printFileLint(result, useJev) {
+  const { files, tokens, jev } = result;
+  const tokenLine = Object.entries(tokens).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  if (!files.length) return console.log(`Nothing to lint${result.missing.length ? '' : ' (no source files found)'}.`);
+  if (!Object.keys(tokens).length) {
+    console.log('This repo has no design tokens Klose can find (run "klose theme"), so there is nothing to check literals against.');
+    return;
+  }
+  for (const f of files) {
+    if (!f.findings.length) continue;
+    console.log(`${f.file}: ${f.findings.length} literal value${f.findings.length === 1 ? '' : 's'} in ${f.classes} classes`);
+    for (const x of f.findings) {
+      const where = x.lines.length ? `line${x.lines.length === 1 ? '' : 's'} ${x.lines.join(', ')}` : '';
+      const what = x.kind === 'palette' ? 'stock palette' : x.kind === 'arbitrary' ? 'arbitrary value' : 'stock scale';
+      let tail = `${what}, ${x.candidates} ${x.namespace} token${x.candidates === 1 ? '' : 's'} available`;
+      if (x.suggestion) {
+        const pct = Math.round(x.suggestion.confidence * 100);
+        tail = x.verdict === 'keep' ? `keep (no token fits, ${pct}% for the closest)` : `${x.verdict === 'replace' ? '→' : '?→'} ${x.suggestion.replacement} (${x.suggestion.token}, ${pct}%)`;
+      }
+      console.log(`  ${x.class.padEnd(28)} ${where.padEnd(14)} ${tail}`);
+    }
+    if (f.truncated) console.log(`  … more; showing the first ${f.findings.length}`);
+  }
+  const clean = result.scanned - result.withFindings;
+  const summary = [`${result.scanned} file${result.scanned === 1 ? '' : 's'}`, `${result.findings} literal value${result.findings === 1 ? '' : 's'} in ${result.withFindings} file${result.withFindings === 1 ? '' : 's'}`];
+  if (clean) summary.push(`${clean} clean`);
+  console.log(`${summary.join(', ')} (repo tokens: ${tokenLine})`);
+  if (result.truncated) console.error(`klose: stopped after ${result.scanned} files — point lint at a smaller folder`);
+  if (result.skipped) console.error(`klose: skipped ${result.skipped} file${result.skipped === 1 ? '' : 's'} that could not be read or were too large`);
+  for (const e of new Set(jev.errors)) console.error(`Jev couldn't suggest replacements: ${e}. The findings above are from the local check.`);
+  if (useJev && !jev.asked && result.findings && !jevFromEnv().apiKey) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
+}
+
 function printSketchClassification({ summary, sketches }) {
   for (const s of sketches) {
     const c = s.classification;
@@ -1312,6 +1380,7 @@ const COMMANDS = {
   project: cmdProject,
   components: cmdComponents,
   theme: cmdTheme,
+  lint: cmdLint,
   feedback: cmdFeedback,
   resolve: cmdResolve,
 };

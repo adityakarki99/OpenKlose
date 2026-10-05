@@ -1,4 +1,9 @@
+import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { SKETCH_MARKER } from './export.js';
 import { JEV_MODEL, JevError, NEW_BELOW, REUSE_AT, callJev } from './jev.js';
+import { IGNORED_DIRS } from './scanner.js';
 import { loadTheme } from './theme.js';
 
 /**
@@ -126,9 +131,9 @@ function parseUtility(utility) {
   const arbitrary = /^([a-z][a-z0-9-]*?)-\[(.+)\]$/.exec(utility);
   if (arbitrary) return { property: arbitrary[1], value: arbitrary[2], arbitrary: true };
   const radius = RADIUS_RE.exec(utility);
-  if (radius) return { property: 'rounded', value: radius[1] || 'DEFAULT', arbitrary: false };
+  if (radius) return { property: 'rounded', value: radius[1] || 'DEFAULT', arbitrary: false, stock: true };
   const shadow = SHADOW_RE.exec(utility);
-  if (shadow) return { property: 'shadow', value: shadow[1] || 'DEFAULT', arbitrary: false };
+  if (shadow) return { property: 'shadow', value: shadow[1] || 'DEFAULT', arbitrary: false, stock: true };
   for (const prop of COLOR_PROPS) {
     if (utility.startsWith(`${prop}-`)) return { property: prop, value: utility.slice(prop.length + 1), arbitrary: false };
   }
@@ -139,7 +144,7 @@ function parseUtility(utility) {
 
 /** Which token namespace a literal class belongs to, and whether it is literal at all. */
 function classifyClass(utility) {
-  const { property, value, arbitrary } = parseUtility(utility);
+  const { property, value, arbitrary, stock } = parseUtility(utility);
   const isColorProp = COLOR_PROPS.includes(property);
   if (arbitrary) {
     if (isColorProp && COLOR_VALUE_RE.test(value)) return { property, value, kind: 'arbitrary', namespace: 'color' };
@@ -151,8 +156,9 @@ function classifyClass(utility) {
     return null;
   }
   if (isColorProp && PALETTE_RE.test(value)) return { property, value, kind: 'palette', namespace: 'color' };
-  if (property === 'rounded' && value !== 'none') return { property, value, kind: 'scale', namespace: 'radius' };
-  if (property === 'shadow' && value !== 'none') return { property, value, kind: 'scale', namespace: 'shadow' };
+  // Only Tailwind's own steps are literals; `rounded-card` or `shadow-soft` is a repo token in use.
+  if (stock && property === 'rounded' && value !== 'none') return { property, value, kind: 'scale', namespace: 'radius' };
+  if (stock && property === 'shadow' && value !== 'none') return { property, value, kind: 'scale', namespace: 'shadow' };
   return null;
 }
 
@@ -328,4 +334,125 @@ export async function lintSketch(root, code, { jev = {}, useJev = true, theme } 
     }
   }
   return { ...result, findings };
+}
+
+// ------------------------------------------------------- real source files
+
+// What `klose lint <folder>` looks at: anything that can carry a className or
+// class attribute. A file named on the command line is read whatever its
+// extension.
+const LINT_EXTS = new Set(['.tsx', '.jsx', '.js', '.ts', '.mjs', '.html', '.vue', '.svelte', '.astro', '.mdx']);
+const MAX_LINT_FILES = 400;
+const MAX_LINT_BYTES = 512 * 1024;
+
+async function walkForLint(dir, out) {
+  if (out.files.length >= MAX_LINT_FILES) return;
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (out.files.length >= MAX_LINT_FILES) {
+      out.truncated = true;
+      return;
+    }
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (IGNORED_DIRS.has(entry.name) || existsSync(path.join(full, '.git'))) continue;
+      await walkForLint(full, out);
+    } else if (entry.isFile()) {
+      if (!LINT_EXTS.has(path.extname(entry.name))) continue;
+      if (/\.(test|spec|stories|d)\.[jt]sx?$/.test(entry.name)) continue;
+      out.files.push(full);
+    }
+  }
+}
+
+/** The lines (1-based, at most five) on which a class name appears as a whole token. */
+export function linesWith(source, cls) {
+  const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[\\s"'\`{}(),])${escaped}(?=$|[\\s"'\`{}(),])`);
+  const lines = [];
+  const all = source.split('\n');
+  for (let i = 0; i < all.length && lines.length < 5; i++) if (re.test(all[i])) lines.push(i + 1);
+  return lines;
+}
+
+/**
+ * Lint real source files — what an audit of the app's pages runs — against
+ * the same tokens a sketch is checked against. `inputs` are files or folders,
+ * relative to `cwd`; a folder is walked (skipping build output, dependencies
+ * and exported sketches) and a file is read whatever its extension. Resolves to
+ *
+ *   { files: [{ file, classes, findings: [{ …finding, lines }], truncated }],
+ *     scanned, withFindings, findings, tokens, missing, skipped, truncated,
+ *     jev: { asked, errors } }
+ *
+ * `file` is relative to the repo root and each finding carries the lines it
+ * is on, so the agent can go straight to the code. Jev is asked only when
+ * `useJev` is set: it is one request per file with findings, which an audit
+ * of a whole app would otherwise turn into dozens.
+ */
+export async function lintFiles(root, inputs, { cwd = root, jev = {}, useJev = false } = {}) {
+  const theme = await loadTheme(root);
+  const tokenCounts = {};
+  for (const t of tokensFromCss(theme.css)) tokenCounts[t.kind] = (tokenCounts[t.kind] || 0) + 1;
+
+  const out = { files: [], truncated: false };
+  const missing = [];
+  for (const input of inputs) {
+    const full = path.resolve(cwd, input);
+    let s;
+    try {
+      s = await stat(full);
+    } catch {
+      missing.push(input);
+      continue;
+    }
+    if (s.isDirectory()) await walkForLint(full, out);
+    else if (!out.files.includes(full)) out.files.push(full);
+  }
+
+  const files = [];
+  let skipped = 0;
+  const jevReport = { asked: 0, errors: [] };
+  for (const full of out.files) {
+    let source;
+    try {
+      if ((await stat(full)).size > MAX_LINT_BYTES) {
+        skipped++;
+        continue;
+      }
+      source = await readFile(full, 'utf-8');
+    } catch {
+      skipped++;
+      continue;
+    }
+    if (source.includes(SKETCH_MARKER)) continue; // a sketch saved into the repo; lint it on the canvas
+    const result = await lintSketch(root, source, { jev, useJev, theme });
+    if (result.jev.asked) {
+      jevReport.asked++;
+      if (result.jev.error) jevReport.errors.push(result.jev.error);
+    }
+    files.push({
+      file: path.relative(root, full) || path.basename(full),
+      classes: result.classes,
+      findings: result.findings.map((f) => ({ ...f, lines: linesWith(source, f.class) })),
+      truncated: result.truncated,
+    });
+  }
+  const withFindings = files.filter((f) => f.findings.length);
+  return {
+    files,
+    scanned: files.length,
+    withFindings: withFindings.length,
+    findings: withFindings.reduce((n, f) => n + f.findings.length, 0),
+    tokens: tokenCounts,
+    missing,
+    skipped,
+    truncated: out.truncated,
+    jev: jevReport,
+  };
 }

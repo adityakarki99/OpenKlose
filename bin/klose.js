@@ -107,6 +107,8 @@ Options
   --ignore-projects   Keep sketches out of git (adds projects/ to .klose/.gitignore)
   --wire-claude-md    Add a note to CLAUDE.md so the agent suggests /klose on its own
   --force             Overwrite skill files you've edited (the old copy is kept as SKILL.md.bak)
+  --no-skills         Skip the skill files: for repos where /klose comes from the
+                      Klose plugin (/plugin install klose), so there is one copy
   --here              Install in this folder instead of the repo root
   --global            Install the skills for every repo (~/.claude/skills) and
                       nothing else — pair it with "klose hub" so no repo needs
@@ -450,7 +452,8 @@ async function initGlobal(args) {
 
 async function cmdInit(args) {
   if (hasFlag(args, '--global')) return initGlobal(args);
-  const report = await installSkills(packageRoot, root, { force: hasFlag(args, '--force') });
+  const skipSkills = hasFlag(args, '--no-skills');
+  const report = skipSkills ? null : await installSkills(packageRoot, root, { force: hasFlag(args, '--force') });
   await mkdir(path.join(root, '.klose', 'projects'), { recursive: true });
   const projectsIgnored = await writeKloseGitignore(root, hasFlag(args, '--ignore-projects'));
 
@@ -461,7 +464,8 @@ async function cmdInit(args) {
   }
 
   console.log(`Klose ${VERSION} is set up in ${root}\n`);
-  printSkillReport(report);
+  if (skipSkills) console.log('  ✓ Skills       left to the Klose plugin (--no-skills)');
+  else printSkillReport(report);
   console.log(`  ✓ Storage      ${relToRoot('.klose')}/${seeded ? ' (with a demo project, so the canvas isn\'t empty)' : ''}`);
 
   if (hasFlag(args, '--wire-claude-md')) {

@@ -5,7 +5,7 @@
 //                                                    (a Tauri "externalBin")
 //   src-tauri/resources/klose/                       the klose package itself
 //                                                    (bundled as klose-package/):
-//                                                    bin/, server/, skills/, web/dist/
+//                                                    bin/, server/, plugin/, web/dist/
 //
 // The app starts the hub as `node <resources>/klose-package/bin/klose.js hub`, so Klose
 // runs exactly the code npm users run, and needs no Node on the machine.
@@ -114,7 +114,7 @@ function prepareKlose() {
   mkdirSync(path.join(dest, 'bin'), { recursive: true });
   cpSync(path.join(repoRoot, 'package.json'), path.join(dest, 'package.json'));
   cpSync(path.join(repoRoot, 'bin', 'klose.js'), path.join(dest, 'bin', 'klose.js'));
-  for (const dir of ['server', 'skills', path.join('web', 'dist')]) {
+  for (const dir of ['server', 'plugin', path.join('web', 'dist')]) {
     cpSync(path.join(repoRoot, dir), path.join(dest, dir), { recursive: true });
   }
   const version = JSON.parse(readFileSync(path.join(dest, 'package.json'), 'utf-8')).version;

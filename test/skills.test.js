@@ -11,9 +11,9 @@ async function withPackageAndRepo(fn) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-skills-test-'));
   const pkg = path.join(dir, 'pkg');
   const repo = path.join(dir, 'repo');
-  await mkdir(path.join(pkg, 'skills', 'klose'), { recursive: true });
+  await mkdir(path.join(pkg, 'plugin', 'skills', 'klose'), { recursive: true });
   await mkdir(repo);
-  const setSkill = (text) => writeFile(path.join(pkg, 'skills', 'klose', 'SKILL.md'), text, 'utf-8');
+  const setSkill = (text) => writeFile(path.join(pkg, 'plugin', 'skills', 'klose', 'SKILL.md'), text, 'utf-8');
   const installed = path.join(repo, '.claude', 'skills', 'klose', 'SKILL.md');
   try {
     await fn({ pkg, repo, setSkill, installed });

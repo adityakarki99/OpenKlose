@@ -34,7 +34,7 @@ system) instead of a server-proxied Gemini call.
 | **Canvas UI** | React 19 + TypeScript, React Router, Tailwind CSS, Vite |
 | **CLI / local server** | Plain Node.js (`node:http`, `node:fs`) — no framework, no external deps |
 | **Storage** | JSON files under `.klose/projects/` in the consuming repo — no database |
-| **Distribution** | npm package, installed per-repo; ships a pre-built static frontend |
+| **Distribution** | npm package (per-repo or global) that ships a pre-built static frontend; the skills also install as a Claude Code plugin from this repo |
 
 ---
 
@@ -52,7 +52,10 @@ server/scanner.js      Indexes the repo's real components
 server/hub.js          The hub: one server for every repo, found from Claude Code's session files
 server/setup.js        First-run setup for the hub (`klose setup`, the /welcome page)
 server/tray.js         Builds the macOS menu bar app; its start-at-login LaunchAgent
-skills/klose/SKILL.md  Source of the /klose skill (copied into consumer repos by `klose init`)
+plugin/                The Claude Code plugin: .claude-plugin/plugin.json plus skills/*/SKILL.md,
+                       the one source of the /klose skills (the plugin loads them in place;
+                       `klose init` copies them into consumer repos)
+.claude-plugin/        marketplace.json: makes this repo a plugin marketplace with one entry, ./plugin
 scripts/               smoke-pack.mjs (pack-and-install first-run test), prepare.mjs (git installs)
 web/                    The canvas UI source (built to web/dist for packaging)
 ```
@@ -61,7 +64,7 @@ web/                    The canvas UI source (built to web/dist for packaging)
 
 `npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
 holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
-1. Copies each `skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
+1. Copies each `plugin/skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
    `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
    each file as written; a later `init` or `update` replaces only files that still match it, and
    leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
@@ -69,6 +72,26 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
    `.klose/.gitignore` for the per-machine files (plus `projects/` with `--ignore-projects`).
 3. Reports the design tokens (`server/theme.js`) and components (`server/scanner.js`) it found, and
    the prompt to try first.
+
+### As a plugin: `/plugin install klose --marketplace adityakarki99/OpenKlose`
+
+The same three skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
+marketplace: `.claude-plugin/marketplace.json` lists one plugin, `klose`, whose source is the
+`plugin/` directory. That directory holds `.claude-plugin/plugin.json` (name, version, metadata) and
+`skills/`, which Claude Code loads in place under the plugin's namespace: `/klose:klose`,
+`/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
+it is bumped with `package.json` (`test/plugin.test.js` checks they agree).
+
+The plugin is deliberately thin. It carries no code: the CLI, the server and the canvas are still the
+`klose` npm package, which the skill calls with `npx klose …` exactly as it does from a copied skill.
+The first `/klose:klose` in a repo without the package tells the agent to install it once (globally,
+or as a devDependency). `klose init --no-skills` sets up `.klose/` for such a repo without writing a
+second copy of the skills into `.claude/skills/`. Updates split along the same line: Claude Code
+refreshes the plugin (`/plugin marketplace update openklose`), npm refreshes the package.
+
+`plugin/` is a subdirectory rather than the repo root on purpose: a plugin's top-level `bin/` goes on
+the agent's PATH and stops claude.ai from installing it, and the repo root has one. Only the skills
+and the manifest are cloned into `~/.claude/plugins/`.
 
 ### Machine-wide: `klose setup`
 
@@ -84,7 +107,7 @@ click, system side effects only after it.
 
 ## What Happens On `/klose`
 
-The skill (see `skills/klose/SKILL.md`) instructs the agent to:
+The skill (see `plugin/skills/klose/SKILL.md`) instructs the agent to:
 1. Ensure the local server is running (`klose status`, then `klose serve --detach`) and share the URL.
 2. Pick or create a `.klose` project.
 3. **Read the host repo's real design system** — Tailwind config, CSS custom properties, existing

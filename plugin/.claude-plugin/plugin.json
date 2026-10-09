@@ -1,0 +1,11 @@
+{
+  "name": "klose",
+  "displayName": "Klose",
+  "version": "0.2.1",
+  "description": "A local, no-login design canvas for your coding agent: sketch UI against your repo's real design system, point at the exact element that is wrong, and build it into the source tree.",
+  "author": { "name": "Aditya Karki", "url": "https://github.com/adityakarki99" },
+  "homepage": "https://github.com/adityakarki99/OpenKlose#readme",
+  "repository": "https://github.com/adityakarki99/OpenKlose",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["design", "design-system", "ui", "tailwind", "canvas", "react", "local-first"]
+}

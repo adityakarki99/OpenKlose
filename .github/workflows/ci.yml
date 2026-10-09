@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         # package.json declares engines.node >= 18, and the published package is
-        # just bin/ + server/ + skills/ — plain node builtins, no bundler. So the
+        # just bin/ + server/ + plugin/ — plain node builtins, no bundler. So the
         # suite runs on the floor we promise (18), current LTS (22), and 20 in
         # between. node:test, fetch and fs/promises have all shifted across these
         # versions; running all three keeps a fix for one from breaking another.

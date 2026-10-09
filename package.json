@@ -34,7 +34,7 @@
   "files": [
     "bin",
     "server",
-    "skills",
+    "plugin",
     "web/dist"
   ],
   "publishConfig": {

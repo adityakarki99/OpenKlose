@@ -240,6 +240,21 @@ It's safe to run again; anything already done is left as it is. The welcome page
 `http://localhost:<port>/welcome` on the hub (the hub's home page sends you there until setup is
 finished or skipped), and its **Setup** button runs it again.
 
+**Or as a Claude Code plugin**, which gives every repo the `/klose` skills without writing a file
+into any of them. Inside Claude Code:
+
+```
+/plugin install klose --marketplace adityakarki99/OpenKlose
+```
+
+(Claude Code 2.1.275 or later. Older versions take it in two steps: `/plugin marketplace add
+adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the three
+skills; the canvas and its CLI are still the `klose` npm package, so install that once with
+`npm install -g klose` (or from GitHub until it is on npm, see below) and the skill does the rest.
+The skills run as `/klose:klose`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
+Code keeps them current through `/plugin marketplace update openklose`. If you also `klose init` a
+repo, pass `--no-skills` so it doesn't get a second copy.
+
 **Or per repo**, from the root of the repo you want to design in:
 
 ```bash
@@ -593,8 +608,9 @@ shows each command's options.
 
 ```
 klose setup [--no-open] [--no-tray] [--port=N]     Set up every repo on this machine and open the welcome page
-klose init [--no-demo] [--ignore-projects] [--wire-claude-md] [--force] [--here]
+klose init [--no-demo] [--ignore-projects] [--wire-claude-md] [--force] [--no-skills] [--here]
                                                   Install the klose skills and local storage in this repo
+                                                  (--no-skills when /klose comes from the plugin)
 klose serve [--port=N] [--open] [--detach]        Start this repo's canvas (default port 5171)
 klose status [--port=N] [--json]                  Check whether this repo's canvas is running
 klose stop                                        Stop this repo's canvas
@@ -636,7 +652,8 @@ Any `<json>` argument can instead be `@path/to/file.json` — handy for a sketch
 
 ## How `/klose` works
 
-The `/klose` skill (installed at `.claude/skills/klose/SKILL.md`) tells the agent to:
+The `/klose` skill (installed at `.claude/skills/klose/SKILL.md`, or loaded from the Klose plugin
+as `/klose:klose`) tells the agent to:
 
 1. **Ensure the local server is running** and share the canvas URL.
 2. **Pick or create a project**, and check its sketches for pending comments to address.
@@ -666,13 +683,16 @@ your-repo/
     ├── skills.json                 Hashes of the installed skills, so updates don't clobber your edits
     └── server.json                 Where this repo's canvas is running (git-ignored)
 
-klose package
+klose package (also the plugin marketplace)
+├── .claude-plugin/marketplace.json   The catalog: one plugin, "klose", sourced from ./plugin
 ├── bin/klose.js         CLI (init / serve / status / stop / project * / ...)
 ├── server/store.js      File-based project storage over .klose/projects/*.json
 ├── server/http.js       Local HTTP server: REST API + SSE live-refresh + serves the built canvas UI
 ├── server/theme.js      Reads the repo's design tokens for the preview sandbox
 ├── server/scanner.js    Indexes the repo's real components
-├── skills/klose/      Source of the skill klose init copies into your repo
+├── plugin/              The Claude Code plugin: what `/plugin install klose` clones
+│   ├── .claude-plugin/plugin.json   Name, version, metadata
+│   └── skills/klose/    Source of the skill — the plugin loads it here, klose init copies it
 └── web/               The canvas UI (React + Vite), built to web/dist and shipped in the package
 ```
 

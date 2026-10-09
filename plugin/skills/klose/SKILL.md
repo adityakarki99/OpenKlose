@@ -18,6 +18,18 @@ Start by asking whether a canvas is already up for this repo:
 npx klose status
 ```
 
+**If that fails because the `klose` package can't be found** (npx reports a 404 or "could not
+determine executable"), this skill came from the Klose plugin and the CLI isn't installed yet. The
+plugin carries only these instructions; the canvas and its CLI are the `klose` npm package. Install
+it once, then rerun the command:
+
+```
+npm install -g klose                                # once it is on npm
+npm install -g github:adityakarki99/OpenKlose       # until then
+```
+
+Per-repo (`npm install -D …`) works too, if the user prefers it in `devDependencies`.
+
 **If it says the repo is running "on the hub"**, you're done with this step: the user runs one
 machine-wide Klose (`klose hub`) that serves every repo, this one included. Don't run `init` or
 `serve` — the hub needs neither, and `.klose/` is created the first time you add a sketch. Tell the
@@ -28,12 +40,14 @@ Every `npx klose project …` command below works exactly the same either way.
 not, this is the first run:
 
 ```
-npx klose init
+npx klose init              # when this skill lives in the repo's .claude/skills/
+npx klose init --no-skills  # when it came from the Klose plugin (you ran it as /klose:klose)
 ```
 
 This copies this skill file into `.claude/skills/klose/` (already done if you're reading this from
-there), creates `.klose/projects/`, and prints which design tokens and components it found — pass
-that summary on to the user in a sentence.
+there; skipped with `--no-skills`, so a plugin user doesn't end up with two copies), creates
+`.klose/projects/`, and prints which design tokens and components it found — pass that summary on
+to the user in a sentence.
 
 Then make sure the canvas is up. `klose project ...` commands read `.klose/` directly on disk and
 "succeed" with no server running, so they can't tell you whether the canvas is reachable — use

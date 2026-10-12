@@ -255,6 +255,18 @@ The skills run as `/klose:klose`, `/klose:klose-update` and `/klose:klose-cleanu
 Code keeps them current through `/plugin marketplace update openklose`. If you also `klose init` a
 repo, pass `--no-skills` so it doesn't get a second copy.
 
+**Or nothing at all: the hosted canvas.** Open
+[adityakarki99.github.io/OpenKlose](https://adityakarki99.github.io/OpenKlose/) in Chrome or Edge,
+click **Choose the repo folder**, and pick the repo. That is the whole install. The page reads and
+writes `.klose/` in the folder you picked, the same files the agent's CLI writes, so a sketch the
+agent adds shows up within a second or two, and the browser remembers the folder so next time it is
+one click. Close the tab when you are done: there is no process to stop and nothing to update. The
+skill still needs the `klose` CLI (the plugin or `npm install -D klose`, as above); `npx klose status`
+then reports that the hosted canvas has the repo open. What stays with the CLI, since a web page
+can't scan or run anything: the component index, Jev, the token check and "Save to repo"
+(`npx klose project export`). Firefox and Safari can't open a folder from a web page; there, run
+`npx klose serve --open` instead.
+
 **Or per repo**, from the root of the repo you want to design in:
 
 ```bash
@@ -687,14 +699,26 @@ klose package (also the plugin marketplace)
 ├── .claude-plugin/marketplace.json   The catalog: one plugin, "klose", sourced from ./plugin
 ├── bin/klose.js         CLI (init / serve / status / stop / project * / ...)
 ├── server/store.js      File-based project storage over .klose/projects/*.json
+├── server/storeCore.js  The store's pure parts (ids, placement, the demo sketch), shared with the hosted canvas
 ├── server/http.js       Local HTTP server: REST API + SSE live-refresh + serves the built canvas UI
 ├── server/theme.js      Reads the repo's design tokens for the preview sandbox
+├── server/themeParse.js The token parsing itself, shared with the hosted canvas
 ├── server/scanner.js    Indexes the repo's real components
+├── lib/folderStore.js   The same store over a folder the browser was given (the hosted canvas)
+├── lib/folderSession.ts Opening and remembering that folder (File System Access API)
 ├── plugin/              The Claude Code plugin: what `/plugin install klose` clones
 │   ├── .claude-plugin/plugin.json   Name, version, metadata
 │   └── skills/klose/    Source of the skill — the plugin loads it here, klose init copies it
-└── web/               The canvas UI (React + Vite), built to web/dist and shipped in the package
+└── web/               The canvas UI (React + Vite): built to web/dist for the server and the
+                       package, and by `npm run build:static` to web/static as the hosted canvas
+                       (GitHub Pages, .github/workflows/pages.yml)
 ```
+
+The hosted canvas is the same UI with no process behind it: `lib/mode.ts` is set at build time, and
+the services (`services/*.ts`) answer from `lib/folderBackend.ts`, which reads and writes `.klose/`
+through the folder handle instead of calling the API. Live refresh (`lib/changeSource.ts`) is
+server-sent events on a server and a look at the project files' timestamps every second or two on
+the hosted canvas.
 
 The canvas UI has no AI dependency — it's a projects list and an infinite board of
 draggable/resizable sketch nodes, persisted through the local server's REST API. All the "smart"

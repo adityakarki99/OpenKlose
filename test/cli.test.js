@@ -191,3 +191,29 @@ test('serve --detach, a second serve, status and stop', async () => {
     assert.equal(klose(dir, 'status').status, 1);
   });
 });
+
+test('klose status reports the hosted canvas while its marker is fresh, and not once it is stale', async () => {
+  await withTempRepo(async (dir) => {
+    await mkdir(path.join(dir, '.klose'), { recursive: true });
+    const marker = (seenAt) => writeFile(path.join(dir, '.klose', 'canvas.json'), JSON.stringify({ canvas: 'hosted', url: 'https://example.test/klose/', seenAt }));
+
+    await marker(new Date().toISOString());
+    const fresh = klose(dir, 'status', '--json');
+    assert.equal(fresh.status, 0, fresh.stderr);
+    const json = JSON.parse(fresh.stdout);
+    assert.equal(json.hosted, true);
+    assert.equal(json.running, false);
+    assert.equal(json.url, 'https://example.test/klose/');
+    const text = klose(dir, 'status');
+    assert.equal(text.status, 0, text.stderr);
+    assert.match(text.stdout, /hosted canvas has this repo open at https:\/\/example\.test\/klose\//);
+    assert.match(text.stdout, /no server needed/);
+
+    // The page stopped touching it ten minutes ago: the tab is gone.
+    await marker(new Date(Date.now() - 10 * 60 * 1000).toISOString());
+    const stale = klose(dir, 'status', '--json');
+    assert.equal(stale.status, 0, stale.stderr);
+    assert.deepEqual([JSON.parse(stale.stdout).hosted, JSON.parse(stale.stdout).running], [undefined, false]);
+    assert.equal(klose(dir, 'status').status, 1, 'nothing running and no fresh marker: the text form exits 1 as before');
+  });
+});

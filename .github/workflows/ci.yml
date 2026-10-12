@@ -68,6 +68,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The same app built as the hosted canvas (web/static): no server, the
+      # repo is a folder the browser is given. test/browser-folder.test.js
+      # drives it, and skips without this build.
+      - name: Build the hosted canvas
+        run: npm run build:static
+
       # The browser tests (test/browser-*.test.js) drive the built canvas and
       # preview sandbox in Chromium, and skip without them. Playwright stays out
       # of package.json on purpose (see test/README.md), so it is added here

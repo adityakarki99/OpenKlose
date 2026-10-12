@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, RepoSave } from '../../types';
-import { listProjects, createProject, createExampleProject, deleteProject, saveProject, saveProjectToRepo, getRepoName } from '../../services/projectService';
+import { listProjects, createProject, createExampleProject, deleteProject, saveProject, saveProjectToRepo, getRepoName, canSaveToRepo } from '../../services/projectService';
+import { subscribeProjectChanges } from '../../lib/changeSource';
 import { openComments } from '../../lib/feedback.js';
 import { boundsOf } from '../../lib/viewport.js';
 import { Plus, Trash2, Layers, Loader2, Pencil, Check, FileText, MessageSquare, FolderDown, CircleDot, Sparkles } from 'lucide-react';
-import { API_BASE } from '../../lib/repoScope';
 import { Button } from '../DesignSystem/Button';
 import { Card } from '../DesignSystem/Card';
 import { Input } from '../DesignSystem/Input';
@@ -19,6 +19,8 @@ const COLUMNS = 'grid grid-cols-[minmax(0,1fr)_64px_96px_56px_140px_72px_48px] i
  * canvas, and the one action that fixes it when it doesn't.
  */
 const RepoCell = ({ repo, isSaving, onSave }: { repo?: RepoSave; isSaving: boolean; onSave: (e: React.MouseEvent) => void }) => {
+    // The hosted canvas leaves writing files into the repo to the CLI.
+    if (!canSaveToRepo) return <span className="text-xs text-app-subtle" title="Save to the repo with: npx klose project export">—</span>;
     if (isSaving) {
         return (
             <span className="flex items-center gap-1.5 text-xs text-app-muted">
@@ -280,11 +282,7 @@ const ProjectBrowser: React.FC<ProjectBrowserProps> = ({ onOpenProject, onNewPro
     }, []);
 
     // Files the agent creates or edits show up here without a reload.
-    useEffect(() => {
-        const source = new EventSource(`${API_BASE}/events`);
-        source.addEventListener('update', () => fetchProjects({ quiet: true }));
-        return () => source.close();
-    }, []);
+    useEffect(() => subscribeProjectChanges(() => fetchProjects({ quiet: true })), []);
 
     const handleCreateSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

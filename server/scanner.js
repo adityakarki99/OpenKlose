@@ -3,6 +3,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest } from './errors.js';
 import { SKETCH_MARKER } from './export.js';
+// Shared with the theme reader and the hosted canvas (see themeParse.js).
+import { IGNORED_DIRS } from './themeParse.js';
 
 /**
  * Scans the host repository for real UI components so Klose can search them and
@@ -14,16 +16,7 @@ import { SKETCH_MARKER } from './export.js';
  * full TypeScript parser; it aims to be resilient and useful, not exhaustive.
  */
 
-// Build output, caches and tooling only. Never a source-folder name like
-// `web`: that one used to be here and hid every component in a monorepo's
-// `apps/web`. Klose's own bundle lives in `web/dist`, which `dist` covers.
-export const IGNORED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit',
-  'coverage', '.cache', '.vercel', '.turbo', '.parcel-cache', 'vendor',
-  '.klose', '.idea', '.vscode', 'tmp', 'temp',
-  // Claude Code keeps agent worktrees (full copies of the repo) in here.
-  '.claude',
-]);
+export { IGNORED_DIRS };
 
 const SOURCE_EXTS = new Set(['.tsx', '.jsx']);
 const MAX_FILE_BYTES = 256 * 1024;

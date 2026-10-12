@@ -1,7 +1,12 @@
 import { ClassifySummary, ComponentIndex, ComponentRanking } from '../types';
 import { API_BASE } from '../lib/repoScope';
+import { STATIC } from '../lib/mode';
+import { needsServer } from '../lib/folderBackend';
 
+// The component index is built by a process next to the repo (server/scanner.js);
+// the hosted canvas has none, so every call here says so.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (STATIC) return needsServer('The component index');
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -33,6 +38,7 @@ export const rankComponents = (query: string): Promise<ComponentRanking> =>
 
 /** On a hub: search every repo's components by meaning. */
 export async function rankAllRepos(query: string): Promise<ComponentRanking> {
+  if (STATIC) return needsServer('Searching every repo');
   const res = await fetch(`/api/rank?q=${encodeURIComponent(query)}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

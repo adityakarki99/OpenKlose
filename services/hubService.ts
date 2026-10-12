@@ -1,4 +1,6 @@
 import { HubRepo, SetupState, TrayState } from '../types';
+import { STATIC } from '../lib/mode';
+import { serverInfo } from '../lib/folderBackend';
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -12,10 +14,11 @@ async function get<T>(url: string): Promise<T> {
 }
 
 /** Whether this server is a hub (many repos) or a single repo's canvas. */
-export const getServerInfo = (): Promise<{ hub?: boolean; root: string | null; version: string | null; jev?: { available: boolean } }> => get('/api/health');
+export const getServerInfo = (): Promise<{ hub?: boolean; root: string | null; version: string | null; jev?: { available: boolean } }> =>
+  STATIC ? Promise.resolve(serverInfo()) : get('/api/health');
 
 /** Every repo the hub sees: agents first, then most recently used. */
-export const listRepos = async (): Promise<HubRepo[]> => (await get<{ repos: HubRepo[] }>('/api/repos')).repos;
+export const listRepos = async (): Promise<HubRepo[]> => (STATIC ? [] : (await get<{ repos: HubRepo[] }>('/api/repos')).repos);
 
 export const getTray = (): Promise<TrayState> => get('/api/tray');
 

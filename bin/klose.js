@@ -12,6 +12,7 @@ import { rankComponents, JEV_DEFAULT_BASE_URL, MAX_CANDIDATES } from '../server/
 import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
+import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
 import {
   defaultHubOptions,
@@ -125,8 +126,10 @@ Options
   --port=N       Use exactly port N (default ${DEFAULT_PORT}, or $KLOSE_PORT; 0 = any free port)`,
   status: `Usage: klose status [--port=N] [--json]
 
-Reports whether this repo's canvas server is running and at which URL. Exits 1
-when it isn't, including when a Klose server for a different repo holds the port.`,
+Reports whether this repo's canvas server is running and at which URL. Also
+says when the hosted canvas (the Klose web page given this repo's folder) has
+the repo open, since then no server is needed. Exits 1 when neither, including
+when a Klose server for a different repo holds the port.`,
   hub: `Usage: klose hub [start] [--port=N] [--open] [--detach]
        klose hub status [--json]
        klose hub stop
@@ -391,7 +394,7 @@ async function writeKloseGitignore(targetRoot, ignoreProjects) {
   } catch {
     // Not there yet.
   }
-  const wanted = ['server.json', 'server.log', ...(ignoreProjects ? ['projects/'] : [])];
+  const wanted = [...KLOSE_GITIGNORE, ...(ignoreProjects ? ['projects/'] : [])];
   const missing = wanted.filter((l) => !lines.includes(l));
   if (missing.length) await writeFile(file, [...lines, ...missing].join('\n') + '\n', 'utf-8');
   return lines.includes('projects/') || ignoreProjects;
@@ -603,6 +606,23 @@ async function cmdServe(args) {
   if (open) openBrowser(url);
 }
 
+// The hosted canvas (a web page given the repo folder, no server) leaves
+// .klose/canvas.json while it has the repo open, touched every minute. A
+// note from the last couple of minutes means the user is looking at the
+// canvas right now, and nothing needs starting.
+const HOSTED_CANVAS_FRESH_MS = 2 * 60 * 1000;
+
+async function hostedCanvasFor(targetRoot) {
+  try {
+    const marker = JSON.parse(await readFile(path.join(targetRoot, '.klose', 'canvas.json'), 'utf-8'));
+    const seenAt = Date.parse(marker.seenAt);
+    if (marker.canvas !== 'hosted' || !Number.isFinite(seenAt) || Date.now() - seenAt > HOSTED_CANVAS_FRESH_MS) return null;
+    return { url: typeof marker.url === 'string' ? marker.url : null, seenAt: marker.seenAt };
+  } catch {
+    return null;
+  }
+}
+
 // Unlike `klose project ...`, which reads/writes .klose/ on disk directly and
 // so always "succeeds" whether or not the server is running, this checks for a
 // live server — and that it's serving *this* repo, not another one that
@@ -614,6 +634,12 @@ async function cmdStatus(args) {
   if (onHub) {
     if (hasFlag(args, '--json')) return printJson({ running: true, hub: true, url: onHub, root });
     return console.log(`klose is running for this repo on the hub at ${onHub}`);
+  }
+  const hosted = running ? null : await hostedCanvasFor(root);
+  if (hosted) {
+    if (hasFlag(args, '--json')) return printJson({ running: false, hosted: true, url: hosted.url, seenAt: hosted.seenAt, root });
+    console.log(`The hosted canvas has this repo open${hosted.url ? ` at ${hosted.url}` : ''} (no server needed).`);
+    return console.log('Sketches you add with "klose project" show up there within a second or two.');
   }
   if (hasFlag(args, '--json')) {
     return printJson({ running, url: found.url, port: found.port, root, ...(found.pid ? { pid: found.pid } : {}), ...(found.otherRoot ? { otherRoot: found.otherRoot } : {}) });

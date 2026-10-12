@@ -36,8 +36,17 @@ machine-wide Klose (`klose hub`) that serves every repo, this one included. Don'
 user the URL it printed (it looks like `http://localhost:5171/r/<id>/projects`) and go to step 2.
 Every `npx klose project …` command below works exactly the same either way.
 
-**Otherwise**, this repo runs its own canvas. Check whether `.klose/` exists at the repo root. If
-not, this is the first run:
+**If it says "The hosted canvas has this repo open"**, the user opened the Klose web page
+(Chrome or Edge, no install) and gave it this repo's folder: there is no server, and none is
+needed. Don't run `init` or `serve`. The page reads `.klose/` straight from the folder, so every
+`npx klose project …` command below shows up on it within a second or two. Tell the user the URL
+it printed and go to step 2. (The component index, Jev, the token check and `project export` still
+run through the CLI, as always.)
+
+**Otherwise**, this repo runs its own canvas. (If the user would rather not run one, the hosted
+canvas does the same job: open https://adityakarki99.github.io/OpenKlose/ in Chrome or Edge, choose
+the repo folder, and `npx klose status` reports it from then on.) Check whether `.klose/` exists at
+the repo root. If not, this is the first run:
 
 ```
 npx klose init              # when this skill lives in the repo's .claude/skills/

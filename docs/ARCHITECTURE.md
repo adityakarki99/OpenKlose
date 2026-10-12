@@ -93,6 +93,55 @@ refreshes the plugin (`/plugin marketplace update openklose`), npm refreshes the
 the agent's PATH and stops claude.ai from installing it, and the repo root has one. Only the skills
 and the manifest are cloned into `~/.claude/plugins/`.
 
+### Without a process: the hosted canvas
+
+excalidraw.com has no login because, for one person, it has no server: the page is the app, the
+browser holds the drawing, and a file on disk makes it portable. Klose's data was already files,
+`.klose/projects/*.json` in the repo; what needed a process was only the transport between those
+files and the canvas. The hosted canvas removes it.
+
+`npm run build:static` (`scripts/build-static.mjs`) builds the same canvas with
+`VITE_KLOSE_STATIC=1`, which sets `STATIC` in `lib/mode.ts`, into `web/static`.
+`.github/workflows/pages.yml` publishes that folder to GitHub Pages on every push to `main`. In
+that build:
+
+- `App.tsx` is `StaticApp`: hash routes (any static host serves them), the front door is
+  `pages/OpenRepoPage.tsx`, and every other page needs an open folder (`RequireFolder`, which
+  remembers where you were and sends you back there once a folder is open).
+- The folder comes from the File System Access API (`showDirectoryPicker`, Chromium browsers).
+  `lib/folderSession.ts` wraps the handle as a small `FolderFs` (list, read, write, remove over
+  `.klose/`), remembers it in IndexedDB so the next visit is one click to re-grant, and keeps the
+  open session for the hooks.
+- `lib/folderStore.js` is `server/store.js` over that interface: the same records, the same
+  placement of new sketches, the same demo project. The parts both need (`placeNode`,
+  `nextUpdatedAt`, the demo sketch, what `.klose/.gitignore` lists) moved into
+  `server/storeCore.js`, which has no Node imports and bundles into the canvas, so the CLI and the
+  page can't drift apart. Writes go through `createWritable`, which swaps a temp file in on
+  close, so the CLI never reads a half-written project.
+- The services (`services/projectService.ts` and friends) check `STATIC` and answer from
+  `lib/folderBackend.ts`. What needs a process next to the repo says so: the component index,
+  Jev, the token check and "Save to repo" stay with the CLI, and the UI hides the buttons.
+- Design tokens: the CSS half of `server/theme.js` moved to `server/themeParse.js`, also
+  dependency-free, and `folderBackend.loadThemeCss` walks the folder for stylesheets and entry
+  HTML the same way `theme.js` walks the disk. A Tailwind v3 `tailwind.config.js` is code the
+  page can't run, so those tokens are the server's.
+- Live refresh: `lib/changeSource.ts` is server-sent events on a server, and on the hosted canvas
+  a look at the project files' `lastModified` every 1.5 s while the tab is visible, plus on focus,
+  the way excalidraw.com re-reads its storage when its tab comes back. The result feeds the same
+  merge (`lib/merge.js`) as before, so the agent's writes land without losing unsaved edits.
+- `.klose/canvas.json`: while the hosted canvas has a repo open (and the repo already has a
+  `.klose/`; opening a folder to look writes nothing), it leaves a note there, touched every
+  minute. `klose status` reports it when fresh, and the `/klose` skill then knows not to start a
+  server. It is in `.klose/.gitignore` next to `server.json`.
+- `public/sw.js`: a network-first service worker, registered only by this build and only over
+  https, so the page opens offline once it has loaded. The preview sandbox's opaque origin is
+  outside any service worker's reach, so previews still want their bundle from the HTTP cache.
+
+What it costs: Firefox and Safari don't implement the directory picker, so this is Chromium-only
+(the page says so and points at `npx klose serve`). And two writers, the CLI and the page, share
+the files without a process between them, which is the situation `klose serve` and the CLI were
+already in.
+
 ### Machine-wide: `klose setup`
 
 `npx klose setup` sets up every repo at once instead: it installs the skills into

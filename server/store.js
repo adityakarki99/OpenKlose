@@ -3,13 +3,23 @@ import { mkdir, readFile, writeFile, unlink, readdir, rename } from 'node:fs/pro
 import path from 'node:path';
 import { badRequest, notFound } from './errors.js';
 
-// Project ids are always server-generated UUIDs (randomUUID()). Route params
-// reach this file straight from the HTTP layer, so anything that isn't a
-// well-formed UUID is rejected before it can influence a filesystem path.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import {
+  DEMO_NODE,
+  DEMO_PROJECT_NAME,
+  feedbackOf,
+  isValidId,
+  newProject,
+  nextUpdatedAt,
+  placeNode,
+  projectSummary,
+} from './storeCore.js';
+
+// The pure parts (ids, placement, the demo sketch) live in storeCore.js, which
+// the hosted canvas's folder store shares, so both write the same records.
+export { placeNode };
 
 function assertValidId(id) {
-  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+  if (!isValidId(id)) {
     throw badRequest(`Invalid project id: ${JSON.stringify(id)}`, 'INVALID_PROJECT_ID');
   }
   return id;
@@ -83,15 +93,7 @@ export async function listProjects(cwd) {
   );
   return projects
     .filter(Boolean)
-    .map(({ id, name, description, nodes, created_at, updated_at, savedToRepo }) => ({
-      id,
-      name,
-      description,
-      nodes,
-      created_at,
-      updated_at,
-      ...(savedToRepo ? { savedToRepo } : {}),
-    }))
+    .map(projectSummary)
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
 }
 
@@ -100,37 +102,9 @@ export async function getProject(cwd, id) {
 }
 
 export async function createProject(cwd, name = 'Untitled Project') {
-  const now = new Date().toISOString();
-  const project = {
-    id: randomUUID(),
-    name,
-    description: '',
-    nodes: [],
-    designSystemPrompt: '',
-    projectContext: {
-      projectDescription: '',
-      targetAudience: '',
-      brandName: '',
-      brandVoice: '',
-      designReferences: '',
-      techNotes: '',
-      productInfo: '',
-    },
-    created_at: now,
-    updated_at: now,
-  };
+  const project = newProject(randomUUID(), name);
   await writeProjectFile(cwd, project);
   return project;
-}
-
-/**
- * The timestamp an edit stamps on a project. Always later than the one it
- * replaces, even when two writes land in the same millisecond, so "has this
- * changed since?" comparisons can trust it.
- */
-function nextUpdatedAt(previous, now = Date.now()) {
-  const before = Date.parse(previous);
-  return new Date(Number.isFinite(before) && before >= now ? before + 1 : now).toISOString();
 }
 
 // `savedToRepo` is bookkeeping owned by setSavedToRepo: a caller round-tripping
@@ -156,25 +130,6 @@ export async function setSavedToRepo(cwd, id, savedToRepo) {
 
 export async function deleteProject(cwd, id) {
   await unlink(projectFile(cwd, id));
-}
-
-// Where a sketch lands when whoever adds it (usually the agent) doesn't say:
-// in a row to the right of the existing ones, top-aligned with them.
-const DEFAULT_NODE = { width: 480, height: 360 };
-const NODE_GAP = 80;
-const FIRST_NODE_AT = { x: 200, y: 160 };
-
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-
-export function placeNode(existing, node) {
-  const width = isNum(node.width) ? node.width : DEFAULT_NODE.width;
-  const height = isNum(node.height) ? node.height : DEFAULT_NODE.height;
-  if (isNum(node.x) && isNum(node.y)) return { x: node.x, y: node.y, width, height };
-  const placed = existing.filter((n) => isNum(n.x) && isNum(n.y));
-  if (!placed.length) return { ...FIRST_NODE_AT, width, height };
-  const right = Math.max(...placed.map((n) => n.x + (isNum(n.width) ? n.width : DEFAULT_NODE.width)));
-  const top = Math.min(...placed.map((n) => n.y));
-  return { x: right + NODE_GAP, y: top, width, height };
 }
 
 export async function addNode(cwd, id, node) {
@@ -214,26 +169,7 @@ export async function updateNode(cwd, id, nodeId, updates) {
  */
 export async function listFeedback(cwd, { projectId, includeResolved = false } = {}) {
   const projects = projectId ? [await getProject(cwd, projectId)] : await listProjects(cwd);
-  return projects.flatMap((project) =>
-    (project.nodes || []).flatMap((node) =>
-      (node.comments || [])
-        .filter((comment) => includeResolved || !comment.resolvedAt)
-        .map((comment) => ({
-        projectId: project.id,
-        projectName: project.name,
-        nodeId: node.id,
-        nodeName: node.name,
-        builtFilePath: node.builtFilePath || null,
-        commentId: comment.id,
-        text: comment.text,
-        createdAt: comment.createdAt,
-        element: comment.element || null,
-        status: comment.resolvedAt ? 'resolved' : comment.sentAt ? 'sent' : 'new',
-        ...(comment.resolvedAt ? { resolvedAt: comment.resolvedAt, resolution: comment.resolution || null } : {}),
-        ...(comment.triage ? { triage: { kind: comment.triage.kind, effort: comment.triage.effort, kindConfidence: comment.triage.kindConfidence ?? null, effortConfidence: comment.triage.effortConfidence ?? null } } : {}),
-      }))
-    )
-  );
+  return feedbackOf(projects, { includeResolved });
 }
 
 /**
@@ -307,38 +243,11 @@ export function projectsWatchDir(cwd) {
   return projectsDir(cwd);
 }
 
-const DEMO_SKETCH_CODE = `export default function WelcomeCard() {
-  return (
-    <div className="max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
-        <span>✦</span> Klose demo sketch
-      </div>
-      <h2 className="text-lg font-semibold text-slate-900">This is a sketch</h2>
-      <p className="mt-2 text-sm text-slate-600">
-        A live-rendered preview, not a labeled box. Leave a comment below, or click an element in
-        the preview to scope feedback to it — then ask your agent to address it.
-      </p>
-      <button className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white">
-        Ask your agent to build this
-      </button>
-    </div>
-  );
-}
-`;
-
 // Gives a first-time `klose init` something on the canvas instead of an empty
 // board. Only called when no projects exist yet, so it never clobbers real work.
 export async function seedDemoProject(cwd) {
-  const project = await createProject(cwd, 'Klose demo');
-  const node = await addNode(cwd, project.id, {
-    name: 'Welcome to Klose',
-    description: 'A live-rendered preview, not a static mockup — this is what a sketch looks like.',
-    notes:
-      "Created by `klose init` so the canvas isn't empty on first run. Leave a comment on it (or " +
-      'click an element in the preview) to see feedback flow back to your agent, then ask it to ' +
-      'build something real for your project — that replaces this note with actual work.',
-    code: DEMO_SKETCH_CODE,
-  });
+  const project = await createProject(cwd, DEMO_PROJECT_NAME);
+  const node = await addNode(cwd, project.id, { ...DEMO_NODE });
   return { project, node };
 }
 

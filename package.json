@@ -43,6 +43,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:static": "node scripts/build-static.mjs",
     "preview": "vite preview",
     "test": "node --test test/*.test.js",
     "typecheck": "tsc --noEmit -p .",

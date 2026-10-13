@@ -16,7 +16,7 @@
  * back. No Node or DOM imports: this bundles into the canvas as it is and
  * runs on Node 18 with `globalThis.crypto` from node:crypto.
  */
-import { mergeSketches } from '../lib/merge.js';
+import { mergeSketches } from './merge.js';
 
 export const SHARE_VERSION = 1;
 export const SHARE_ALG = 'A256GCM';

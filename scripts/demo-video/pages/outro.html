@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Klose</title>
+<style>
+  :root { --bg: #0b0f1a; --fg: #f3f4f6; --muted: #9aa3b5; --accent: #6366f1; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  .grid { position: absolute; inset: 0; background-image: radial-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(circle at 50% 45%, #000 20%, transparent 75%); }
+  .wrap { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 26px; }
+  .brand { display: flex; align-items: center; gap: 14px; opacity: 0; animation: up 700ms ease-out 150ms forwards; }
+  .dot { width: 56px; height: 56px; border-radius: 999px; background: #fff; box-shadow: 0 0 50px rgb(99 102 241 / 0.5); }
+  .brand span { font-size: 48px; font-weight: 800; letter-spacing: -0.02em; }
+  h1 { margin: 0; font-size: 56px; line-height: 1.1; letter-spacing: -0.03em; font-weight: 700; color: var(--muted); opacity: 0; animation: up 800ms ease-out 450ms forwards; }
+  h1 b { color: var(--fg); font-weight: 700; }
+  .url { margin-top: 12px; font-size: 40px; font-weight: 700; letter-spacing: -0.01em; padding: 18px 34px; border-radius: 18px; border: 1px solid rgb(99 102 241 / 0.6); background: rgb(99 102 241 / 0.12); color: #c7d2fe; opacity: 0; animation: up 800ms ease-out 900ms forwards; }
+  .url span { color: #fff; }
+  p { margin: 0; font-size: 22px; color: var(--muted); opacity: 0; animation: up 800ms ease-out 1300ms forwards; }
+  .foot { position: absolute; bottom: 48px; display: flex; gap: 28px; font-size: 16px; color: var(--muted); opacity: 0; animation: up 800ms ease-out 1600ms forwards; }
+  @keyframes up { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="wrap">
+    <div class="brand"><div class="dot"></div><span>Klose</span></div>
+    <h1>The visual surface your <b>coding agent</b> is missing.</h1>
+    <div class="url">adityakarki99.github.io/<span>OpenKlose</span></div>
+    <p>Open it in Chrome or Edge, choose your repo folder, and start sketching.</p>
+    <div class="foot"><span>AGPL-3.0 · open source</span><span>github.com/adityakarki99/OpenKlose</span><span>Local, private, no API keys</span></div>
+  </div>
+</body>
+</html>

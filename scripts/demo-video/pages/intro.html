@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Klose hosted canvas</title>
+<style>
+  :root { --bg: #0b0f1a; --fg: #f3f4f6; --muted: #9aa3b5; --accent: #6366f1; --gold: #b8903d; --blue: #1f5f8b; --live: #34c759; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  .grid { position: absolute; inset: 0; background-image: radial-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(circle at 50% 45%, #000 20%, transparent 75%); }
+  .wrap { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
+  .brand { display: flex; align-items: center; gap: 14px; opacity: 0; animation: up 700ms ease-out 200ms forwards; }
+  .dot { width: 44px; height: 44px; border-radius: 999px; background: #fff; box-shadow: 0 0 40px rgb(99 102 241 / 0.5); }
+  .brand span { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+  .tag { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); border: 1px solid rgb(255 255 255 / 0.18); padding: 6px 12px; border-radius: 999px; }
+  h1 { margin: 0; font-size: 76px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; max-width: 1100px; opacity: 0; animation: up 800ms ease-out 500ms forwards; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #fff, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { margin: 0; font-size: 26px; color: var(--muted); max-width: 900px; line-height: 1.4; opacity: 0; animation: up 800ms ease-out 900ms forwards; }
+  .chips { display: flex; gap: 12px; margin-top: 10px; opacity: 0; animation: up 800ms ease-out 1300ms forwards; }
+  .chip { font-size: 16px; font-weight: 600; padding: 10px 18px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 0.14); background: rgb(255 255 255 / 0.04); display: flex; align-items: center; gap: 8px; }
+  .chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  @keyframes up { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="wrap">
+    <div class="brand"><div class="dot"></div><span>Klose</span><span class="tag">Hosted canvas</span></div>
+    <h1>A design canvas for your coding agent.<br /><em>No server. No login.</em></h1>
+    <p>Sketch UI as live previews in your repo's real design system, point at the exact element that's wrong, and let the agent build it.</p>
+    <div class="chips">
+      <span class="chip"><i style="background: var(--live)"></i> Nothing to install</span>
+      <span class="chip"><i style="background: var(--accent)"></i> Your repo folder, nothing else</span>
+      <span class="chip"><i style="background: var(--gold)"></i> Works with Claude Code</span>
+    </div>
+  </div>
+</body>
+</html>

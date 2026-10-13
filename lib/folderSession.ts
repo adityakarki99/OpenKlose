@@ -200,11 +200,22 @@ export function pickFolder(): Promise<DirHandleLike> {
 // ------------------------------------------------------------------- session
 
 export interface FolderSession {
+  /**
+   * 'folder': the repo folder the browser was given (this file).
+   * 'share':  a project at a link, kept in step with a share host
+   *           (lib/shareSession.ts); the folder is in memory.
+   */
+  kind: 'folder' | 'share';
   /** The folder's name: the repo. */
   name: string;
-  handle: DirHandleLike;
+  handle?: DirHandleLike;
   fs: FolderFs;
   store: ReturnType<typeof createFolderStore>;
+  /** On a share: the link's parts, and what the agent's checkout sent along. */
+  share?: { id: string; key: string; host: string; projectId: string };
+  themeCss?: string;
+  /** On a share: lets the session end its sync loop when it closes. */
+  dispose?: () => void;
 }
 
 let current: FolderSession | null = null;
@@ -219,7 +230,7 @@ function notify() {
 
 /** Tells the CLI and the skill that the hosted canvas has this repo open (see folderStore.writeCanvasMarker). */
 function touchMarker() {
-  if (!current || document.visibilityState === 'hidden') return;
+  if (!current || current.kind !== 'folder' || document.visibilityState === 'hidden') return;
   current.store.writeCanvasMarker({ url: window.location.href.split('#')[0] }).catch(() => {});
 }
 
@@ -229,14 +240,21 @@ export function getSession(): FolderSession | null {
 
 export function openSession(handle: DirHandleLike): FolderSession {
   const fs = folderFs(handle);
-  current = { name: handle.name, handle, fs, store: createFolderStore(fs) };
+  setSession({ kind: 'folder', name: handle.name, handle, fs, store: createFolderStore(fs) });
+  return current!;
+}
+
+/** Makes `session` the open one (a folder here, a share from lib/shareSession.ts), closing whatever was open. */
+export function setSession(session: FolderSession): void {
+  current?.dispose?.();
+  current = session;
   touchMarker();
   if (markerTimer === null) markerTimer = window.setInterval(touchMarker, MARKER_EVERY_MS);
   notify();
-  return current;
 }
 
 export function closeSession(): void {
+  current?.dispose?.();
   current = null;
   if (markerTimer !== null) window.clearInterval(markerTimer);
   markerTimer = null;

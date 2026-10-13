@@ -205,8 +205,9 @@ Worth being straight about, because the pitch is stronger without overclaiming:
 
 - **Zero setup, no repo needed.** Artifacts work from nothing. Klose wants Node ≥ 18, an install, and
   a repo worth grounding in.
-- **Sharing.** An artifact is a URL you send to your PM. Klose is `localhost` — no links, no
-  multiplayer. "Async handoff" here means handing someone the *Copy for agent* text.
+- **Sharing.** An artifact is a URL you send to your PM. Klose is `localhost` by default; a
+  shared canvas (`klose share`) is a link too, but one project at a time and no multiplayer
+  cursors. "Async handoff" there means the comments they leave reach the agent.
 - **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
   inert without an agent driving it.
 - **Preview fidelity ceiling.** Klose previews are self-contained sandboxed snippets; components that
@@ -256,7 +257,7 @@ Code keeps them current through `/plugin marketplace update openklose`. If you a
 repo, pass `--no-skills` so it doesn't get a second copy.
 
 **Or nothing at all: the hosted canvas.** Open
-[adityakarki99.github.io/OpenKlose](https://adityakarki99.github.io/OpenKlose/) in Chrome or Edge,
+[klosegrid.com/canvas](https://www.klosegrid.com/canvas/) in Chrome or Edge,
 click **Choose the repo folder**, and pick the repo. That is the whole install. The page reads and
 writes `.klose/` in the folder you picked, the same files the agent's CLI writes, so a sketch the
 agent adds shows up within a second or two, and the browser remembers the folder so next time it is
@@ -270,6 +271,17 @@ can't scan or run anything: the component index, Jev, the token check and "Save 
 <a href="docs/videos/hosted-canvas-demo.mp4"><img src="docs/videos/hosted-canvas-demo.png" alt="Watch the hosted canvas demo: OnCue's sketches on the canvas, with no server" width="720"></a>
 
 *[Watch the hosted canvas in 100 seconds](docs/videos/hosted-canvas-demo.mp4)* (made by `scripts/demo-video/run.sh`).
+
+**Or, when the agent isn't on your machine: a shared canvas.** An agent in a cloud session
+(Claude Code on the web, Codex, Devin, a CI job) can't show you `localhost`. It runs
+`npx klose share <projectId>` instead and hands you a link like
+`https://www.klosegrid.com/canvas/#/s/<id>/<key>`. Open it in any browser, on any device: the
+sketches render live in your repo's tokens, you comment on the exact element, and the comments
+reach the agent on its next `npx klose feedback`. The project is encrypted in the agent's checkout
+with a key that lives only in the link (after the `#`, which browsers never send), so the share
+host stores ciphertext it can't read. Anyone with the link can view and comment; shares expire a
+month after the last change. The `/klose` skill does this on its own when it finds itself somewhere
+remote. See `klose help share`.
 
 **Or per repo**, from the root of the repo you want to design in:
 
@@ -659,6 +671,9 @@ klose feedback --triage [--project=<id>]          The same, after Jev says what 
 klose project lint <id> <nodeId> [--no-jev]       Literal colours/radii/shadows in a sketch's preview where the repo has a token
 klose project classify <id> [--force]             Ask Jev what each sketch is, and which repo primitives it looks like a copy of
 klose resolve <id> <nodeId> [commentId...] [--note=…]   Mark comments addressed (all open ones if no ids)
+klose share <id> [--host=<url>]                   Put the project at a link the user opens anywhere (for an agent
+                                                  the user's browser can't reach); the project then syncs on its own
+klose share list | pull | push | join <link> | leave <id>   The shares of this checkout, one sync round, attach a link made elsewhere
 ```
 
 Any `<json>` argument can instead be `@path/to/file.json` — handy for a sketch's multi-line preview
@@ -710,6 +725,9 @@ klose package (also the plugin marketplace)
 ├── server/scanner.js    Indexes the repo's real components
 ├── lib/folderStore.js   The same store over a folder the browser was given (the hosted canvas)
 ├── lib/folderSession.ts Opening and remembering that folder (File System Access API)
+├── server/shareCore.js  A shared canvas: encryption, three-way merge and sync, shared by the CLI and the page
+├── server/share.js      The CLI's side of it: .klose/shares/, `klose share`, the sync around commands
+├── lib/shareSession.ts  The page's side: a share link opened as an in-memory folder that syncs
 ├── plugin/              The Claude Code plugin: what `/plugin install klose` clones
 │   ├── .claude-plugin/plugin.json   Name, version, metadata
 │   └── skills/klose/    Source of the skill — the plugin loads it here, klose init copies it

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
 import { classifySketches, getProject, lintNode, triageFeedback } from '../services/projectService';
 import { getServerInfo } from '../services/hubService';
-import { API_BASE } from '../lib/repoScope';
+import { subscribeProjectChanges } from '../lib/changeSource';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -252,8 +252,7 @@ const CanvasPage: React.FC = () => {
   // Live-refresh nodes written by an external process (e.g. the /klose agent) while this tab is open.
   useEffect(() => {
     if (!projectId) return;
-    const source = new EventSource(`${API_BASE}/events`);
-    source.addEventListener('update', () => {
+    return subscribeProjectChanges(() => {
       setFilesRefreshKey((k) => k + 1);
       getProject(projectId)
         .then((project) => {
@@ -286,7 +285,6 @@ const CanvasPage: React.FC = () => {
           // Ignore — the next successful poll/save will reconcile.
         });
     });
-    return () => source.close();
   }, [projectId]);
 
   // --- Helpers ---

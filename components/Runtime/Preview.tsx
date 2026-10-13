@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { API_BASE } from '../../lib/repoScope';
+import { BASE_URL, STATIC } from '../../lib/mode';
+import { loadThemeCss as loadFolderThemeCss } from '../../lib/folderBackend';
 import * as LucideReact from 'lucide-react';
 import type { PinPosition, SelectedElementInfo } from '../../types';
 
@@ -54,6 +56,8 @@ const CAPTURE_TIMEOUT_MS = 20000;
  */
 let themeCssPromise: Promise<string> | null = null;
 function loadThemeCss(): Promise<string> {
+  // The hosted canvas reads the tokens straight from the repo folder.
+  if (STATIC) return loadFolderThemeCss();
   themeCssPromise ??= fetch(`${API_BASE}/theme`)
     .then((res) => (res.ok ? res.json() : { css: '' }))
     .then((body) => (typeof body.css === 'string' ? body.css : ''))
@@ -279,7 +283,7 @@ const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         ref={iframeRef}
         title="Sketch preview"
         sandbox="allow-scripts"
-        src="/preview.html"
+        src={`${BASE_URL}preview.html`}
         allowTransparency
         className="w-full h-full block border-0"
         style={{ background: 'transparent', pointerEvents: interactive ? 'auto' : 'none' }}

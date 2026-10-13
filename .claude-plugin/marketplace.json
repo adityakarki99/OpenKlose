@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "openklose",
+  "owner": { "name": "Aditya Karki", "url": "https://github.com/adityakarki99" },
+  "description": "Klose: a local, no-login design canvas for Claude Code. Sketch UI against your repo's real design system, point at the exact element that is wrong, and have the agent build it into your source tree.",
+  "plugins": [
+    {
+      "name": "klose",
+      "source": "./plugin",
+      "description": "The /klose, /klose-update and /klose-cleanup skills. Needs the klose CLI (npm) for the canvas itself.",
+      "category": "design",
+      "tags": ["design", "design-system", "ui", "tailwind", "canvas", "react"]
+    }
+  ]
+}

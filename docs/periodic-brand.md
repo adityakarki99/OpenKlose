@@ -62,7 +62,7 @@ hold a `.klose/` folder. Use the tile as the mark or beside the name, not as a n
   `icon.icns`); the dot in `components/Layout/Navbar.tsx`, `pages/WelcomePage.tsx` and
   `pages/LandingPage.tsx`; the README header and download badges; `docs/images/hero.png`, a screenshot of the
   landing page. `index.html` has no favicon today, so a tile favicon would be new.
-- **Leave alone:** the `/klose` skill and the files under `skills/`; the `klose` npm package name and
+- **Leave alone:** the `/klose` skill and the files under `plugin/skills/`; the `klose` npm package name and
   `bin/klose.js`; the installer file names used by `.github/workflows/release-app.yml` and the README; the `.klose/`
   folder written into user repos.
 

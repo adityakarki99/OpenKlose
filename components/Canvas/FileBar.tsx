@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FileText, FolderDown, Loader2, MessageSquare, Plus, X } from 'lucide-react';
 import { HubRepo, Project } from '../../types';
-import { listProjects, saveProjectToRepo } from '../../services/projectService';
+import { listProjects, saveProjectToRepo, canSaveToRepo } from '../../services/projectService';
 import { agentLine, getRepo } from '../../services/hubService';
 import { HUB_HOME, REPO_ID } from '../../lib/repoScope';
 import { AgentDot } from '../Hub/AgentDot';
@@ -160,6 +160,8 @@ export const FileBar: React.FC<FileBarProps> = ({ projectId, projectName, refres
     setError(null);
     try {
       await onFlush();
+      // The hosted canvas has no export: ⌘S just makes sure the canvas is saved.
+      if (!canSaveToRepo) return;
       const { repo: saved } = await saveProjectToRepo(projectId);
       setProjects((list) => list && list.map((p) => (p.id === projectId ? { ...p, repo: saved } : p)));
     } catch (err) {
@@ -257,7 +259,7 @@ export const FileBar: React.FC<FileBarProps> = ({ projectId, projectName, refres
         ) : (
           repo?.dir && <span className="hidden font-mono text-xs text-app-muted lg:inline">{repo.dir}/</span>
         )}
-        {isSaving ? (
+        {!canSaveToRepo ? null : isSaving ? (
           <span className="flex items-center gap-1.5 text-xs text-app-secondary">
             <Loader2 size={12} className="animate-spin" />
             Saving…

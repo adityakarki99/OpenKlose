@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         # package.json declares engines.node >= 18, and the published package is
-        # just bin/ + server/ + skills/ — plain node builtins, no bundler. So the
+        # just bin/ + server/ + plugin/ — plain node builtins, no bundler. So the
         # suite runs on the floor we promise (18), current LTS (22), and 20 in
         # between. node:test, fetch and fs/promises have all shifted across these
         # versions; running all three keeps a fix for one from breaking another.
@@ -67,6 +67,12 @@ jobs:
       # build break is a release break even when every test passes.
       - name: Build
         run: npm run build
+
+      # The same app built as the hosted canvas (web/static): no server, the
+      # repo is a folder the browser is given. test/browser-folder.test.js
+      # drives it, and skips without this build.
+      - name: Build the hosted canvas
+        run: npm run build:static
 
       # The browser tests (test/browser-*.test.js) drive the built canvas and
       # preview sandbox in Chromium, and skip without them. Playwright stays out

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { SettingsProvider } from './contexts/SettingsContext';
 import AppLayout from './components/Layout/AppLayout';
 import MinimalLayout from './components/Layout/MinimalLayout';
@@ -11,8 +11,61 @@ import SettingsPage from './pages/SettingsPage';
 import HubHomePage from './pages/HubHomePage';
 import TrayPage from './pages/TrayPage';
 import WelcomePage from './pages/WelcomePage';
+import OpenRepoPage, { NEXT_KEY } from './pages/OpenRepoPage';
 import { getRepo, getServerInfo } from './services/hubService';
 import { HUB_HOME, REPO_ID, ROUTER_BASENAME } from './lib/repoScope';
+import { STATIC } from './lib/mode';
+import { useFolderSession } from './lib/folderSession';
+
+/** Pages of the hosted canvas need an open folder; without one, the front door, remembering where to come back to. */
+const RequireFolder: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const session = useFolderSession();
+  const location = useLocation();
+  if (session) return children;
+  try {
+    sessionStorage.setItem(NEXT_KEY, location.pathname);
+  } catch {
+    // The files page is a fine place to land.
+  }
+  return <Navigate to="/" replace />;
+};
+
+/**
+ * The hosted canvas (`npm run build:static`): no server, the repo is a folder
+ * the browser was given. Hash routes, so a deep link works on any static host
+ * without a rewrite rule. No landing page, hub, components index or setup:
+ * those belong to the process this build does without.
+ */
+const StaticApp: React.FC = () => (
+  <SettingsProvider>
+    <HashRouter>
+      <Routes>
+        <Route element={<MinimalLayout />}>
+          <Route path="/" element={<OpenRepoPage />} />
+          <Route
+            path="/canvas/:projectId"
+            element={
+              <RequireFolder>
+                <CanvasPage />
+              </RequireFolder>
+            }
+          />
+        </Route>
+        <Route
+          element={
+            <RequireFolder>
+              <AppLayout />
+            </RequireFolder>
+          }
+        >
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </HashRouter>
+  </SettingsProvider>
+);
 
 /**
  * What this page is showing:
@@ -22,7 +75,7 @@ import { HUB_HOME, REPO_ID, ROUTER_BASENAME } from './lib/repoScope';
  */
 type Mode = 'loading' | 'hub' | 'repo';
 
-const App: React.FC = () => {
+const ServerApp: React.FC = () => {
   const [mode, setMode] = useState<Mode>(REPO_ID ? 'repo' : 'loading');
 
   useEffect(() => {
@@ -72,5 +125,7 @@ const App: React.FC = () => {
     </SettingsProvider>
   );
 };
+
+const App: React.FC = STATIC ? StaticApp : ServerApp;
 
 export default App;

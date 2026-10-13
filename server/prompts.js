@@ -2,7 +2,7 @@
  * The three things people most often ask Klose for, as prompts they can type
  * into Claude Code as they are. The CLI prints them after `init` and `setup`,
  * the welcome page and the hub show them with a copy button, and the /klose
- * skill (skills/klose/SKILL.md, "Three ways people start") knows how to carry
+ * skill (plugin/skills/klose/SKILL.md, "Three ways people start") knows how to carry
  * each one out — so the wording here and the skill's section must agree.
  *
  * Plain JS with no imports, so the canvas (Vite) and the CLI (Node) share it.

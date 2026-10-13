@@ -34,7 +34,7 @@ system) instead of a server-proxied Gemini call.
 | **Canvas UI** | React 19 + TypeScript, React Router, Tailwind CSS, Vite |
 | **CLI / local server** | Plain Node.js (`node:http`, `node:fs`) — no framework, no external deps |
 | **Storage** | JSON files under `.klose/projects/` in the consuming repo — no database |
-| **Distribution** | npm package, installed per-repo; ships a pre-built static frontend |
+| **Distribution** | npm package (per-repo or global) that ships a pre-built static frontend; the skills also install as a Claude Code plugin from this repo |
 
 ---
 
@@ -52,7 +52,10 @@ server/scanner.js      Indexes the repo's real components
 server/hub.js          The hub: one server for every repo, found from Claude Code's session files
 server/setup.js        First-run setup for the hub (`klose setup`, the /welcome page)
 server/tray.js         Builds the macOS menu bar app; its start-at-login LaunchAgent
-skills/klose/SKILL.md  Source of the /klose skill (copied into consumer repos by `klose init`)
+plugin/                The Claude Code plugin: .claude-plugin/plugin.json plus skills/*/SKILL.md,
+                       the one source of the /klose skills (the plugin loads them in place;
+                       `klose init` copies them into consumer repos)
+.claude-plugin/        marketplace.json: makes this repo a plugin marketplace with one entry, ./plugin
 scripts/               smoke-pack.mjs (pack-and-install first-run test), prepare.mjs (git installs)
 web/                    The canvas UI source (built to web/dist for packaging)
 ```
@@ -61,7 +64,7 @@ web/                    The canvas UI source (built to web/dist for packaging)
 
 `npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
 holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
-1. Copies each `skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
+1. Copies each `plugin/skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
    `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
    each file as written; a later `init` or `update` replaces only files that still match it, and
    leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
@@ -69,6 +72,75 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
    `.klose/.gitignore` for the per-machine files (plus `projects/` with `--ignore-projects`).
 3. Reports the design tokens (`server/theme.js`) and components (`server/scanner.js`) it found, and
    the prompt to try first.
+
+### As a plugin: `/plugin install klose --marketplace adityakarki99/OpenKlose`
+
+The same three skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
+marketplace: `.claude-plugin/marketplace.json` lists one plugin, `klose`, whose source is the
+`plugin/` directory. That directory holds `.claude-plugin/plugin.json` (name, version, metadata) and
+`skills/`, which Claude Code loads in place under the plugin's namespace: `/klose:klose`,
+`/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
+it is bumped with `package.json` (`test/plugin.test.js` checks they agree).
+
+The plugin is deliberately thin. It carries no code: the CLI, the server and the canvas are still the
+`klose` npm package, which the skill calls with `npx klose …` exactly as it does from a copied skill.
+The first `/klose:klose` in a repo without the package tells the agent to install it once (globally,
+or as a devDependency). `klose init --no-skills` sets up `.klose/` for such a repo without writing a
+second copy of the skills into `.claude/skills/`. Updates split along the same line: Claude Code
+refreshes the plugin (`/plugin marketplace update openklose`), npm refreshes the package.
+
+`plugin/` is a subdirectory rather than the repo root on purpose: a plugin's top-level `bin/` goes on
+the agent's PATH and stops claude.ai from installing it, and the repo root has one. Only the skills
+and the manifest are cloned into `~/.claude/plugins/`.
+
+### Without a process: the hosted canvas
+
+excalidraw.com has no login because, for one person, it has no server: the page is the app, the
+browser holds the drawing, and a file on disk makes it portable. Klose's data was already files,
+`.klose/projects/*.json` in the repo; what needed a process was only the transport between those
+files and the canvas. The hosted canvas removes it.
+
+`npm run build:static` (`scripts/build-static.mjs`) builds the same canvas with
+`VITE_KLOSE_STATIC=1`, which sets `STATIC` in `lib/mode.ts`, into `web/static`.
+`.github/workflows/pages.yml` publishes that folder to GitHub Pages on every push to `main`. In
+that build:
+
+- `App.tsx` is `StaticApp`: hash routes (any static host serves them), the front door is
+  `pages/OpenRepoPage.tsx`, and every other page needs an open folder (`RequireFolder`, which
+  remembers where you were and sends you back there once a folder is open).
+- The folder comes from the File System Access API (`showDirectoryPicker`, Chromium browsers).
+  `lib/folderSession.ts` wraps the handle as a small `FolderFs` (list, read, write, remove over
+  `.klose/`), remembers it in IndexedDB so the next visit is one click to re-grant, and keeps the
+  open session for the hooks.
+- `lib/folderStore.js` is `server/store.js` over that interface: the same records, the same
+  placement of new sketches, the same demo project. The parts both need (`placeNode`,
+  `nextUpdatedAt`, the demo sketch, what `.klose/.gitignore` lists) moved into
+  `server/storeCore.js`, which has no Node imports and bundles into the canvas, so the CLI and the
+  page can't drift apart. Writes go through `createWritable`, which swaps a temp file in on
+  close, so the CLI never reads a half-written project.
+- The services (`services/projectService.ts` and friends) check `STATIC` and answer from
+  `lib/folderBackend.ts`. What needs a process next to the repo says so: the component index,
+  Jev, the token check and "Save to repo" stay with the CLI, and the UI hides the buttons.
+- Design tokens: the CSS half of `server/theme.js` moved to `server/themeParse.js`, also
+  dependency-free, and `folderBackend.loadThemeCss` walks the folder for stylesheets and entry
+  HTML the same way `theme.js` walks the disk. A Tailwind v3 `tailwind.config.js` is code the
+  page can't run, so those tokens are the server's.
+- Live refresh: `lib/changeSource.ts` is server-sent events on a server, and on the hosted canvas
+  a look at the project files' `lastModified` every 1.5 s while the tab is visible, plus on focus,
+  the way excalidraw.com re-reads its storage when its tab comes back. The result feeds the same
+  merge (`lib/merge.js`) as before, so the agent's writes land without losing unsaved edits.
+- `.klose/canvas.json`: while the hosted canvas has a repo open (and the repo already has a
+  `.klose/`; opening a folder to look writes nothing), it leaves a note there, touched every
+  minute. `klose status` reports it when fresh, and the `/klose` skill then knows not to start a
+  server. It is in `.klose/.gitignore` next to `server.json`.
+- `public/sw.js`: a network-first service worker, registered only by this build and only over
+  https, so the page opens offline once it has loaded. The preview sandbox's opaque origin is
+  outside any service worker's reach, so previews still want their bundle from the HTTP cache.
+
+What it costs: Firefox and Safari don't implement the directory picker, so this is Chromium-only
+(the page says so and points at `npx klose serve`). And two writers, the CLI and the page, share
+the files without a process between them, which is the situation `klose serve` and the CLI were
+already in.
 
 ### Machine-wide: `klose setup`
 
@@ -84,7 +156,7 @@ click, system side effects only after it.
 
 ## What Happens On `/klose`
 
-The skill (see `skills/klose/SKILL.md`) instructs the agent to:
+The skill (see `plugin/skills/klose/SKILL.md`) instructs the agent to:
 1. Ensure the local server is running (`klose status`, then `klose serve --detach`) and share the URL.
 2. Pick or create a `.klose` project.
 3. **Read the host repo's real design system** — Tailwind config, CSS custom properties, existing

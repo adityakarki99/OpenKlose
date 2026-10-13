@@ -1,8 +1,37 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { FolderOpen, Settings, Moon, Sun, Blocks } from 'lucide-react';
+import { FolderOpen, Settings, Moon, Sun, Blocks, FolderSync } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { RepoSwitcher } from '../Hub/RepoSwitcher';
+import { STATIC } from '../../lib/mode';
+import { closeSession, useFolderSession } from '../../lib/folderSession';
+
+/** On the hosted canvas: which folder is open, and the way to another one. */
+const FolderChip: React.FC = () => {
+  const session = useFolderSession();
+  const navigate = useNavigate();
+  if (!session) return null;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-app-subtle">/</span>
+      <span className="max-w-[220px] truncate text-sm font-semibold text-app-primary" title={session.name}>
+        {session.name}
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          closeSession();
+          navigate('/');
+        }}
+        className="flex items-center gap-1.5 rounded-md border border-app-border px-2 py-1 text-xs text-app-muted transition-colors hover:border-app-border-strong hover:text-app-primary"
+        title="Open a different repo folder"
+      >
+        <FolderSync size={12} />
+        Switch
+      </button>
+    </div>
+  );
+};
 
 const Navbar: React.FC = () => {
   const { settings, updateSettings } = useSettings();
@@ -12,7 +41,8 @@ const Navbar: React.FC = () => {
 
   const navItems = [
     { label: 'Files', path: '/projects', icon: FolderOpen },
-    { label: 'Components', path: '/components', icon: Blocks },
+    // The component index is scanned by the server; the hosted canvas has none.
+    ...(STATIC ? [] : [{ label: 'Components', path: '/components', icon: Blocks }]),
   ];
 
   return (
@@ -23,7 +53,7 @@ const Navbar: React.FC = () => {
           <div className="h-8 w-8 flex-shrink-0 rounded-full bg-app-primary shadow-[0_0_20px_rgba(59,130,246,0.2)] transition-shadow group-hover:shadow-[0_0_30px_rgba(59,130,246,0.35)]" />
           <span className="hidden font-logo text-lg font-bold tracking-tight text-app-primary sm:block">Klose</span>
         </button>
-        <RepoSwitcher />
+        {STATIC ? <FolderChip /> : <RepoSwitcher />}
       </div>
 
       {/* Center: Nav Links */}

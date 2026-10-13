@@ -20,6 +20,9 @@ import path from 'node:path';
 
 const MANIFEST = path.join('.klose', 'skills.json');
 
+/** Where the shipped skills live inside the package: also the plugin's skills/ directory. */
+export const SKILLS_DIR = path.join('plugin', 'skills');
+
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex');
 }
@@ -33,7 +36,7 @@ async function readManifest(root) {
 }
 
 export async function installSkills(fromPackageRoot, root, { force = false } = {}) {
-  const skillsRoot = path.join(fromPackageRoot, 'skills');
+  const skillsRoot = path.join(fromPackageRoot, SKILLS_DIR);
   const entries = await readdir(skillsRoot, { withFileTypes: true });
   const manifest = await readManifest(root);
   const report = { installed: [], updated: [], unchanged: [], skipped: [], backedUp: [] };
@@ -93,7 +96,7 @@ export async function installSkills(fromPackageRoot, root, { force = false } = {
  * Resolves to [{ name, state }].
  */
 export async function skillStatus(fromPackageRoot, root) {
-  const skillsRoot = path.join(fromPackageRoot, 'skills');
+  const skillsRoot = path.join(fromPackageRoot, SKILLS_DIR);
   const entries = await readdir(skillsRoot, { withFileTypes: true });
   const manifest = await readManifest(root);
   const status = [];

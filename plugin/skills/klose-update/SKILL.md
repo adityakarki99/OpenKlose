@@ -23,3 +23,9 @@ not the one you had before running the command.
 
 If the command fails (network error, no `klose` devDependency present, etc.), show the user the
 error rather than guessing at a fix.
+
+**If this skill came from the Klose plugin** (you ran it as `/klose-update` under the `klose`
+plugin, and there is no `.claude/skills/klose/` in the repo), the skill files are updated by Claude
+Code, not by this command: tell the user to run `/plugin marketplace update openklose`, or to let
+Claude Code's plugin auto-update do it. `npx klose update` still upgrades the CLI and canvas when
+`klose` is a devDependency here; for a global install it is `npm install -g klose@latest`.

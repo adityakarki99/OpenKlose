@@ -18,22 +18,45 @@ Start by asking whether a canvas is already up for this repo:
 npx klose status
 ```
 
+**If that fails because the `klose` package can't be found** (npx reports a 404 or "could not
+determine executable"), this skill came from the Klose plugin and the CLI isn't installed yet. The
+plugin carries only these instructions; the canvas and its CLI are the `klose` npm package. Install
+it once, then rerun the command:
+
+```
+npm install -g klose                                # once it is on npm
+npm install -g github:adityakarki99/OpenKlose       # until then
+```
+
+Per-repo (`npm install -D …`) works too, if the user prefers it in `devDependencies`.
+
 **If it says the repo is running "on the hub"**, you're done with this step: the user runs one
 machine-wide Klose (`klose hub`) that serves every repo, this one included. Don't run `init` or
 `serve` — the hub needs neither, and `.klose/` is created the first time you add a sketch. Tell the
 user the URL it printed (it looks like `http://localhost:5171/r/<id>/projects`) and go to step 2.
 Every `npx klose project …` command below works exactly the same either way.
 
-**Otherwise**, this repo runs its own canvas. Check whether `.klose/` exists at the repo root. If
-not, this is the first run:
+**If it says "The hosted canvas has this repo open"**, the user opened the Klose web page
+(Chrome or Edge, no install) and gave it this repo's folder: there is no server, and none is
+needed. Don't run `init` or `serve`. The page reads `.klose/` straight from the folder, so every
+`npx klose project …` command below shows up on it within a second or two. Tell the user the URL
+it printed and go to step 2. (The component index, Jev, the token check and `project export` still
+run through the CLI, as always.)
+
+**Otherwise**, this repo runs its own canvas. (If the user would rather not run one, the hosted
+canvas does the same job: open https://adityakarki99.github.io/OpenKlose/ in Chrome or Edge, choose
+the repo folder, and `npx klose status` reports it from then on.) Check whether `.klose/` exists at
+the repo root. If not, this is the first run:
 
 ```
-npx klose init
+npx klose init              # when this skill lives in the repo's .claude/skills/
+npx klose init --no-skills  # when it came from the Klose plugin (you ran it as /klose:klose)
 ```
 
 This copies this skill file into `.claude/skills/klose/` (already done if you're reading this from
-there), creates `.klose/projects/`, and prints which design tokens and components it found — pass
-that summary on to the user in a sentence.
+there; skipped with `--no-skills`, so a plugin user doesn't end up with two copies), creates
+`.klose/projects/`, and prints which design tokens and components it found — pass that summary on
+to the user in a sentence.
 
 Then make sure the canvas is up. `klose project ...` commands read `.klose/` directly on disk and
 "succeed" with no server running, so they can't tell you whether the canvas is reachable — use

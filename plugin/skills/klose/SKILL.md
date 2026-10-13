@@ -43,8 +43,29 @@ needed. Don't run `init` or `serve`. The page reads `.klose/` straight from the 
 it printed and go to step 2. (The component index, Jev, the token check and `project export` still
 run through the CLI, as always.)
 
+**If it says a project "is shared at" a link**, the user looks at this project through that link
+(a shared canvas, see below); nothing needs starting. Every `npx klose project …`, `feedback` and
+`resolve` command below syncs with it on its own. Go to step 2.
+
+**If you are running where the user's browser can't reach this machine** — a cloud session
+(Claude Code on the web, Codex, Devin, a CI job), a container, a VM, a remote box — a local server
+is no use to them. Skip `serve`. Share the project instead, once you have one (step 2):
+
+```
+npx klose share <projectId>
+```
+
+It prints a link like `https://www.klosegrid.com/canvas/#/s/<id>/<key>`. Give the user the link
+in your reply: it opens the canvas in any browser, on any device, with the sketches rendered live in
+the repo's design tokens, and the comments they leave come back to you. From then on
+`npx klose feedback` pulls their comments before answering and `project update|add-node|update-node`
+and `resolve` push your changes, so the rest of this skill is unchanged. The project is encrypted
+with a key that only the link carries; the share host stores ciphertext. Tell the user that too,
+in a sentence, the first time. Not sure whether you are remote? If `npx klose serve --open` would
+open a browser the user can't see, you are.
+
 **Otherwise**, this repo runs its own canvas. (If the user would rather not run one, the hosted
-canvas does the same job: open https://adityakarki99.github.io/OpenKlose/ in Chrome or Edge, choose
+canvas does the same job: open https://www.klosegrid.com/canvas/ in Chrome or Edge, choose
 the repo folder, and `npx klose status` reports it from then on.) Check whether `.klose/` exists at
 the repo root. If not, this is the first run:
 
@@ -375,6 +396,21 @@ is about, rather than guessing. On the stored node, such a comment has an `eleme
 same info, plus a `locator` (an nth-child path the canvas uses to place the comment's pin). Keep
 `element`, `sentAt`, `resolvedAt` and `resolution` as they are if you ever rewrite a node's comments;
 you never need to write a `locator` yourself.
+
+## Working through a shared canvas
+
+When the project is shared (`npx klose share`, see step 1), the user's canvas is the link, not a
+local page, and the sync is automatic: nothing in steps 2–6 changes. Two habits matter:
+
+- Run `npx klose feedback --project=<id>` before deciding what to do next, not only when the user
+  says there are comments: it pulls the shared canvas first, so it is how you learn what they did.
+- After a batch of `project` commands, tell the user the sketches are on the link. The page they
+  have open picks them up within a couple of seconds; they don't need to reload.
+
+`npx klose share pull` and `npx klose share push` force one round by hand, and `npx klose share
+list` shows the link again if you lost it. `npx klose share join <link>` attaches a link made on
+another checkout. Shares expire a month after the last write. The link and key are per checkout, in
+`.klose/shares/`, which stays out of git.
 
 ## Notes
 

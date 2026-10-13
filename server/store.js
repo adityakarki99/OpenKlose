@@ -128,6 +128,17 @@ export async function setSavedToRepo(cwd, id, savedToRepo) {
   return project;
 }
 
+/**
+ * Writes a whole project record as it is (a merge coming in from a shared
+ * canvas, see server/share.js). The id must be well-formed; nothing else is
+ * touched, not even `updated_at`: the merge already settled it.
+ */
+export async function putProject(cwd, project) {
+  assertValidId(project?.id);
+  await writeProjectFile(cwd, project);
+  return project;
+}
+
 export async function deleteProject(cwd, id) {
   await unlink(projectFile(cwd, id));
 }

@@ -1,16 +1,34 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { FolderOpen, Settings, Moon, Sun, Blocks, FolderSync } from 'lucide-react';
+import { FolderOpen, Settings, Moon, Sun, Blocks, FolderSync, Link2 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { RepoSwitcher } from '../Hub/RepoSwitcher';
 import { STATIC } from '../../lib/mode';
 import { closeSession, useFolderSession } from '../../lib/folderSession';
+import { useShareStatus } from '../../lib/shareSession';
 
-/** On the hosted canvas: which folder is open, and the way to another one. */
+/** On the hosted canvas: which folder is open, and the way to another one. On a share: the link's repo, and how the sync is doing. */
 const FolderChip: React.FC = () => {
   const session = useFolderSession();
   const navigate = useNavigate();
+  const status = useShareStatus();
   if (!session) return null;
+  if (session.kind === 'share') {
+    const label = status === 'offline' ? 'offline, retrying' : status === 'gone' ? 'link expired' : 'shared canvas';
+    const tone = status === 'ok' ? 'text-emerald-400' : status === 'offline' ? 'text-amber-400' : 'text-red-400';
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-app-subtle">/</span>
+        <span className="max-w-[220px] truncate text-sm font-semibold text-app-primary" title={session.name}>
+          {session.name}
+        </span>
+        <span className={`flex items-center gap-1.5 rounded-md border border-app-border px-2 py-1 text-xs ${tone}`} title="This canvas is a link your agent shared. What you do here reaches the agent; what it sketches shows up here." data-testid="share-status">
+          <Link2 size={12} />
+          {label}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-3">
       <span className="text-app-subtle">/</span>

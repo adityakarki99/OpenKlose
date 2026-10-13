@@ -142,6 +142,46 @@ What it costs: Firefox and Safari don't implement the directory picker, so this 
 the files without a process between them, which is the situation `klose serve` and the CLI were
 already in.
 
+### Without a machine in common: the shared canvas
+
+The hosted canvas still needs the agent and the user on the same disk. An agent in a cloud session
+(Claude Code on the web, Codex, a container) has the repo and the CLI, but no folder the user's
+browser could be given. The shared canvas is excalidraw's other trick: the drawing at a link,
+encrypted with a key the link carries in its fragment, on a host that stores ciphertext.
+
+- `server/shareCore.js` is the whole protocol, dependency-free and shared by both ends: AES-GCM
+  over Web Crypto (`globalThis.crypto`, which `server/share.js` sets from `node:crypto` on Node
+  18), the payload shape a host checks (`isPayload`), the link format (`shareUrl`,
+  `parseShareUrl`), the bundle (the project plus the design tokens as CSS and the repo's name,
+  since only the CLI can read those), `mergeShared` and `syncShare`.
+- The host is three small functions on the Klose site (`KloseGridman/api/share/`, over Vercel
+  Blob): `POST` makes a share, `GET` reads it (304 on `If-None-Match`), `PUT` replaces it only if
+  `If-Match` still holds and otherwise answers 412 with the current version. A daily cron sweeps
+  shares a month past their last write. `test/helpers/shareHost.js` is the same contract in
+  memory, which the tests on both sides run against.
+- Both ends keep the version they last synced (ETag plus project) and run `syncShare`: pull, merge
+  three ways against that version, push with `If-Match`, and on 412 merge again on what won.
+  `mergeShared` is `lib/merge.js` (a sketch changed here keeps the local version, the rest take
+  the incoming one, deletions stick) plus one rule of its own: comments on a sketch both sides
+  touched are kept from both, so an agent rewriting a sketch never drops the comment just left on
+  it, and project fields take the incoming value unless edited locally since.
+- The CLI (`server/share.js`, `klose share`): `.klose/shares/<projectId>.json` holds the id, key,
+  host and last synced version; `.klose/.gitignore` lists `shares/`, since the key is the
+  capability. `klose feedback`, `project get` and `project list` pull first; `project update`,
+  `add-node`, `update-node` and `resolve` push after, best effort with a 15 s timeout, so a host
+  that is down is a warning on stderr and never a failed command. `klose status` names the link.
+- The page (`lib/shareSession.ts`, route `#/s/<id>/<key>`): the project goes into
+  `memoryFolder` from `lib/folderStore.js`, so every page, the store, `changeSource`'s polling
+  and the canvas's own merge work unchanged over it. Writes the store makes are pushed after a
+  short debounce; a pull runs every two seconds while the tab is visible and on focus, and what
+  comes in is written to the memory folder like a sketch the agent wrote. The session is the
+  `FolderSession` with `kind: 'share'`, and the link is kept in `sessionStorage` so a reload
+  comes straight back. The share host is the page's own origin: a link opens the canvas of the
+  site that stores the share.
+
+What it costs: a backend, for the first time, though one that holds nothing readable; the link is
+the whole access control (view and comment for whoever has it); one project per link.
+
 ### Machine-wide: `klose setup`
 
 `npx klose setup` sets up every repo at once instead: it installs the skills into

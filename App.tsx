@@ -12,16 +12,24 @@ import HubHomePage from './pages/HubHomePage';
 import TrayPage from './pages/TrayPage';
 import WelcomePage from './pages/WelcomePage';
 import OpenRepoPage, { NEXT_KEY } from './pages/OpenRepoPage';
+import SharePage from './pages/SharePage';
+import { rememberedShare } from './lib/shareSession';
 import { getRepo, getServerInfo } from './services/hubService';
 import { HUB_HOME, REPO_ID, ROUTER_BASENAME } from './lib/repoScope';
 import { STATIC } from './lib/mode';
 import { useFolderSession } from './lib/folderSession';
 
-/** Pages of the hosted canvas need an open folder; without one, the front door, remembering where to come back to. */
+/**
+ * Pages of the hosted canvas need an open folder; without one, the front
+ * door, remembering where to come back to. A tab that was on a shared canvas
+ * (a reload) reopens the link instead: it needs no picker.
+ */
 const RequireFolder: React.FC<{ children: React.ReactElement }> = ({ children }) => {
   const session = useFolderSession();
   const location = useLocation();
   if (session) return children;
+  const share = rememberedShare();
+  if (share) return <Navigate to={`/s/${share.id}/${share.key}`} replace />;
   try {
     sessionStorage.setItem(NEXT_KEY, location.pathname);
   } catch {
@@ -42,6 +50,8 @@ const StaticApp: React.FC = () => (
       <Routes>
         <Route element={<MinimalLayout />}>
           <Route path="/" element={<OpenRepoPage />} />
+          {/* A shared canvas: the project at a link the agent made (lib/shareSession.ts). */}
+          <Route path="/s/:id/:key" element={<SharePage />} />
           <Route
             path="/canvas/:projectId"
             element={

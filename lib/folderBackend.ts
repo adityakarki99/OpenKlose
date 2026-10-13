@@ -75,6 +75,8 @@ let themeFor: string | null = null;
 export function loadThemeCss(): Promise<string> {
   const s = getSession();
   if (!s) return Promise.resolve('');
+  // A share carries the tokens the agent's CLI read from the repo.
+  if (s.kind === 'share') return Promise.resolve(s.themeCss || '');
   if (!themePromise || themeFor !== s.name) {
     themeFor = s.name;
     themePromise = collectTheme().catch(() => '');

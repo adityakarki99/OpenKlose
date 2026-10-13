@@ -71,7 +71,7 @@ test('the first write adds .klose/.gitignore with the per-machine files, and kee
   const { fs, store } = fresh({ '.klose/.gitignore': 'projects/\n' });
   await store.createProject('P');
   const lines = fs.files.get('.klose/.gitignore').text.trim().split('\n');
-  assert.deepEqual(lines, ['projects/', 'server.json', 'server.log', 'canvas.json']);
+  assert.deepEqual(lines, ['projects/', 'server.json', 'server.log', 'canvas.json', 'shares/']);
 });
 
 test('feedback lists open comments with their element, in the shape the CLI prints', async () => {

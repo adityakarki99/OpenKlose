@@ -147,4 +147,4 @@ export const DEMO_NODE = {
 };
 
 /** What `.klose/.gitignore` lists: the per-machine files Klose writes next to the projects. */
-export const KLOSE_GITIGNORE = ['server.json', 'server.log', 'canvas.json'];
+export const KLOSE_GITIGNORE = ['server.json', 'server.log', 'canvas.json', 'shares/'];

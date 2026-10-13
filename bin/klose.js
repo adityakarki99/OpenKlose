@@ -14,6 +14,7 @@ import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
 import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
+import * as share from '../server/share.js';
 import {
   defaultHubOptions,
   findHub,
@@ -72,6 +73,8 @@ Canvas data
   project       List, create, read and edit projects and their sketches
   feedback      Read pending comments as JSON
   resolve       Mark comments as addressed, so the canvas shows them done
+  share         Put a project at a link the user can open anywhere, for when
+                you (the agent) run somewhere their browser can't reach
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
   lint          Audit real source files: literal colours, radii and shadows
@@ -231,6 +234,46 @@ Marks comments on a sketch as addressed. With no comment ids, resolves every
 open comment on that sketch. The canvas shows them as resolved (the user can
 reopen one), and they drop out of "klose feedback" and out of what the canvas
 copies for the agent. --note is shown to the user next to each comment.`,
+  share: `Usage: klose share <projectId> [--host=<url>] [--json]
+       klose share list [--json]
+       klose share pull|push [projectId] [--json]
+       klose share join <link> [--json]
+       klose share leave <projectId>
+
+Shares a project as a link the user opens in any browser, on any device:
+<host>/canvas/#/s/<id>/<key>. For a coding agent that runs where the user's
+browser can't reach (a cloud session, a container, a VM): the user sees the
+sketches rendered live, comments on the exact element, and the comments come
+back here.
+
+The project (and the design tokens "klose theme" found, so previews render in
+the repo's colours) is encrypted with a key that lives only in the link, then
+uploaded to the share host. The host stores ciphertext it cannot read; the key
+never leaves the URL fragment, which browsers don't send. Anyone with the link
+can view and comment.
+
+Once shared, the project stays in sync on its own: "klose feedback" and
+"klose project get" pull first, and "klose project update|add-node|update-node"
+and "klose resolve" push afterwards. pull and push do one round by hand.
+
+  share <projectId>   Share it (or print the existing link and sync)
+  list                The shared projects of this checkout
+  pull / push         One sync round now (both directions; the name says
+                      which way matters to you)
+  join <link>         Attach a link made elsewhere to this checkout: the
+                      project is written to .klose/projects/ and synced
+  leave <projectId>   Forget the link here (the host keeps the blob until it
+                      expires; the project stays on disk)
+
+Options
+  --host=<url>   The share host (default: $KLOSE_SHARE_HOST, else
+                 ${share.DEFAULT_SHARE_HOST}). Any deployment of the Klose
+                 site works; the link opens that site's canvas.
+  --json         Machine-readable output
+
+The link and key are kept in .klose/shares/, which .klose/.gitignore lists:
+a link is a capability, and a public repo must not publish one. Shares expire
+on the host after 30 days without a write.`,
   lint: `Usage: klose lint <file|folder>... [--jev] [--json]
 
 Audits the app's own source — what "/klose audit every page" runs — against
@@ -628,21 +671,27 @@ async function hostedCanvasFor(targetRoot) {
 // live server — and that it's serving *this* repo, not another one that
 // happens to hold the port.
 async function cmdStatus(args) {
+  const shares = await share.listShares(root).catch(() => []);
+  if (shares.length && !hasFlag(args, '--json')) {
+    for (const s of shares) console.log(`Project ${s.projectId} is shared at ${s.url}`);
+  }
+  // Only there when there is something to say: the JSON shape stays what it was for everyone else.
+  const shared = shares.length ? { shares } : {};
   const found = await findServer(root, portFromArgs(args).port);
   const running = found.state === 'running';
   const onHub = running ? null : await hubUrlForRepo();
   if (onHub) {
-    if (hasFlag(args, '--json')) return printJson({ running: true, hub: true, url: onHub, root });
+    if (hasFlag(args, '--json')) return printJson({ running: true, hub: true, url: onHub, root, ...shared });
     return console.log(`klose is running for this repo on the hub at ${onHub}`);
   }
   const hosted = running ? null : await hostedCanvasFor(root);
   if (hosted) {
-    if (hasFlag(args, '--json')) return printJson({ running: false, hosted: true, url: hosted.url, seenAt: hosted.seenAt, root });
+    if (hasFlag(args, '--json')) return printJson({ running: false, hosted: true, url: hosted.url, seenAt: hosted.seenAt, root, ...shared });
     console.log(`The hosted canvas has this repo open${hosted.url ? ` at ${hosted.url}` : ''} (no server needed).`);
     return console.log('Sketches you add with "klose project" show up there within a second or two.');
   }
   if (hasFlag(args, '--json')) {
-    return printJson({ running, url: found.url, port: found.port, root, ...(found.pid ? { pid: found.pid } : {}), ...(found.otherRoot ? { otherRoot: found.otherRoot } : {}) });
+    return printJson({ running, url: found.url, port: found.port, root, ...shared, ...(found.pid ? { pid: found.pid } : {}), ...(found.otherRoot ? { otherRoot: found.otherRoot } : {}) });
   }
   if (running) return console.log(`klose is running for this repo at ${found.url}`);
   if (found.state === 'other') {
@@ -650,7 +699,9 @@ async function cmdStatus(args) {
   } else {
     console.log(`klose is not running for this repo.`);
   }
+  if (shares.length) return console.log('The shared canvas above needs no server: the user opens the link.');
   console.log('Start it with: npx klose serve --detach');
+  console.log('Or, if the user cannot reach this machine\u2019s browser: npx klose share <projectId>');
   process.exit(1);
 }
 
@@ -1053,34 +1104,120 @@ async function cmdCleanup(args) {
 
 // -------------------------------------------------------- data commands
 
+// A project shared at a link (server/share.js) is kept in step around the
+// commands that read or write it: what the user did on the shared canvas is
+// pulled in before a read, what the agent wrote is pushed out after a write.
+// Best effort — a share host that can't be reached is a warning, never a
+// failure of the command itself.
+async function syncShared(projectId) {
+  let results;
+  try {
+    results = await share.syncAll(root, { projectId });
+  } catch (err) {
+    return process.stderr.write(`klose: could not sync the shared canvas: ${err.message}\n`);
+  }
+  for (const r of results) if (r.error) process.stderr.write(`klose: could not sync the shared canvas for ${r.projectId}: ${r.error}\n`);
+}
+
+/** Runs `work` on a project with its share pulled first (reads) and pushed after (writes). */
+async function withShare(projectId, work, { pullFirst = true, pushAfter = true } = {}) {
+  if (pullFirst) await syncShared(projectId);
+  const result = await work();
+  if (pushAfter) await syncShared(projectId);
+  return result;
+}
+
+async function cmdShare(args) {
+  const json = hasFlag(args, '--json');
+  const hostArg = args.find((a) => a.startsWith('--host='));
+  const host = hostArg ? hostArg.slice('--host='.length) : share.shareHostFromEnv();
+  const positional = args.filter((a) => !a.startsWith('--'));
+  const [first, second] = positional;
+  const sub = ['list', 'pull', 'push', 'join', 'leave'].includes(first) ? first : first ? 'share' : null;
+  const printLink = (r) => {
+    if (json) return printJson(r);
+    if (r.created) console.log(`Shared. Give the user this link (any browser, any device):\n\n  ${r.url}\n`);
+    else if (r.joined) console.log(`Joined the share: project ${r.projectId} is now synced with\n\n  ${r.url}\n`);
+    else console.log(`Already shared at\n\n  ${r.url}\n`);
+    if (r.pulled) console.log('Pulled changes from the shared canvas.');
+    if (r.pushed && !r.created) console.log('Pushed this checkout\u2019s version to the shared canvas.');
+    if (!r.pulled && !r.pushed && !r.created) console.log('Already in sync.');
+    if (r.created) console.log('From now on "klose feedback" pulls their comments and "klose project ..." pushes your sketches.');
+  };
+  try {
+    switch (sub) {
+      case 'share':
+        return printLink(await share.createShare(root, first, { host }));
+      case 'list': {
+        const shares = await share.listShares(root);
+        if (json) return printJson({ shares });
+        if (!shares.length) return console.log('No shared projects in this checkout. Share one with: klose share <projectId>');
+        for (const s of shares) console.log(`${s.projectId}  ${s.url}`);
+        return;
+      }
+      case 'pull':
+      case 'push': {
+        const results = await share.syncAll(root, { projectId: second });
+        if (!results.length) fail(second ? `project ${second} is not shared from this checkout` : 'no shared projects in this checkout');
+        if (json) return printJson({ results });
+        for (const r of results) {
+          if (r.error) console.error(`${r.projectId}: ${r.error}`);
+          else console.log(`${r.projectId}: ${r.pulled ? 'pulled' : ''}${r.pulled && r.pushed ? ' and ' : ''}${r.pushed ? 'pushed' : ''}${!r.pulled && !r.pushed ? 'in sync' : ''}  ${r.url}`);
+        }
+        if (results.some((r) => r.error)) process.exit(1);
+        return;
+      }
+      case 'join':
+        if (!second) fail('usage: klose share join <link>');
+        return printLink({ ...(await share.joinShare(root, second)), joined: true });
+      case 'leave': {
+        if (!second) fail('usage: klose share leave <projectId>');
+        const left = await share.leaveShare(root, second);
+        if (json) return printJson({ ok: left });
+        return console.log(left ? `Forgot the share for ${second}. The project is still in .klose/projects/.` : `Project ${second} was not shared from this checkout.`);
+      }
+      default:
+        fail(`share needs a project id or a subcommand\n\n${COMMAND_HELP.share}`);
+    }
+  } catch (err) {
+    if (err instanceof share.ShareError || err.code === 'PROJECT_NOT_FOUND' || err.code === 'INVALID_PROJECT_ID') fail(err.message);
+    throw err;
+  }
+}
+
 async function cmdProject(args) {
   const [sub, ...rest] = args;
   switch (sub) {
     case 'list':
+      await syncShared();
       return printJson(await store.listProjects(root));
     case 'create':
       return printJson(await store.createProject(root, rest[0]));
     case 'get':
       if (!rest[0]) fail('usage: klose project get <id>');
-      return printJson(await store.getProject(root, rest[0]));
+      return printJson(await withShare(rest[0], () => store.getProject(root, rest[0]), { pushAfter: false }));
     case 'update': {
       const [id, json] = rest;
       if (!id || !json) fail('usage: klose project update <id> <json|@file.json>');
-      return printJson(await store.updateProject(root, id, await parseJsonArg(json)));
+      const updates = await parseJsonArg(json);
+      return printJson(await withShare(id, () => store.updateProject(root, id, updates)));
     }
     case 'delete':
       if (!rest[0]) fail('usage: klose project delete <id>');
       await store.deleteProject(root, rest[0]);
+      await share.leaveShare(root, rest[0]);
       return printJson({ ok: true });
     case 'add-node': {
       const [id, json] = rest;
       if (!id || !json) fail('usage: klose project add-node <id> <json|@file.json>');
-      return printJson(await store.addNode(root, id, await parseJsonArg(json)));
+      const node = await parseJsonArg(json);
+      return printJson(await withShare(id, () => store.addNode(root, id, node)));
     }
     case 'update-node': {
       const [id, nodeId, json] = rest;
       if (!id || !nodeId || !json) fail('usage: klose project update-node <id> <nodeId> <json|@file.json>');
-      return printJson(await store.updateNode(root, id, nodeId, await parseJsonArg(json)));
+      const updates = await parseJsonArg(json);
+      return printJson(await withShare(id, () => store.updateNode(root, id, nodeId, updates)));
     }
     case 'lint': {
       const [id, nodeId] = rest.filter((a) => !a.startsWith('--'));
@@ -1380,6 +1517,7 @@ async function cmdFeedback(args) {
     if (result.summary.error) console.error(`Jev: ${result.summary.error}`);
     return printJson({ count: result.feedback.length, triage: result.summary, feedback: result.feedback });
   }
+  await syncShared(projectId);
   const feedback = await store.listFeedback(root, { projectId, includeResolved: hasFlag(args, '--all') });
   // JSON is the default: this command is primarily an agent integration
   // surface, and stable structured output is safer than parsing prose.
@@ -1391,7 +1529,7 @@ async function cmdResolve(args) {
   const note = noteArg ? noteArg.slice('--note='.length).trim() : undefined;
   const [projectId, nodeId, ...commentIds] = args.filter((arg) => !arg.startsWith('--'));
   if (!projectId || !nodeId) fail(`resolve needs a project id and a node id\n\n${COMMAND_HELP.resolve}`);
-  const result = await store.resolveComments(root, projectId, nodeId, commentIds, { note });
+  const result = await withShare(projectId, () => store.resolveComments(root, projectId, nodeId, commentIds, { note }));
   return printJson(result);
 }
 
@@ -1413,6 +1551,7 @@ const COMMANDS = {
   lint: cmdLint,
   feedback: cmdFeedback,
   resolve: cmdResolve,
+  share: cmdShare,
 };
 
 async function main() {

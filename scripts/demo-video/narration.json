@@ -1,0 +1,10 @@
+{
+  "intro": "This is Klose's hosted canvas. A design surface for your coding agent, with no server, no login, and nothing to install.",
+  "door": "Open the page in Chrome and choose your repo folder. That's the whole setup. The page reads and writes one folder, dot klose, inside your repo. Nothing leaves your machine.",
+  "files": "This is OnCue, an event planning app. Its Klose file is already in the repo, because the agent wrote it there.",
+  "canvas": "Every sketch is a live preview, not a picture. And it's rendered with OnCue's real design tokens, read straight from the repo's stylesheet. The steel blue primary. Cue's gold. The live green of the run sheet.",
+  "agent": "Meanwhile, in Claude Code, slash klose writes a new sketch into the same folder. It shows up on the canvas within a second or two. No sync. No server.",
+  "comment": "Feedback is scoped to an element. Select a sketch, hit Comment, and click the exact button you mean. Type the note, then copy it for the agent. It gets the tag, the text, the classes, and the DOM path. No more, the button in the header, second one down.",
+  "resolve": "The agent reads the comment, updates the sketch, and marks it resolved. When you're happy, it builds the real component into your source tree, and the sketch keeps the file path.",
+  "outro": "Klose. The visual surface your coding agent is missing. Open the hosted canvas at adityakarki99 dot github dot io slash OpenKlose, in Chrome or Edge. Free, local, and open source."
+}

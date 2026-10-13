@@ -267,6 +267,10 @@ can't scan or run anything: the component index, Jev, the token check and "Save 
 (`npx klose project export`). Firefox and Safari can't open a folder from a web page; there, run
 `npx klose serve --open` instead.
 
+<a href="docs/videos/hosted-canvas-demo.mp4"><img src="docs/videos/hosted-canvas-demo.png" alt="Watch the hosted canvas demo: OnCue's sketches on the canvas, with no server" width="720"></a>
+
+*[Watch the hosted canvas in 100 seconds](docs/videos/hosted-canvas-demo.mp4)* (made by `scripts/demo-video/run.sh`).
+
 **Or per repo**, from the root of the repo you want to design in:
 
 ```bash

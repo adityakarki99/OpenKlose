@@ -25,3 +25,7 @@ web/static
 *.njsproj
 *.sln
 *.sw?
+
+# The demo video pipeline keeps its voice model, audio and raw recording here.
+scripts/demo-video/.work
+__pycache__

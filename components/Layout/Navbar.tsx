@@ -1,4 +1,5 @@
 import React from 'react';
+import { onlineLabels } from '../Canvas/OnlineStatus';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FolderOpen, Settings, Moon, Sun, Blocks, FolderSync, Link2 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -14,8 +15,8 @@ const FolderChip: React.FC = () => {
   const status = useShareStatus();
   if (!session) return null;
   if (session.kind === 'share') {
-    const label = status === 'offline' ? 'offline, retrying' : status === 'gone' ? 'link expired' : 'shared canvas';
-    const tone = status === 'ok' ? 'text-emerald-400' : status === 'offline' ? 'text-amber-400' : 'text-red-400';
+    const label = onlineLabels[status];
+    const tone = status === 'ok' ? 'text-emerald-400' : status === 'syncing' ? 'text-blue-400' : status === 'offline' ? 'text-amber-400' : 'text-red-400';
     return (
       <div className="flex items-center gap-3">
         <span className="text-app-subtle">/</span>

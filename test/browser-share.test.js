@@ -171,3 +171,51 @@ test('a reload comes back to the shared canvas, and a bad link says so', { skip 
     await context.close();
   }
 });
+
+test('offline edits survive reload, sync after reconnect, and can be restored from history', { skip }, async () => {
+  const agent = await agentShares([sketch('a','Offline card',100)]);
+  agent.project.nodes[0].comments = [{id:'offline-comment',text:'Keep this feedback',createdAt:1}];
+  agent.synced = (await syncShare({...agent,local:agent.project,synced:null})).synced;
+  const {context,page,errors} = await openPage();
+  try {
+    await page.goto(`${origin}/#/s/${agent.id}/${agent.key}`);
+    await page.getByText('Offline card',{exact:true}).first().waitFor();
+    await page.route('**/api/share/**', route=>route.abort());
+    await page.getByRole('button',{name:/^Copy 1 new comment$/}).click();
+    await page.getByTestId('online-status').getByRole('status').filter({hasText:'Offline'}).waitFor({timeout:15000});
+    await page.reload();
+    await page.getByText('Offline card',{exact:true}).first().waitFor({timeout:15000});
+    await page.getByRole('button',{name:/^Copy 1 open comment again$/}).waitFor();
+    await page.unroute('**/api/share/**');
+    await eventually(async()=>{
+      const bundle=await decryptBundle(agent.key,(await agent.client.fetch(agent.id)).payload);
+      return !!bundle.project.nodes[0].comments[0].sentAt;
+    },'offline edit uploaded after reconnect');
+    await page.getByTestId('online-status').getByRole('status').filter({hasText:'Saved online'}).waitFor();
+    await page.getByTestId('online-status').getByRole('button',{name:/Details/}).click();
+    await page.getByRole('button',{name:'Restore',exact:true}).first().click();
+    await page.getByText('Revision restored; previous version retained.').waitFor();
+    assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('recent online projects reopen in a new tab and expired boards retain recovery', { skip }, async()=>{
+  const agent=await agentShares([sketch('a','Remember me',100)]);
+  const {context,page,errors}=await openPage();
+  try {
+    await page.goto(`${origin}/#/s/${agent.id}/${agent.key}`);
+    await page.getByText('Remember me',{exact:true}).first().waitFor();
+    const second=await context.newPage();
+    await second.goto(`${origin}/`);
+    await second.getByRole('link',{name:'Onboarding',exact:true}).click();
+    await second.getByText('Remember me',{exact:true}).first().waitFor();
+    host.blobs.delete(agent.id);
+    await second.reload();
+    await second.getByText('Remember me',{exact:true}).first().waitFor();
+    await second.getByTestId('online-status').getByRole('status').filter({hasText:'Link expired'}).waitFor();
+    await second.getByTestId('online-status').getByRole('button',{name:/Details/}).click();
+    await second.getByRole('button',{name:'Create a new online link from recovery'}).click();
+    await second.getByTestId('online-status').getByRole('status').filter({hasText:'Saved online'}).waitFor();
+    assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});

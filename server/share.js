@@ -110,6 +110,7 @@ async function extras(cwd) {
   let themeCss = '';
   try {
     themeCss = (await loadTheme(cwd)).css || '';
+    if (!themeCss) themeCss = await readFile(path.join(cwd, '.klose', 'source-theme.css'), 'utf8').catch(() => '');
   } catch {
     // No tokens is fine: the canvas renders with stock Tailwind, as it would locally.
   }
@@ -121,16 +122,22 @@ async function extras(cwd) {
  * tokens) encrypted and uploaded, the record written. Sharing an already
  * shared project just syncs it and returns the same link.
  */
-export async function createShare(cwd, projectId, { host = shareHostFromEnv(), fetch, now = () => Date.now() } = {}) {
+export async function createShare(cwd, projectId, { host = shareHostFromEnv(), fetch, now = () => Date.now(), themeCss, repoName } = {}) {
   const existing = await readShare(cwd, projectId);
   if (existing) {
-    const result = await syncProject(cwd, projectId, { fetch, now });
-    return { ...describe(projectId, existing), created: false, ...result };
+    try {
+      const result = await syncProject(cwd, projectId, { fetch, now });
+      return { ...describe(projectId, existing), created: false, ...result };
+    } catch (error) {
+      // Expired links cannot be revived. Retain the local project and issue
+      // a new capability; transient outages must never create duplicate shares.
+      if (!(error instanceof ShareError) || error.status !== 404) throw error;
+    }
   }
   const project = await store.getProject(cwd, projectId);
   const key = newShareKey();
   const client = shareClient(shareApi(host), fetch ? { fetch } : {});
-  const bundle = makeBundle(project, await extras(cwd));
+  const bundle = makeBundle(project, { ...await extras(cwd), ...(themeCss !== undefined ? { themeCss } : {}), ...(repoName ? { repoName } : {}) });
   const { id, etag } = await client.create(await encryptBundle(key, bundle));
   const record = { id, key, host, sharedAt: new Date(now()).toISOString(), synced: { etag, project, at: new Date(now()).toISOString() } };
   await writeShare(cwd, projectId, record);

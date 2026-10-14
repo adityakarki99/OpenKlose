@@ -120,10 +120,12 @@ export const shareUrl = (host, id, key) => `${trimHost(host)}/canvas/#/s/${id}/$
 
 /** The id and key in a share link, or null for any other URL. */
 export function parseShareUrl(url) {
-  const m = /#\/s\/([A-Za-z0-9_-]{22})\/([A-Za-z0-9_-]{43})(?:[/?].*)?$/.exec(String(url || ''));
-  if (!m) return null;
-  const host = String(url).slice(0, String(url).indexOf('/canvas/#'));
-  return { host, id: m[1], key: m[2] };
+  try {
+    const parsed = new URL(String(url));
+    if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/canvas/') return null;
+    const match = /^#\/s\/([A-Za-z0-9_-]{22})\/([A-Za-z0-9_-]{43})$/.exec(parsed.hash);
+    return match ? { host: parsed.origin, id: match[1], key: match[2] } : null;
+  } catch { return null; }
 }
 
 // --------------------------------------------------------------- bundle
@@ -177,14 +179,32 @@ export function mergeShared({ base, local, incoming }) {
   const { nodes, kept } = mergeSketches({ base: baseNodes, local: localNodes, incoming: incomingNodes });
   const incomingById = new Map(incomingNodes.map((n) => [n.id, n]));
   const baseById = new Map(baseNodes.map((n) => [n.id, n]));
+  const conflicts = [];
   const merged = nodes.map((node) => {
     if (!kept.includes(node.id)) return node;
     const theirs = incomingById.get(node.id);
     if (!theirs) return node;
     const before = baseById.get(node.id);
-    const theirsChangedComments = JSON.stringify(theirs.comments || []) !== JSON.stringify(before?.comments || []);
-    if (!theirsChangedComments) return node;
-    return { ...node, comments: unionComments(node.comments, theirs.comments), updatedAt: Math.max(node.updatedAt || 0, theirs.updatedAt || 0) };
+    const same = (a,b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const combined = { ...theirs, ...node };
+    for (const key of new Set([...Object.keys(theirs), ...Object.keys(node)])) {
+      if (key === 'comments' || key === 'updatedAt') continue;
+      if (same(node[key], before?.[key])) {
+        if (theirs[key] === undefined) delete combined[key];
+        else combined[key] = theirs[key];
+      }
+    }
+    combined.comments = !same(theirs.comments || [], before?.comments || []) ? unionComments(node.comments, theirs.comments) : node.comments;
+    combined.updatedAt = Math.max(node.updatedAt || 0, theirs.updatedAt || 0);
+    // Competing code edits are both valuable. Keep the other design as an
+    // explicitly labelled sketch rather than silently discarding its code.
+    if (!same(node.code, before?.code) && !same(theirs.code, before?.code) && !same(node.code, theirs.code)) {
+      let hash = 2166136261;
+      for (const char of JSON.stringify(theirs.code ?? null)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+      const id = `${node.id}-conflict-${(hash >>> 0).toString(16)}`;
+      if (!nodes.some(n => n.id === id)) conflicts.push({ ...theirs, id, name: `${theirs.name || 'Sketch'} (conflict copy)`, x: (node.x || 0) + (node.width || 480) + 80, notes: `Concurrent code edit preserved from another session. Compare with ${node.name || node.id}.`, comments: [] });
+    }
+    return combined;
   });
 
   const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -195,7 +215,7 @@ export function mergeShared({ base, local, incoming }) {
     if (value === undefined) delete out[key];
     else out[key] = value;
   }
-  out.nodes = merged;
+  out.nodes = [...merged, ...conflicts];
   const stamps = [local?.updated_at, incoming?.updated_at].filter(Boolean).sort();
   if (stamps.length) out.updated_at = stamps[stamps.length - 1];
   return out;

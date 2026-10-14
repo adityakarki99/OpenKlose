@@ -15,6 +15,7 @@ import { installSkills } from '../server/skills.js';
 import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
 import * as share from '../server/share.js';
+import { openOnline } from '../server/open.js';
 import {
   defaultHubOptions,
   findHub,
@@ -56,6 +57,7 @@ const HELP = `Klose ${VERSION} — a local design canvas for your coding agent.
 Usage: klose <command> [options]
 
 Getting started
+  open          Open or resume an online workspace (local repo or GitHub)
   setup         Set up Klose for every repo on this machine: install /klose,
                 start the hub (and the macOS menu bar app), open the welcome page
   init          Install the /klose skills and local storage in this repo
@@ -88,6 +90,19 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
+  open: `Usage: klose open --online [--repo owner/name] [--branch main] [--project id] [--host URL] [--json]
+
+Opens or resumes one online workspace. From a repo, omit --repo. With --repo,
+imports a bounded set of GitHub context files and a project overview, cached by
+commit under ~/.klose/online. Repeating the command returns the same board.
+Private GitHub repos use GH_TOKEN or GITHUB_TOKEN from the environment; tokens
+are only sent to api.github.com. No repo code or install scripts are executed.
+
+The workspace and design tokens are uploaded encrypted. Anyone with the link
+can view and edit it. The share expires after 30 days without a write. GitHub
+source is read-only: opening and autosaving never commits code.
+--online is required to explicitly choose an upload. --json includes the local
+workspace path: run subsequent klose project/feedback commands from there.`,
   setup: `Usage: klose setup [--no-open] [--no-tray] [--port=N]
 
 Sets Klose up once for the whole machine, so no repo needs its own init:
@@ -1535,7 +1550,24 @@ async function cmdResolve(args) {
 
 // ------------------------------------------------------------------ main
 
+async function cmdOpen(args) {
+  if (!args.includes('--online')) fail('Use --online to open an encrypted online workspace.');
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (['--online', '--json'].includes(args[i])) continue;
+    const [flag, inline] = args[i].split(/=(.*)/s);
+    if (!['--repo', '--branch', '--host', '--project'].includes(flag)) fail(`Unknown open option: ${flag}`);
+    const value = inline ?? args[++i];
+    if (!value || value.startsWith('--')) fail(`${flag} needs a value`);
+    options[flag.slice(2)] = value;
+  }
+  const result = await openOnline({ ...options, cwd: root, home: kloseHome(), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+  if (args.includes('--json')) return printJson(result);
+  console.log(`Online workspace: ${result.url}\nAgent workspace: ${result.workspace}\nSaved online. GitHub source is unchanged.`);
+}
+
 const COMMANDS = {
+  open: cmdOpen,
   setup: cmdSetup,
   init: cmdInit,
   serve: cmdServe,

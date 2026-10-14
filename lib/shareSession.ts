@@ -10,13 +10,25 @@
 import { useSyncExternalStore } from 'react';
 import { createFolderStore, memoryFolder } from './folderStore.js';
 import { FolderFs, FolderSession, getSession, setSession } from './folderSession';
-import { ShareError, decryptBundle, isBundle, isShareId, isShareKey, shareApi, shareClient, syncShare } from '../server/shareCore.js';
+import {
+  ShareError,
+  decryptBundle,
+  isBundle,
+  isShareId,
+  isShareKey,
+  shareApi,
+  shareClient,
+  syncShare,
+  mergeShared,
+} from '../server/shareCore.js';
+
+import { readRecovery, writeRecovery, rememberWorkspace } from './workspaceCache';
 
 const PULL_MS = 2000;
 const PUSH_DEBOUNCE_MS = 400;
 const REMEMBER_KEY = 'klose:share';
 
-export type ShareStatus = 'ok' | 'offline' | 'gone';
+export type ShareStatus = 'ok' | 'syncing' | 'offline' | 'gone' | 'storage-error';
 
 export interface ShareLink {
   id: string;
@@ -60,7 +72,11 @@ function subscribeStatus(fn: () => void) {
 }
 /** How the open share's sync is doing, for the navbar. */
 export function useShareStatus(): ShareStatus {
-  return useSyncExternalStore(subscribeStatus, () => status, () => 'ok');
+  return useSyncExternalStore(
+    subscribeStatus,
+    () => status,
+    () => 'ok',
+  );
 }
 
 // ------------------------------------------------------------------- open
@@ -76,16 +92,53 @@ type Project = { id: string; nodes?: unknown[]; name?: string } & Record<string,
 export async function openShare(id: string, key: string, host = window.location.origin): Promise<FolderSession> {
   if (!isShareId(id) || !isShareKey(key)) throw new ShareError('Not a valid share link.', 400);
   const client = shareClient(shareApi(host));
-  const first = await client.fetch(id);
-  if (!first) throw new ShareError('The share could not be read.', 500);
-  const bundle = await decryptBundle(key, first.payload);
+  const recovery = await readRecovery(id, key).catch(() => null);
+  let first;
+  let initialStatus: ShareStatus = 'ok';
+  try {
+    first = await client.fetch(id);
+  } catch (error) {
+    if (!recovery) throw error;
+    initialStatus = error instanceof ShareError && error.status === 404 ? 'gone' : 'offline';
+  }
+  const bundle = first ? await decryptBundle(key, first.payload) : recovery.bundle;
   if (!isBundle(bundle)) throw new ShareError('This link does not hold a Klose project.', 422);
-
-  const project = bundle.project as Project;
+  const project = (
+    recovery ? mergeShared({ base: recovery.synced?.project, local: recovery.local, incoming: bundle.project }) : bundle.project
+  ) as Project;
   const projectPath = ['.klose', 'projects', `${project.id}.json`];
   const raw = memoryFolder({ [projectPath.join('/')]: JSON.stringify(project, null, 2) });
-  let synced: { etag: string; project: Project } = { etag: first.etag, project };
+  let synced: { etag: string; project: Project } = first ? { etag: first.etag, project: bundle.project } : recovery.synced;
   const extras = { themeCss: bundle.theme?.css || '', repoName: bundle.repo?.name || '' };
+  let history: { at: number; project: Project }[] = recovery?.history || [];
+  let storageFailed = false;
+  let checkpointValue = '';
+  let writeQueue: Promise<unknown> = Promise.resolve();
+  const transact = <T>(task: () => Promise<T>): Promise<T> => {
+    const done = writeQueue.catch(() => {}).then(task);
+    writeQueue = done;
+    return done;
+  };
+  const checkpoint = async (local: Project, previous?: Project) => {
+    const nextHistory =
+      previous && JSON.stringify(previous) !== JSON.stringify(local)
+        ? [...history, { at: Math.max(Date.now(), (history.at(-1)?.at || 0) + 1), project: previous }].slice(-10)
+        : history;
+    const record = { bundle: { ...bundle, theme: { css: extras.themeCss }, project: local }, local, synced, history: nextHistory };
+    const value = JSON.stringify(record);
+    if (value === checkpointValue && !storageFailed) return;
+    try {
+      await writeRecovery(id, key, record);
+      checkpointValue = value;
+      history = nextHistory;
+      storageFailed = false;
+    } catch (error) {
+      storageFailed = true;
+      setStatus('storage-error');
+      throw error;
+    }
+  };
+  await checkpoint(project).catch(() => {});
 
   let busy = false;
   let again = false;
@@ -106,14 +159,25 @@ export async function openShare(id: string, key: string, host = window.location.
     busy = true;
     try {
       const local = await readLocal();
+      if (JSON.stringify(local) !== JSON.stringify(synced.project)) setStatus('syncing');
       const result = await syncShare({ client, id, key, synced, local: local || synced.project, bundleExtras: extras });
-      synced = result.synced as typeof synced;
-      // What came in goes straight to the folder, bypassing the push hook:
-      // the stamp changes, and the canvas merges it like a sketch the agent wrote.
-      if (result.pulled) await raw.write(projectPath, JSON.stringify(result.project, null, 2));
-      setStatus('ok');
+      if (stopped) return;
+      await transact(async () => {
+        if (stopped) return;
+        const latest = await readLocal();
+        const merged = mergeShared({ base: local, local: latest, incoming: result.project }) as Project;
+        synced = result.synced as typeof synced;
+        if (result.bundle?.theme) extras.themeCss = result.bundle.theme.css || '';
+        await checkpoint(merged, result.pulled ? latest : undefined);
+        if (stopped) return;
+        if (JSON.stringify(merged) !== JSON.stringify(latest)) await raw.write(projectPath, JSON.stringify(merged, null, 2));
+        const pending = JSON.stringify(merged) !== JSON.stringify(synced.project);
+        setStatus(pending ? 'syncing' : 'ok');
+        if (pending) again = true;
+      });
     } catch (err) {
-      setStatus(err instanceof ShareError && err.status === 404 ? 'gone' : 'offline');
+      if (stopped) return;
+      setStatus(storageFailed ? 'storage-error' : err instanceof ShareError && err.status === 404 ? 'gone' : 'offline');
     } finally {
       busy = false;
       if (again && !stopped) {
@@ -136,8 +200,15 @@ export async function openShare(id: string, key: string, host = window.location.
     list: (path, options) => raw.list(path, options),
     read: (path, options) => raw.read(path, options),
     async write(path, text) {
-      await raw.write(path, text);
-      if (path.join('/') === projectPath.join('/')) schedulePush();
+      return transact(async () => {
+        if (path.join('/') === projectPath.join('/')) {
+          const previous = await readLocal();
+          await checkpoint(JSON.parse(text), previous || undefined);
+          await raw.write(path, text);
+          setStatus('syncing');
+          schedulePush();
+        } else await raw.write(path, text);
+      });
     },
     remove: (path) => raw.remove(path),
   };
@@ -147,6 +218,7 @@ export async function openShare(id: string, key: string, host = window.location.
   }, PULL_MS);
   const onWake = () => void sync();
   window.addEventListener('focus', onWake);
+  window.addEventListener('online', onWake);
   document.addEventListener('visibilitychange', onWake);
 
   const session: FolderSession = {
@@ -156,19 +228,40 @@ export async function openShare(id: string, key: string, host = window.location.
     store: createFolderStore(fs),
     share: { id, key, host, projectId: project.id },
     themeCss: extras.themeCss,
+    retrySync: sync,
+    revisions: () => history.map((r) => ({ at: r.at, name: String(r.project.name || 'Untitled') })),
+    async restoreRevision(at: number) {
+      const revision = history.find((r) => r.at === at);
+      if (!revision) throw new Error('This revision is no longer available.');
+      await fs.write(projectPath, JSON.stringify({ ...revision.project, updated_at: new Date().toISOString() }));
+    },
     dispose() {
       stopped = true;
       window.clearInterval(timer);
       if (pushTimer !== null) window.clearTimeout(pushTimer);
       window.removeEventListener('focus', onWake);
+      window.removeEventListener('online', onWake);
       document.removeEventListener('visibilitychange', onWake);
       remember(null);
       setStatus('ok');
     },
   };
-  remember({ id, key, host });
-  setStatus('ok');
   setSession(session);
+  remember({ id, key, host });
+  try {
+    rememberWorkspace({
+      id,
+      key,
+      host,
+      name: String(project.name || 'Shared canvas'),
+      openedAt: Date.now(),
+      source: project.source ? JSON.stringify(project.source) : undefined,
+    });
+  } catch {
+    /* Canvas still works without a recent list. */
+  }
+  setStatus(storageFailed ? 'storage-error' : initialStatus === 'ok' && JSON.stringify(project) !== JSON.stringify(synced.project) ? 'syncing' : initialStatus);
+  if (initialStatus === 'ok' && JSON.stringify(project) !== JSON.stringify(synced.project)) schedulePush();
   return session;
 }
 

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-if (process.env.CI || existsSync(path.join(root, 'web', 'dist', 'index.html'))) process.exit(0);
+if (process.env.KLOSE_SKIP_BUILD === '1' || process.env.CI || existsSync(path.join(root, 'web', 'dist', 'index.html'))) process.exit(0);
 
 console.log('klose: building the canvas UI (web/dist)...');
 const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], {

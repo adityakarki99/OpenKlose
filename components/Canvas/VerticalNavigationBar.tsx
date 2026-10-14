@@ -1,3 +1,6 @@
+import { useFolderSession } from '../../lib/folderSession';
+import { useShareStatus } from '../../lib/shareSession';
+import { onlineLabels } from './OnlineStatus';
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Undo, Redo, Plus, Check, CloudOff, AlertTriangle, Loader2, BookOpen, Layers, Moon, Sun, Keyboard } from 'lucide-react';
 import { ComponentNode } from '../../types';
@@ -163,12 +166,15 @@ export default function VerticalNavigationBar({
 }: VerticalNavigationBarProps) {
   const { settings, updateSettings } = useSettings();
   const isLightMode = settings.themeMode === 'light';
+  const session = useFolderSession();
+  const onlineStatus = useShareStatus();
 
   const save = (() => {
     if (isSaving) return { icon: <Loader2 className="h-4 w-4 animate-spin text-blue-400" />, caption: 'Saving', label: 'Saving…' };
     if (saveStatus === 'error') return { icon: <AlertTriangle className="h-4 w-4 text-red-400" />, caption: 'Retry', label: 'Save failed: click to retry' };
     if (saveStatus === 'offline') return { icon: <CloudOff className="h-4 w-4 text-amber-400" />, caption: 'Offline', label: 'Offline: changes are kept in this browser until the server is back' };
     if (isDirty) return { icon: <span className="grid h-4 w-4 place-items-center"><span className="h-2 w-2 rounded-full bg-blue-400" /></span>, caption: 'Unsaved', label: 'Saves in a moment: click to save now' };
+    if (session?.kind === 'share') return { icon: onlineStatus === 'ok' ? <Check className="h-4 w-4 text-emerald-400" /> : <CloudOff className="h-4 w-4 text-amber-400" />, caption: onlineStatus === 'ok' ? 'Online' : onlineStatus === 'syncing' ? 'Syncing' : 'Retry', label: onlineLabels[onlineStatus] };
     return { icon: <Check className="h-4 w-4 text-emerald-400" />, caption: 'Saved', label: 'All changes saved' };
   })();
 
@@ -185,7 +191,7 @@ export default function VerticalNavigationBar({
       <Separator />
       <SketchList nodes={nodes} onSelectNode={onSelectNode} />
       <RailButton icon={<BookOpen className="h-4 w-4" />} caption="Context" label="Project context the agent reads: audience, brand, design notes" onClick={onToggleContext} />
-      <RailButton icon={save.icon} caption={save.caption} label={save.label} onClick={onSave} disabled={isSaving} />
+      <RailButton icon={save.icon} caption={save.caption} label={save.label} onClick={() => { onSave(); void session?.retrySync?.(); }} disabled={isSaving} />
       <Separator />
       <RailButton icon={<Keyboard className="h-4 w-4" />} caption="Keys" label="Keyboard shortcuts (?)" onClick={onShowShortcuts} />
       <RailButton

@@ -214,6 +214,9 @@ export interface FolderSession {
   /** On a share: the link's parts, and what the agent's checkout sent along. */
   share?: { id: string; key: string; host: string; projectId: string };
   themeCss?: string;
+  retrySync?: () => Promise<void>;
+  revisions?: () => { at: number; name: string }[];
+  restoreRevision?: (at: number) => Promise<void>;
   /** On a share: lets the session end its sync loop when it closes. */
   dispose?: () => void;
 }

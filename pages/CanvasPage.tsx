@@ -1,3 +1,4 @@
+import OnlineStatus from '../components/Canvas/OnlineStatus';
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Comment, ComponentNode, DragState, Project, ResizeState, ProjectContext, SelectedElementInfo } from '../types';
@@ -975,6 +976,7 @@ const CanvasPage: React.FC = () => {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-app-bg text-app-primary font-sans selection:bg-blue-500/30">
+      <OnlineStatus pending={isDirty || isSaving} />
       <div className="absolute inset-0 overflow-hidden flex flex-col">
         {projectId && (
           <FileBar

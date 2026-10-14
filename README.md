@@ -904,3 +904,50 @@ under the terms of the GNU Affero General Public License. Because the AGPL's net
 13) applies, anyone who runs a modified version as a network service must offer that version's source
 to its users. Klose runs as a local server on your own machine, so ordinary local use carries no
 extra obligation — the clause matters only if you host a modified Klose for others.
+
+## Online workspaces
+
+The hosted canvas can open a public GitHub repository directly: choose **Open
+online**, enter `owner/repository` and an optional branch. It imports bounded
+read-only context (design notes, CSS tokens and a source inventory) and creates an
+initial overview sketch. It does not execute the repository's application.
+Repeated opens in the same browser reuse its remembered board for that branch;
+source context is cached by commit. The browser imports public repositories only.
+
+Agents can use the same workflow from the CLI:
+
+```bash
+klose open --online --repo owner/repository --branch main --json
+# Or open a board from the current local repository:
+klose open --online
+# Select explicitly when the local repository has multiple boards:
+klose open --online --project <project-id>
+```
+
+For a private GitHub repository, set `GH_TOKEN` or `GITHUB_TOKEN` in the CLI
+process environment. The token is sent only to GitHub. The command prints the
+board URL and the persistent local workspace directory to use for subsequent
+`project get`, `project update-node` and `sync` commands. It reuses the same board
+on subsequent calls, including after a failed initial upload. GitHub imports
+fetch at most 12 context files of at most 128 KiB each; they do not clone or build
+the repository. `KLOSE_SKIP_BUILD=1` skips the package's prepare build for CLI-only
+source installs; local canvas serving still requires a built `web/dist`.
+
+Online design edits do **not** commit changes to GitHub. The existing encrypted
+share protocol stores the board, while the browser shows **Saved online**,
+**Syncing**, or **Offline — changes queued**. Recent projects are remembered on
+that browser. Details provides retry, link copying, and recovery of the last ten
+saved revisions on that device. Concurrent edits to different sketch fields
+merge; competing code edits retain the incoming version as a conflict-copy sketch.
+
+Recovery records are encrypted in IndexedDB with the link key. Recent links
+(including their keys) remain in browser storage, so this is recovery from network
+failure, not protection against someone with access to that browser profile.
+Clearing browser data removes recovery and recent links. This does not add an
+offline PWA: reopening still needs the site's application assets available.
+
+Anyone with a board link can view and edit it. Online copies expire after 30 days
+without changes. When an expired board has a recovery copy, the canvas can reopen
+it and create a new link; CLI reopening can renew it from its local project.
+Keep the new link when renewing. Forgetting a recent entry does not revoke its
+link or erase its recovery records.

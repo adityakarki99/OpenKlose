@@ -1,3 +1,4 @@
+import OnlineWorkspaces from '../components/OnlineWorkspaces';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, FolderSync, ShieldCheck, TerminalSquare } from 'lucide-react';
@@ -102,10 +103,10 @@ const OpenRepoPage: React.FC = () => {
           <span className="rounded-full border border-app-border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-app-muted">hosted canvas</span>
         </div>
 
-        <h1 className="text-2xl font-semibold tracking-tight">Open a repo</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Open a project</h1>
         <p className="mt-2 max-w-prose text-sm leading-relaxed text-app-secondary">
           Point this page at the repo you design in. It reads and writes the <code className="rounded bg-app-surface-soft px-1 py-0.5 font-mono text-xs">.klose/</code> folder
-          there, the same files your coding agent writes, so sketches show up here as the agent adds them. No server to start, no account, nothing leaves your machine.
+          there, the same files your coding agent writes, so sketches show up here as the agent adds them. Local folders stay on your machine. Or open an online workspace below.
         </p>
 
         {!supported ? (
@@ -150,6 +151,8 @@ const OpenRepoPage: React.FC = () => {
             </button>
           </p>
         )}
+
+        <OnlineWorkspaces />
 
         <dl className="mt-10 grid gap-5 text-sm sm:grid-cols-3">
           <div>

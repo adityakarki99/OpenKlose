@@ -14,6 +14,10 @@ test('preview iframe keeps an opaque origin and the runtime blocks network conne
   assert.equal(sandboxAttribute, 'allow-scripts');
   assert.match(previewHtml, /connect-src 'none'/);
   assert.match(previewHtml, /img-src data: blob:/);
+  // Embedded (data:) fonts are allowed: they can't make a request. Nothing else loosened.
+  assert.match(previewHtml, /font-src data:(;|")/);
+  assert.match(previewHtml, /frame-src 'none'/);
+  assert.match(previewHtml, /default-src 'none'/);
   assert.doesNotMatch(previewHtml, /cdn\.tailwindcss|esm\.sh|unpkg\.com|fonts\.googleapis/);
 });
 

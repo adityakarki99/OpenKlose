@@ -8,6 +8,7 @@ import {
   DEMO_PROJECT_NAME,
   feedbackOf,
   isValidId,
+  liveNodeProblem,
   newProject,
   nextUpdatedAt,
   placeNode,
@@ -23,6 +24,11 @@ function assertValidId(id) {
     throw badRequest(`Invalid project id: ${JSON.stringify(id)}`, 'INVALID_PROJECT_ID');
   }
   return id;
+}
+
+function assertLiveNode(node) {
+  const problem = liveNodeProblem(node);
+  if (problem) throw badRequest(problem, 'INVALID_LIVE_URL');
 }
 
 function projectsDir(cwd) {
@@ -110,6 +116,7 @@ export async function createProject(cwd, name = 'Untitled Project') {
 // `savedToRepo` is bookkeeping owned by setSavedToRepo: a caller round-tripping
 // a project it read earlier must not be able to put a stale copy back.
 export async function updateProject(cwd, id, updates) {
+  for (const n of updates?.nodes || []) assertLiveNode(n);
   const existing = await readProjectFile(cwd, id);
   const { savedToRepo: _ignored, ...rest } = updates || {};
   const merged = { ...existing, ...rest, id, updated_at: nextUpdatedAt(existing.updated_at) };
@@ -144,6 +151,7 @@ export async function deleteProject(cwd, id) {
 }
 
 export async function addNode(cwd, id, node) {
+  assertLiveNode(node);
   const project = await readProjectFile(cwd, id);
   const now = Date.now();
   const newNode = {
@@ -161,6 +169,7 @@ export async function addNode(cwd, id, node) {
 }
 
 export async function updateNode(cwd, id, nodeId, updates) {
+  assertLiveNode(updates);
   const project = await readProjectFile(cwd, id);
   let updatedNode = null;
   project.nodes = (project.nodes || []).map((n) => {

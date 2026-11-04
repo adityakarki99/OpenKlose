@@ -148,3 +148,49 @@ export const DEMO_NODE = {
 
 /** What `.klose/.gitignore` lists: the per-machine files Klose writes next to the projects. */
 export const KLOSE_GITIGNORE = ['server.json', 'server.log', 'canvas.json', 'shares/'];
+
+// ── Live frame cards ────────────────────────────────────────────────────────
+
+/** Largest `snapshot` (a PNG data URL) a card may carry, in characters. */
+export const MAX_SNAPSHOT_CHARS = 2 * 1024 * 1024;
+
+/**
+ * Whether `url` may be drawn as a live frame: an http(s) address on this
+ * machine (`localhost`, `127.0.0.1`, `[::1]` or `*.localhost`, any port), with
+ * no credentials. Everything else — other hosts, `file:`, `javascript:`,
+ * `data:` — is refused. Checked when a card is saved (every store) and again
+ * when it is drawn, so a hand-edited project file can't smuggle one in.
+ */
+export function isAllowedLiveUrl(url) {
+  if (typeof url !== 'string' || url !== url.trim() || !url) return false;
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;
+  const host = u.hostname.toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+}
+
+/**
+ * What is wrong with a card's `url` / `snapshot`, or null when they're fine.
+ * Only the fields present are checked, so an update that touches neither passes.
+ */
+export function liveNodeProblem(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.url !== undefined && node.url !== null && !isAllowedLiveUrl(node.url)) {
+    return `Live card url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(node.url)}`;
+  }
+  if (node.snapshot !== undefined && node.snapshot !== null) {
+    if (typeof node.snapshot !== 'string' || !node.snapshot.startsWith('data:image/png;base64,')) {
+      return 'snapshot must be a PNG data URL (data:image/png;base64,…)';
+    }
+    if (node.snapshot.length > MAX_SNAPSHOT_CHARS) {
+      return `snapshot is larger than the ${MAX_SNAPSHOT_CHARS / (1024 * 1024)} MB limit`;
+    }
+  }
+  return null;
+}

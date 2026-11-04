@@ -4,6 +4,7 @@ import { ComponentNode, LintResult, PinPosition, SelectedElementInfo } from '../
 import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
 import { copyImageToClipboard, downloadDataUrl, screenshotFileName } from '../../services/exportService';
 import Preview, { PreviewHandle } from '../Runtime/Preview';
+import LivePreview from '../Runtime/LivePreview';
 import CodeView from './CodeView';
 import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
@@ -274,7 +275,18 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           </span>
         )}
       </div>
-      {node.code ? (
+      {node.url ? (
+        // A live card: the page runs in its own frame (no element targeting
+        // until the bridge exists, so comments attach to the whole card).
+        <div className="relative flex-1 overflow-hidden rounded-b-2xl" style={{ background: 'rgb(var(--app-surface))' }}>
+          <LivePreview
+            url={node.url}
+            snapshot={node.snapshot}
+            title={node.name}
+            interactive={isSelected && !isGesturing}
+          />
+        </div>
+      ) : node.code ? (
         <div
           className="relative flex-1 overflow-hidden rounded-b-2xl"
           // Same surface the sandbox paints inside itself: while a resize is in

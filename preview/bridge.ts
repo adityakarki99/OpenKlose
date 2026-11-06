@@ -47,6 +47,8 @@ import { capture } from './screenshot';
       const el = document.documentElement;
       const width = Math.ceil(Math.max(el.scrollWidth, document.body.scrollWidth));
       const height = Math.ceil(Math.max(el.scrollHeight, document.body.scrollHeight));
+      // Nothing can be sent before the canvas says hello, so don't remember a size yet.
+      if (!state.origin || !state.nonce) return;
       const key = `${width}x${height}`;
       if (key === lastSize) return;
       lastSize = key;
@@ -117,6 +119,7 @@ import { capture } from './screenshot';
       case 'klose:hello':
         state.origin = event.origin;
         state.nonce = message.nonce;
+        lastSize = ''; // a new canvas (or a reload of it) needs the size again
         post({ type: 'klose:ready', version: BRIDGE_VERSION });
         reportSize();
         reportPins();

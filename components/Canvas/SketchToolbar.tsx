@@ -10,6 +10,8 @@ interface SketchToolbarProps {
   node: ComponentNode;
   zoom: number;
   hasPreview: boolean;
+  /** Set on a live card whose page doesn't load klose-bridge.js: why picking an element isn't available. */
+  pickUnavailable?: string;
   showCode: boolean;
   capture: CaptureState;
   onToggleCode: () => void;
@@ -316,6 +318,7 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
   node,
   zoom,
   hasPreview,
+  pickUnavailable,
   showCode,
   capture,
   onToggleCode,
@@ -349,6 +352,11 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
       <div role="toolbar" aria-label={`${node.name || 'Untitled sketch'} actions`} className="relative flex items-center gap-1 whitespace-nowrap rounded-xl border border-app-border bg-app-surface-elevated p-1 shadow-xl">
         <span className="max-w-56 truncate px-2 text-[13px] font-semibold text-app-primary">{node.name || 'Untitled sketch'}</span>
         <Divider />
+        {!hasPreview && pickUnavailable && (
+          <button type="button" className={`${btn} cursor-not-allowed opacity-50`} disabled title={pickUnavailable} data-testid="pick-unavailable">
+            <MessageSquarePlus size={15} /> Comment
+          </button>
+        )}
         {hasPreview && (
           <button type="button" className={btn} onClick={onComment} title="Click an element in the preview to attach your comment to it (C)">
             <MessageSquarePlus size={15} /> Comment

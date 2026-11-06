@@ -306,6 +306,48 @@ to every elevated surface on the canvas (the feedback tray, the sketch frames, t
   the canvas hands focus back to the composer once the element arrives — the draft survives, and
   Escape drops the targeted element before it drops the selection.
 
+## The Bridge (`klose-bridge.js`)
+
+A `url` card frames a page running on this machine (see the live frame cards in the canvas). The canvas
+cannot look inside a page on another port, so a page that wants element comments loads a small script
+that answers `postMessage` requests for it. It mirrors what `preview.html` does for sketch code, without
+the sandbox: the page is the user's own.
+
+```html
+<script src="http://localhost:<klose-port>/klose-bridge.js"></script>
+```
+
+`<klose-port>` is the port `klose serve` prints (the same server that serves the canvas; the hosted
+canvas never frames local pages). The script is built from `preview/bridge.ts` into `web/dist/klose-bridge.js`
+by the `klose-bridge` plugin in `vite.config.ts`, so it is a single dependency-free file. It shares its
+element description and pin placement with the sandbox through `lib/elementInfo.js`, and its screenshots
+use `preview/screenshot.ts`.
+
+**Handshake.** After the frame loads, the canvas sends `klose:hello` with a random nonce (repeated for a few
+seconds, because the script may load late). The page replies `klose:ready`, and from then on the card is
+*bridged*. Every message in both directions carries that nonce, must come from the other window
+(`event.source`) and from the origin recorded at the handshake (`event.origin`); everything else is ignored.
+A new page load is a new handshake with a new nonce. The page only accepts a hello from a localhost-class
+origin, because an element list or a screenshot is the page's content and must not go to a site that frames it.
+The guards live in `lib/bridgeProtocol.js` (types in `lib/bridgeProtocol.d.ts`).
+
+| Direction | Message | Purpose |
+|---|---|---|
+| canvas → page | `klose:hello { nonce }` | Handshake. |
+| page → canvas | `klose:ready { version }` | Handshake reply. |
+| canvas → page | `setInspecting { value }` | Start or stop picking an element. |
+| page → canvas | `elementSelected { info }` | The picked element (`SelectedElementInfo`, with its `locator`). |
+| canvas → page | `locate { targets }` | Commented elements to place pins on. |
+| page → canvas | `pins { pins }` | Where each is (`PinPosition[]`, in the page's pixels). |
+| canvas → page | `capture { id, scale }` | Take a screenshot inside the page. |
+| page → canvas | `captured { id, dataUrl \| message }` | The PNG, or why not. |
+| page → canvas | `contentSize { width, height }` | The page's size, for fitting the card. |
+
+A bridged card behaves like a sketch card: element comments, pins, "fit to content" and screenshots. When the
+bridge answers after a load, the card also refreshes its `snapshot` (the image shown when the dev server is
+down), at most once every three minutes per card. A page without the bridge stays a plain frame: comments
+attach to the whole card and the element-pick button is disabled with a hint.
+
 ## Local Server
 
 `server/http.js` is a small Node `http` server (no Express) that:

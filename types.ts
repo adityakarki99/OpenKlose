@@ -23,6 +23,17 @@ export interface ComponentNode {
    * in the project's actual source tree at builtFilePath.
    */
   code?: string;
+  /**
+   * Address of a page on this machine to draw as a live frame instead of `code`
+   * (http(s) on localhost, 127.0.0.1, [::1] or *.localhost; see isAllowedLiveUrl in
+   * server/storeCore.js). Checked when saved and again when drawn.
+   */
+  url?: string;
+  /**
+   * PNG data URL (max 2 MB) shown when `url` can't be reached: dev server stopped,
+   * static or online mode, or a share link.
+   */
+  snapshot?: string;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
   /** What Jev said this sketch is, once classified (server/classify.js). */

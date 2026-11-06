@@ -327,6 +327,14 @@ same check runs on a sketch's preview with "klose project lint".`,
 Any <json> argument can be @path/to/file.json instead — easier for multi-line
 preview code than a shell argument.
 
+A node can show a page running on this machine instead of preview code:
+
+  klose project add-node <id> '{"name":"Home","status":"built","url":"http://localhost:8081/__klose?c=Home"}'
+
+url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost (any port, no
+credentials); anything else is refused. An optional snapshot (PNG data URL, up
+to 2 MB) is shown when the page can't be reached.
+
 export writes one .tsx per sketch (its preview code, with a header naming the
 sketch and project) plus a README.md carrying descriptions, notes, status and
 pending comments — a planning doc you can commit and build from. Defaults to

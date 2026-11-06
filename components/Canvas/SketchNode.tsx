@@ -9,6 +9,16 @@ import CodeView from './CodeView';
 import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
 import { openComments } from '../../lib/feedback.js';
+import { MAX_SNAPSHOT_CHARS } from '../../server/storeCore.js';
+
+/** A bridged live card refreshes its fallback snapshot at most this often (per card, per page session). */
+const SNAPSHOT_MIN_INTERVAL_MS = 3 * 60 * 1000;
+/** Let the page paint before the screenshot is taken. */
+const SNAPSHOT_SETTLE_MS = 800;
+const lastSnapshotAt = new Map<string, number>();
+
+const BRIDGE_HINT =
+  'To comment on an element in this page, add <script src="http://localhost:<klose-port>/klose-bridge.js"></script> to it. Until then, comments attach to the whole card.';
 
 interface SketchNodeProps {
   node: ComponentNode;
@@ -100,7 +110,10 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   // Resolved comments are history: no pins, not counted. Numbers match the tray's.
   const comments = useMemo(() => openComments(node.comments), [node.comments]);
   const commentCount = comments.length;
-  const hasPreview = !!node.code;
+  const [bridged, setBridged] = useState(false);
+  // A live card can pick elements, pin comments and take screenshots once its
+  // page has loaded klose-bridge.js; until then it is a plain frame.
+  const hasPreview = !!node.code || (!!node.url && bridged);
 
   const previewRef = useRef<PreviewHandle>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -139,6 +152,33 @@ const SketchNode: React.FC<SketchNodeProps> = ({
     if (draftElement) targets.push({ id: DRAFT_PIN_ID, element: draftElement });
     return targets;
   }, [isSelected, comments, draftElement]);
+
+  // When a bridged page has loaded, keep the fallback image current so the card
+  // still shows something real once the dev server is stopped. Once per load,
+  // and not again within a few minutes (reloads while editing would otherwise
+  // rewrite the project every time).
+  const nodeIdRef = useRef(node.id);
+  nodeIdRef.current = node.id;
+  const snapshotRef = useRef(node.snapshot);
+  snapshotRef.current = node.snapshot;
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+  const handleBridgeReady = useCallback(() => {
+    const id = nodeIdRef.current;
+    const now = Date.now();
+    if (now - (lastSnapshotAt.get(id) ?? 0) < SNAPSHOT_MIN_INTERVAL_MS) return;
+    lastSnapshotAt.set(id, now);
+    window.setTimeout(async () => {
+      try {
+        const dataUrl = await previewRef.current?.capture({ scale: 1 });
+        if (!dataUrl || !dataUrl.startsWith('data:image/png;base64,') || dataUrl.length > MAX_SNAPSHOT_CHARS) return;
+        if (dataUrl === snapshotRef.current) return;
+        onUpdateRef.current(id, { snapshot: dataUrl });
+      } catch {
+        // The page went away or can't be drawn: the old snapshot stays.
+      }
+    }, SNAPSHOT_SETTLE_MS);
+  }, []);
 
   const handleFit = () => {
     const size = contentSizeRef.current;
@@ -198,6 +238,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           node={node}
           zoom={zoom}
           hasPreview={hasPreview}
+          pickUnavailable={node.url && !bridged ? BRIDGE_HINT : undefined}
           showCode={showCode}
           capture={capture}
           onToggleCode={() => setShowCode((v) => !v)}
@@ -276,15 +317,37 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         )}
       </div>
       {node.url ? (
-        // A live card: the page runs in its own frame (no element targeting
-        // until the bridge exists, so comments attach to the whole card).
+        // A live card: the page runs in its own frame. Element targeting, pins
+        // and screenshots need the page to load klose-bridge.js; without it,
+        // comments attach to the whole card.
         <div className="relative flex-1 overflow-hidden rounded-b-2xl" style={{ background: 'rgb(var(--app-surface))' }}>
           <LivePreview
+            ref={previewRef}
             url={node.url}
             snapshot={node.snapshot}
             title={node.name}
-            interactive={isSelected && !isGesturing}
+            interactive={(isSelected || isTargeting) && !isGesturing}
+            isInspecting={isTargeting && bridged}
+            onElementSelect={onInspectElement}
+            onContentSize={handleContentSize}
+            pinTargets={pinTargets}
+            onPins={setPinPositions}
+            onBridgeChange={setBridged}
+            onBridgeReady={handleBridgeReady}
           />
+          {isTargeting && bridged && !isGesturing && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 border-t border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-medium text-blue-200">
+              <Crosshair size={12} className="flex-shrink-0" />
+              {targetingReason === 'pinned'
+                ? 'Click an element to comment on it'
+                : 'Writing a comment: click an element to attach it'}
+            </div>
+          )}
+          {captureError && (
+            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-lg border border-red-500/40 bg-app-surface-elevated/95 px-2 py-1 text-xs text-red-300 shadow">
+              {captureError}
+            </div>
+          )}
         </div>
       ) : node.code ? (
         <div

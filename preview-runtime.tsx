@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Babel from '@babel/standalone';
 import { capture } from './preview/screenshot';
-import { locatorFor, pickBestCandidate, resolveLocator } from './lib/pins.js';
+import { elementInfo as describeElement, measurePins } from './lib/elementInfo.js';
 import '@tailwindcss/browser';
 
 const rootElement = document.getElementById('root');
@@ -45,38 +45,13 @@ function postAfterPaint(message: Record<string, unknown>) {
   setTimeout(send, 100);
 }
 
-function describePath(element: Element): string {
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (current?.tagName && current.id !== 'root' && parts.length < 5) {
-    parts.unshift(current.tagName.toLowerCase());
-    current = current.parentElement;
-  }
-  return parts.join(' > ');
-}
-
 function elementInfo(element: HTMLElement) {
-  return {
-    tagName: (element.tagName || '').toLowerCase(),
-    text: (element.innerText || element.textContent || '').trim().slice(0, 100),
-    classes: (typeof element.className === 'string' ? element.className : '').trim().slice(0, 200),
-    path: describePath(element),
-    locator: locatorFor(element, rootElement),
-  };
+  return describeElement(element, rootElement as HTMLElement);
 }
 
 /** Comments whose elements should carry pins, as last sent by the canvas. */
 let pinTargets: Array<{ id: string; element: ReturnType<typeof elementInfo> }> = [];
 let pinTimer: ReturnType<typeof setTimeout> | undefined;
-
-function findElement(info: ReturnType<typeof elementInfo>): Element | null {
-  const byLocator = resolveLocator(rootElement, info.locator || '') as Element | null;
-  if (byLocator && byLocator.tagName.toLowerCase() === info.tagName) return byLocator;
-  if (!info.tagName || !/^[a-z][a-z0-9-]*$/.test(info.tagName)) return null;
-  const elements = Array.from(rootElement!.querySelectorAll(info.tagName)) as HTMLElement[];
-  const index = pickBestCandidate(elements.map((el) => elementInfo(el)), info);
-  return index >= 0 ? elements[index] : null;
-}
 
 /**
  * Tells the canvas where each commented element is, in this frame's own
@@ -86,13 +61,7 @@ function findElement(info: ReturnType<typeof elementInfo>): Element | null {
 function reportPins() {
   clearTimeout(pinTimer);
   pinTimer = setTimeout(() => {
-    const pins = pinTargets.map(({ id, element }) => {
-      const el = findElement(element);
-      if (!el) return { id, found: false };
-      const rect = el.getBoundingClientRect();
-      return { id, found: true, x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-    });
-    post({ type: 'pins', pins });
+    post({ type: 'pins', pins: measurePins(rootElement as HTMLElement, pinTargets) });
   }, 60);
 }
 

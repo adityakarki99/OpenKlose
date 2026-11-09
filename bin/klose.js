@@ -14,6 +14,7 @@ import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
 import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
+import { HarnessError, initHarness, readAllProjects, syncRegistry } from '../server/harness.js';
 import * as share from '../server/share.js';
 import { openOnline } from '../server/open.js';
 import {
@@ -79,6 +80,8 @@ Canvas data
                 you (the agent) run somewhere their browser can't reach
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
+  harness       Render real built components on the canvas through your dev
+                server (init, sync)
   lint          Audit real source files: literal colours, radii and shadows
                 where the repo has a token for them
 
@@ -90,6 +93,25 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
+  harness: `Usage: klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
+       klose harness sync [--force] [--json]
+
+Lets the canvas render the real component behind a built card, inside your
+app's own providers, through your dev server (Expo/Metro today).
+
+  init   Writes klose.config.json (if missing), klose.harness.tsx, the
+         generated klose.registry.ts and, with expo-router, the route
+         app/__klose.tsx. Safe to run again: files you have edited are left
+         alone unless you pass --force.
+  sync   Regenerates klose.registry.ts from the project's built cards
+         (builtFilePath + exportName) and the "components" list in
+         klose.config.json. It also runs by itself whenever a card becomes
+         built or its file or export changes.
+
+klose.config.json: { "framework": "expo", "devServer": "http://localhost:8081",
+"harnessPath": "/__klose", "providers": "src/Providers.tsx" }. devServer must be
+on localhost. Add "props" to a card (klose project update-node) to show a
+component in a given state.`,
   open: `Usage: klose open --online [--repo owner/name] [--branch main] [--project id] [--host URL] [--json]
 
 Opens or resumes one online workspace. From a repo, omit --repo. With --repo,
@@ -1299,6 +1321,45 @@ function printLint(result) {
   else if (!jev.asked && findings.some((f) => f.candidates > 0)) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
 }
 
+async function cmdHarness(args) {
+  const [sub, ...rest] = args;
+  const flag = (name) => {
+    const hit = rest.find((a) => a === name || a.startsWith(`${name}=`));
+    return hit && hit.includes('=') ? hit.slice(name.length + 1) : undefined;
+  };
+  const json = hasFlag(rest, '--json');
+  const force = hasFlag(rest, '--force');
+  try {
+    if (sub === 'init') {
+      const projects = await readAllProjects(store, root);
+      const result = await initHarness(root, {
+        force,
+        devServer: flag('--dev-server'),
+        harnessPath: flag('--harness-path'),
+        providers: flag('--providers'),
+        projects,
+      });
+      if (json) return printJson(result);
+      for (const { file, result: what } of result.files) console.log(`${what.padEnd(9)} ${file}`);
+      if (result.files.some((f) => f.result === 'skipped')) console.log('Some generated files were edited by hand and left alone. Use --force to regenerate them.');
+      if (result.manual) console.log(`\n${result.manual}`);
+      console.log(`\nStart your dev server (${result.config.devServer}), then mark a card built: it appears in klose.registry.ts and renders on the canvas.`);
+      return;
+    }
+    if (sub === 'sync') {
+      const { result, keys } = await syncRegistry(root, await readAllProjects(store, root), { force });
+      if (json) return printJson({ result, components: keys });
+      console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'})`);
+      if (result === 'skipped') console.log('klose.registry.ts was edited by hand and left alone. Use --force to regenerate it.');
+      return;
+    }
+  } catch (err) {
+    if (err instanceof HarnessError) fail(err.message);
+    throw err;
+  }
+  fail('usage: klose harness <init|sync> (see "klose help harness")');
+}
+
 async function cmdLint(args) {
   const inputs = args.filter((a) => !a.startsWith('--'));
   if (!inputs.length) fail(`lint needs a file or folder\n\n${COMMAND_HELP.lint}`);
@@ -1588,6 +1649,7 @@ const COMMANDS = {
   project: cmdProject,
   components: cmdComponents,
   theme: cmdTheme,
+  harness: cmdHarness,
   lint: cmdLint,
   feedback: cmdFeedback,
   resolve: cmdResolve,

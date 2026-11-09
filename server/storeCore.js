@@ -151,6 +151,36 @@ export const KLOSE_GITIGNORE = ['server.json', 'server.log', 'canvas.json', 'sha
 
 // ── Live frame cards ────────────────────────────────────────────────────────
 
+/** Largest `props` a card may carry once serialized, in characters. */
+export const MAX_PROPS_CHARS = 64 * 1024;
+
+function isPlainJson(value, depth = 0) {
+  if (depth > 32) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((v) => isPlainJson(v, depth + 1));
+  if (typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    return (proto === Object.prototype || proto === null) && Object.values(value).every((v) => isPlainJson(v, depth + 1));
+  }
+  return false; // undefined, functions, symbols, bigint
+}
+
+/** Why `props` can't be stored on a card, or null. Plain JSON only, and bounded. */
+export function propsProblem(props) {
+  if (props === undefined || props === null) return null;
+  if (typeof props !== 'object' || Array.isArray(props)) return 'props must be a JSON object';
+  if (!isPlainJson(props)) return 'props must be JSON-only (objects, arrays, strings, finite numbers, booleans, null)';
+  let text;
+  try {
+    text = JSON.stringify(props);
+  } catch {
+    return 'props must be JSON-serialisable';
+  }
+  if (text.length > MAX_PROPS_CHARS) return `props is larger than the ${MAX_PROPS_CHARS / 1024} KB limit`;
+  return null;
+}
+
 /** Largest `snapshot` (a PNG data URL) a card may carry, in characters. */
 export const MAX_SNAPSHOT_CHARS = 2 * 1024 * 1024;
 
@@ -181,6 +211,8 @@ export function isAllowedLiveUrl(url) {
  */
 export function liveNodeProblem(node) {
   if (!node || typeof node !== 'object') return null;
+  const props = propsProblem(node.props);
+  if (props) return props;
   if (node.url !== undefined && node.url !== null && !isAllowedLiveUrl(node.url)) {
     return `Live card url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(node.url)}`;
   }

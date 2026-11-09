@@ -348,6 +348,27 @@ Then mark the sketch as built so the canvas reflects reality:
 npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
 ```
 
+**If the repo has a component harness** (a `klose.config.json` at the repo root — set up once with
+`npx klose harness init`), the canvas can show the real component instead of your restatement. Marking
+the sketch `built` with `builtFilePath` and `exportName` registers it automatically; to be sure, or after
+renaming files, run:
+
+```
+npx klose harness sync
+```
+
+Then give the card one `props` object (JSON only) for each state you want to show, so the user sees the
+real component loading, empty, errored and so on, not just its default:
+
+```
+npx klose project update-node <projectId> <nodeId> '{"props":{"title":"Pro plan","loading":false}}'
+```
+
+Keep the `code` restatement on the card: it is the fallback when the dev server isn't running, and the
+"Sketch" side of the card's Real / Sketch toggle. The dev server (e.g. `npx expo start --web`) must be
+running for the real component to render; if it isn't, the card falls back to its snapshot, then to `code`.
+Without a harness, nothing changes: built cards keep showing `code`.
+
 If this build was in response to comments, **resolve** the ones you addressed, so the canvas shows
 them as done instead of as stale feedback:
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest, notFound } from './errors.js';
+import { scheduleRegistrySync } from './harness.js';
 
 import {
   DEMO_NODE,
@@ -18,6 +19,15 @@ import {
 // The pure parts (ids, placement, the demo sketch) live in storeCore.js, which
 // the hosted canvas's folder store shares, so both write the same records.
 export { placeNode };
+
+// A node becoming built, or a built node changing, keeps klose.registry.ts in
+// step (a no-op in a repo without a harness config; see server/harness.js).
+async function syncHarness(cwd) {
+  await scheduleRegistrySync(cwd, async () => {
+    const summaries = await listProjects(cwd);
+    return Promise.all(summaries.map((s) => readProjectFile(cwd, s.id)));
+  });
+}
 
 function assertValidId(id) {
   if (!isValidId(id)) {
@@ -121,6 +131,7 @@ export async function updateProject(cwd, id, updates) {
   const { savedToRepo: _ignored, ...rest } = updates || {};
   const merged = { ...existing, ...rest, id, updated_at: nextUpdatedAt(existing.updated_at) };
   await writeProjectFile(cwd, merged);
+  if (updates?.nodes) await syncHarness(cwd);
   return merged;
 }
 
@@ -165,6 +176,7 @@ export async function addNode(cwd, id, node) {
   project.nodes = [...(project.nodes || []), newNode];
   project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
+  if (newNode.status === 'built') await syncHarness(cwd);
   return newNode;
 }
 
@@ -172,14 +184,17 @@ export async function updateNode(cwd, id, nodeId, updates) {
   assertLiveNode(updates);
   const project = await readProjectFile(cwd, id);
   let updatedNode = null;
+  let wasBuilt = false;
   project.nodes = (project.nodes || []).map((n) => {
     if (n.id !== nodeId) return n;
+    wasBuilt = n.status === 'built';
     updatedNode = { ...n, ...updates };
     return updatedNode;
   });
   if (!updatedNode) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');
   project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
+  if (wasBuilt || updatedNode.status === 'built') await syncHarness(cwd);
   return updatedNode;
 }
 

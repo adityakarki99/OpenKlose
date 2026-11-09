@@ -21,6 +21,7 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
+import { HarnessError, loadHarnessConfig, readRegistryKeys } from './harness.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -213,6 +214,19 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     // The repo's design tokens as Tailwind CSS, injected into every preview.
     if (only('theme') && req.method === 'GET') {
       sendJson(res, 200, await loadTheme(root, { force: url.searchParams.get('refresh') === '1' }));
+      return true;
+    }
+
+    // The harness the canvas may frame built cards through: the repo's config
+    // and which components its registry holds. `null` when there is none.
+    if (only('harness') && req.method === 'GET') {
+      try {
+        const config = await loadHarnessConfig(root);
+        sendJson(res, 200, config ? { config, registry: await readRegistryKeys(root) } : { config: null, registry: [] });
+      } catch (err) {
+        if (!(err instanceof HarnessError)) throw err;
+        sendJson(res, 200, { config: null, registry: [], error: err.message });
+      }
       return true;
     }
 

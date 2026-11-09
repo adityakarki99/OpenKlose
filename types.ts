@@ -34,6 +34,11 @@ export interface ComponentNode {
    * static or online mode, or a share link.
    */
   snapshot?: string;
+  /**
+   * JSON-only props a built card passes to its real component when it is drawn
+   * through the harness (server/harnessCore.js), to show it in a given state.
+   */
+  props?: Record<string, unknown>;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
   /** What Jev said this sketch is, once classified (server/classify.js). */

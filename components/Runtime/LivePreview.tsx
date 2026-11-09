@@ -46,6 +46,8 @@ interface LivePreviewProps {
   snapshot?: string;
   /** Drawn when the page is down and there is no snapshot, before the "dev server not running" placeholder. */
   fallback?: React.ReactNode;
+  /** Handle of the preview drawn as `fallback`: screenshots are taken from it while the page is down. */
+  fallbackHandle?: React.RefObject<PreviewHandle | null>;
   /** Same rule as <Preview>: take mouse input only when the card is selected and the canvas is idle. */
   interactive?: boolean;
   title?: string;
@@ -70,7 +72,7 @@ interface PendingCapture {
 }
 
 const LivePreview = forwardRef<PreviewHandle, LivePreviewProps>(function LivePreview(
-  { url, snapshot, fallback, interactive = false, title, isInspecting = false, onElementSelect, onContentSize, pinTargets, onPins, onBridgeChange, onBridgeReady },
+  { url, snapshot, fallback, fallbackHandle, interactive = false, title, isInspecting = false, onElementSelect, onContentSize, pinTargets, onPins, onBridgeChange, onBridgeReady },
   ref
 ) {
   const allowed = isAllowedLiveUrl(url);
@@ -140,6 +142,10 @@ const LivePreview = forwardRef<PreviewHandle, LivePreviewProps>(function LivePre
     () => ({
       capture: (options) =>
         new Promise<string>((resolve, reject) => {
+          if (!bridgedRef.current && fallbackHandle?.current) {
+            fallbackHandle.current.capture(options).then(resolve, reject);
+            return;
+          }
           if (!bridgedRef.current) {
             reject(new Error('This page does not load klose-bridge.js, so it cannot be captured.'));
             return;
@@ -153,7 +159,7 @@ const LivePreview = forwardRef<PreviewHandle, LivePreviewProps>(function LivePre
           postToFrame({ type: 'capture', id, scale: options?.scale ?? 2 });
         }),
     }),
-    [postToFrame]
+    [postToFrame, fallbackHandle]
   );
 
   useEffect(() => {

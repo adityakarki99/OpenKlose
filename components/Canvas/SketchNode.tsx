@@ -17,6 +17,8 @@ import { getHarness, HarnessInfo } from '../../services/harnessService';
 const SNAPSHOT_MIN_INTERVAL_MS = 3 * 60 * 1000;
 /** Let the page paint before the screenshot is taken. */
 const SNAPSHOT_SETTLE_MS = 800;
+/** Delays between re-reads of the harness registry for a built card that isn't in it yet. */
+const RETRY_DELAYS_MS = [400, 1200, 3000];
 const lastSnapshotAt = new Map<string, number>();
 
 const BRIDGE_HINT =
@@ -123,9 +125,21 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   useEffect(() => {
     if (node.status !== 'built' || node.url) return;
     let live = true;
-    getHarness().then((info) => live && setHarness(info));
+    let timer: number | undefined;
+    // The registry is rewritten by the server just after a card turns built, and
+    // the answer may be cached from before that: ask again, a few times, until
+    // the component shows up (or the repo has no harness at all).
+    const load = (attempt: number) =>
+      getHarness(attempt > 0).then((info) => {
+        if (!live) return;
+        setHarness(info);
+        const listed = !info.config || harnessAddress(info.config, node, info.registry);
+        if (!listed && attempt < RETRY_DELAYS_MS.length) timer = window.setTimeout(() => load(attempt + 1), RETRY_DELAYS_MS[attempt]);
+      });
+    load(0);
     return () => {
       live = false;
+      window.clearTimeout(timer);
     };
   }, [node.status, node.url, node.builtFilePath, node.exportName]);
   const harnessUrl = !node.url && harness ? harnessAddress(harness.config, node, harness.registry) : null;
@@ -133,6 +147,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   const hasPreview = !!node.code || (!!frameUrl && bridged);
 
   const previewRef = useRef<PreviewHandle>(null);
+  const fallbackRef = useRef<PreviewHandle>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const contentSizeRef = useRef<{ width: number; height: number } | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -357,7 +372,23 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ref={previewRef}
             url={frameUrl}
             snapshot={node.snapshot}
-            fallback={harnessUrl && node.code ? <Preview code={node.code} exportName={node.exportName} /> : undefined}
+            fallbackHandle={fallbackRef}
+            fallback={
+              harnessUrl && node.code ? (
+                // The sandboxed restatement, wired like the ordinary sketch preview below.
+                <Preview
+                  ref={fallbackRef}
+                  code={node.code}
+                  exportName={node.exportName}
+                  interactive={(isSelected || isTargeting) && !isGesturing}
+                  isInspecting={isTargeting}
+                  onElementSelect={onInspectElement}
+                  onContentSize={handleContentSize}
+                  pinTargets={pinTargets}
+                  onPins={setPinPositions}
+                />
+              ) : undefined
+            }
             title={node.name}
             interactive={(isSelected || isTargeting) && !isGesturing}
             isInspecting={isTargeting && bridged}

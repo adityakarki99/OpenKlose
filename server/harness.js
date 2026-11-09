@@ -307,9 +307,10 @@ export async function initHarness(root, { force = false, devServer, harnessPath,
 
   let manual;
   if (detected.router) {
-    const dir = routesDir(root);
-    const route = `${dir}/__klose.tsx`;
-    files.push({ file: route, result: await writeGenerated(root, route, routeSource(dir), { force }) });
+    // The route lives where the configured harnessPath says (/__klose → app/__klose.tsx,
+    // /preview/components → app/preview/components.tsx), so the canvas address reaches it.
+    const route = `${routesDir(root)}${config.harnessPath}.tsx`;
+    files.push({ file: route, result: await writeGenerated(root, route, routeSource(path.posix.dirname(route)), { force }) });
   } else {
     manual =
       `This project doesn't use expo-router, so add the harness screen by hand: register ` +

@@ -18,9 +18,9 @@ let cached: { at: number; base: string; promise: Promise<HarnessInfo> } | null =
  * canvases never reach the author's dev server. Cached briefly, because every
  * built card asks.
  */
-export function getHarness(): Promise<HarnessInfo> {
+export function getHarness(fresh = false): Promise<HarnessInfo> {
   if (STATIC || currentShare()) return Promise.resolve(NONE);
-  if (cached && cached.base === API_BASE && Date.now() - cached.at < TTL_MS) return cached.promise;
+  if (!fresh && cached && cached.base === API_BASE && Date.now() - cached.at < TTL_MS) return cached.promise;
   const promise = fetch(`${API_BASE}/harness`)
     .then((res) => (res.ok ? (res.json() as Promise<HarnessInfo>) : NONE))
     .catch(() => NONE);

@@ -23,8 +23,8 @@ export function validateHarnessConfig(raw) {
   if (!isAllowedLiveUrl(devServer)) {
     return { error: `devServer must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(devServer)}` };
   }
-  if (typeof harnessPath !== 'string' || !harnessPath.startsWith('/') || harnessPath.startsWith('//') || /[\s?#\\]/.test(harnessPath)) {
-    return { error: `harnessPath must be a path starting with a single "/", with no spaces, "?" or "#": ${JSON.stringify(harnessPath)}` };
+  if (typeof harnessPath !== 'string' || !/^(\/[\w@()[\].-]+)+$/.test(harnessPath) || harnessPath.split('/').some((seg) => seg === '.' || seg === '..')) {
+    return { error: `harnessPath must be a route path like "/__klose" or "/preview/components" (letters, digits, "_", "-", ".", no trailing "/"): ${JSON.stringify(harnessPath)}` };
   }
   if (providers !== undefined && (typeof providers !== 'string' || !providers.trim() || /^(\/|[a-z]+:)/i.test(providers) || providers.split(/[\\/]/).includes('..'))) {
     return { error: 'providers must be a module path inside the repo (relative, no ".."), e.g. "src/Providers.tsx"' };

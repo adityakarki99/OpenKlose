@@ -87,6 +87,22 @@ test('init generates the Expo files, a second run changes nothing, --force regen
   }
 });
 
+test('init puts the route at the configured harnessPath, and bad paths are rejected', async () => {
+  const dir = await expoRepo();
+  try {
+    const result = await initHarness(dir, { harnessPath: '/preview/components' });
+    assert.ok(result.files.some((f) => f.file === 'app/preview/components.tsx' && f.result === 'created'));
+    assert.ok(!existsSync(path.join(dir, 'app/__klose.tsx')));
+    assert.match(await read(dir, 'app/preview/components.tsx'), /export \{ default \} from "\.\.\/\.\.\/klose\.harness"/);
+    assert.ok((await initHarness(dir)).files.every((f) => f.result === 'unchanged'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  const base = { framework: 'expo', devServer: 'http://localhost:8081' };
+  for (const bad of ['/a/', '/', '/a/../b', '/a b', '/./x']) assert.ok(validateHarnessConfig({ ...base, harnessPath: bad }).error, bad);
+  for (const good of ['/__klose', '/preview/components', '/(dev)/klose']) assert.ok(validateHarnessConfig({ ...base, harnessPath: good }).config, good);
+});
+
 test('init without expo-router prints manual steps and writes no route; non-Expo repos are refused', async () => {
   const dir = await expoRepo();
   try {

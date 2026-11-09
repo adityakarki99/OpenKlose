@@ -124,7 +124,10 @@ test('fallback order: harness frame, snapshot, sandboxed restatement, placeholde
   await snap.page.close();
 
   const restated = await open(BUILT);
-  await restated.card.locator('[data-live-state="fallback"] iframe[title="Sketch preview"]').waitFor();
+  const fb = restated.card.locator('[data-live-state="fallback"] iframe[title="Sketch preview"]');
+  await fb.waitFor();
+  // Unselected, the restatement must not eat the pointer events a canvas drag needs.
+  assert.equal(await fb.evaluate((el) => getComputedStyle(el).pointerEvents), 'none');
   await restated.page.close();
 
   const bare = await open({ name: 'Bare', status: 'built', builtFilePath: 'src/Card.tsx', exportName: 'Card' });

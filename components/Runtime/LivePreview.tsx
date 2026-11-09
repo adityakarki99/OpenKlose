@@ -44,6 +44,8 @@ interface LivePreviewProps {
   url: string;
   /** PNG data URL shown when the page can't be reached (or can't be drawn). */
   snapshot?: string;
+  /** Drawn when the page is down and there is no snapshot, before the "dev server not running" placeholder. */
+  fallback?: React.ReactNode;
   /** Same rule as <Preview>: take mouse input only when the card is selected and the canvas is idle. */
   interactive?: boolean;
   title?: string;
@@ -68,7 +70,7 @@ interface PendingCapture {
 }
 
 const LivePreview = forwardRef<PreviewHandle, LivePreviewProps>(function LivePreview(
-  { url, snapshot, interactive = false, title, isInspecting = false, onElementSelect, onContentSize, pinTargets, onPins, onBridgeChange, onBridgeReady },
+  { url, snapshot, fallback, interactive = false, title, isInspecting = false, onElementSelect, onContentSize, pinTargets, onPins, onBridgeChange, onBridgeReady },
   ref
 ) {
   const allowed = isAllowedLiveUrl(url);
@@ -258,6 +260,7 @@ const LivePreview = forwardRef<PreviewHandle, LivePreviewProps>(function LivePre
     if (snapshot) {
       return <img src={snapshot} alt={title ? `${title} (last snapshot)` : 'Last snapshot'} className="h-full w-full object-contain object-top" data-live-state="snapshot" draggable={false} />;
     }
+    if (fallback) return <div className="h-full w-full" data-live-state="fallback">{fallback}</div>;
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-4 text-center text-xs text-app-secondary" data-live-state="placeholder">
         <PlugZap size={20} />

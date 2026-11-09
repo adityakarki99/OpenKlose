@@ -348,6 +348,30 @@ bridge answers after a load, the card also refreshes its `snapshot` (the image s
 down), at most once every three minutes per card. A page without the bridge stays a plain frame: comments
 attach to the whole card and the element-pick button is disabled with a hint.
 
+## The Component Harness (Expo/Metro)
+
+A `built` card can show the real component instead of the `code` restatement. The repo's own dev server
+renders it inside the app's real providers, and the canvas frames that page like any other live card
+(`components/Runtime/LivePreview.tsx`, bridge included).
+
+- **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components? }`.
+  `devServer` must pass `isAllowedLiveUrl`, so it is localhost only. The schema is `server/harnessCore.js`
+  (browser-safe, shared with the canvas); reading it and writing files is `server/harness.js`.
+- **`klose harness init`** writes the config if missing, `klose.harness.tsx` (the page: reads `c`, the export and `props`
+  from its address, renders the component inside `providers`, loads `klose-bridge.js` from the framing canvas when that
+  is on localhost), the generated `klose.registry.ts` (static `require`s, because Metro can't import a path chosen at
+  runtime) and, with expo-router, the route `app/__klose.tsx`. Every generated file carries a header and a hash of its
+  body: a file that no longer matches was edited by hand and is left alone without `--force`.
+- **`klose harness sync`** regenerates the registry from the project's built cards (`builtFilePath` + `exportName`,
+  default export when absent) plus the `components` list in the config. The store runs it itself after any write that
+  touches a built card (`scheduleRegistrySync`, debounced, written only when the content changes, a no-op without a
+  config), so the CLI and the HTTP API stay in step. File and export names are checked before they are written as code.
+- **Address.** `<devServer><harnessPath>?c=<file>#<export>&props=<base64 json>`. The canvas learns the config and the
+  registry from `GET /api/harness`, and only builds an address for components in the registry.
+- **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code` restatement, then the placeholder.
+  Built cards that have both get a Real / Sketch toggle. Static, shared and online canvases never ask for a harness.
+- **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.
+
 ## Local Server
 
 `server/http.js` is a small Node `http` server (no Express) that:

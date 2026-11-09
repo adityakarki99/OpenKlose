@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Crosshair, FileCode2, MessageSquare, Sparkles } from 'lucide-react';
 import { ComponentNode, LintResult, PinPosition, SelectedElementInfo } from '../../types';
 import { RESIZE_HANDLE_HIT_SIZE, RESIZE_HANDLE_SIZE } from '../../constants';
@@ -10,6 +10,8 @@ import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
 import { openComments } from '../../lib/feedback.js';
 import { MAX_SNAPSHOT_CHARS } from '../../server/storeCore.js';
+import { harnessAddress } from '../../server/harnessCore.js';
+import { getHarness, HarnessInfo } from '../../services/harnessService';
 
 /** A bridged live card refreshes its fallback snapshot at most this often (per card, per page session). */
 const SNAPSHOT_MIN_INTERVAL_MS = 3 * 60 * 1000;
@@ -113,7 +115,22 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   const [bridged, setBridged] = useState(false);
   // A live card can pick elements, pin comments and take screenshots once its
   // page has loaded klose-bridge.js; until then it is a plain frame.
-  const hasPreview = !!node.code || (!!node.url && bridged);
+  // A built card whose component is in the repo's harness registry can be drawn
+  // as the real thing, through the dev server. Fallback order: that frame, its
+  // snapshot, the sandboxed restatement in `code`, the placeholder.
+  const [harness, setHarness] = useState<HarnessInfo | null>(null);
+  const [showSketch, setShowSketch] = useState(false);
+  useEffect(() => {
+    if (node.status !== 'built' || node.url) return;
+    let live = true;
+    getHarness().then((info) => live && setHarness(info));
+    return () => {
+      live = false;
+    };
+  }, [node.status, node.url, node.builtFilePath, node.exportName]);
+  const harnessUrl = !node.url && harness ? harnessAddress(harness.config, node, harness.registry) : null;
+  const frameUrl = node.url || (harnessUrl && !showSketch ? harnessUrl : null);
+  const hasPreview = !!node.code || (!!frameUrl && bridged);
 
   const previewRef = useRef<PreviewHandle>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -238,7 +255,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           node={node}
           zoom={zoom}
           hasPreview={hasPreview}
-          pickUnavailable={node.url && !bridged ? BRIDGE_HINT : undefined}
+          pickUnavailable={frameUrl && !bridged ? BRIDGE_HINT : undefined}
           showCode={showCode}
           capture={capture}
           onToggleCode={() => setShowCode((v) => !v)}
@@ -307,6 +324,21 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             </>
           )}
         </span>
+        {harnessUrl && node.code && (
+          <div role="group" aria-label="Show the real component or the sketch" className="flex flex-shrink-0 overflow-hidden rounded-md border border-app-border text-[10.5px] font-medium">
+            {[false, true].map((sketch) => (
+              <button
+                key={String(sketch)}
+                type="button"
+                aria-pressed={showSketch === sketch}
+                onClick={() => setShowSketch(sketch)}
+                className={`px-1.5 py-px ${showSketch === sketch ? 'bg-app-surface-muted/20 text-app-primary' : 'text-app-secondary hover:text-app-primary'}`}
+              >
+                {sketch ? 'Sketch' : 'Real'}
+              </button>
+            ))}
+          </div>
+        )}
         {commentCount > 0 && (
           <span
             className="flex flex-shrink-0 items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[11px] font-medium text-app-secondary"
@@ -316,15 +348,16 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           </span>
         )}
       </div>
-      {node.url ? (
+      {frameUrl ? (
         // A live card: the page runs in its own frame. Element targeting, pins
         // and screenshots need the page to load klose-bridge.js; without it,
         // comments attach to the whole card.
         <div className="relative flex-1 overflow-hidden rounded-b-2xl" style={{ background: 'rgb(var(--app-surface))' }}>
           <LivePreview
             ref={previewRef}
-            url={node.url}
+            url={frameUrl}
             snapshot={node.snapshot}
+            fallback={harnessUrl && node.code ? <Preview code={node.code} exportName={node.exportName} /> : undefined}
             title={node.name}
             interactive={(isSelected || isTargeting) && !isGesturing}
             isInspecting={isTargeting && bridged}

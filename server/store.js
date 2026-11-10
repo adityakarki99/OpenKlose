@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, unlink, readdir, rename } from 'node:fs/pro
 import path from 'node:path';
 import { badRequest, notFound } from './errors.js';
 import { autoSetupHarness, scheduleRegistrySync } from './harness.js';
+import { noteForeignWrite, noteLocalWrite } from './sketchTrust.js';
 
 import {
   DEMO_NODE,
@@ -22,7 +23,7 @@ import {
 // the hosted canvas's folder store shares, so both write the same records.
 export { placeNode };
 
-// A node becoming built, or a built node changing, keeps klose.registry.ts in
+// A write to a project's nodes keeps klose.registry.ts and the sketch files in
 // step (a no-op in a repo without a harness config; see server/harness.js).
 // The first built node also sets the harness up, unless the repo's `harness`
 // setting is off: `built` says whether this write left one behind.
@@ -33,6 +34,14 @@ async function syncHarness(cwd, built) {
   };
   if (built) await autoSetupHarness(cwd, listAll);
   await scheduleRegistrySync(cwd, listAll);
+}
+
+// Every function below that takes sketch code from this machine (the CLI, the
+// local canvas) says so, and `putProject`, which takes a project from somewhere
+// else, says that: only code written here is ever written into the repo for the
+// bundler (server/sketchTrust.js). Neither may fail a save that already happened.
+async function wroteLocally(cwd, before, after) {
+  await noteLocalWrite(cwd, before, after).catch(() => {});
 }
 
 function assertValidId(id) {
@@ -138,7 +147,10 @@ export async function updateProject(cwd, id, updates) {
   const merged = { ...existing, ...rest, id, updated_at: nextUpdatedAt(existing.updated_at) };
   if (rest.nodes) merged.nodes = settleApprovals(existing.nodes, rest.nodes);
   await writeProjectFile(cwd, merged);
-  if (updates?.nodes) await syncHarness(cwd, merged.nodes.some?.((n) => n?.status === 'built'));
+  if (updates?.nodes) {
+    if (Array.isArray(merged.nodes)) await wroteLocally(cwd, existing.nodes, merged.nodes);
+    await syncHarness(cwd, merged.nodes.some?.((n) => n?.status === 'built'));
+  }
   return merged;
 }
 
@@ -161,11 +173,14 @@ export async function setSavedToRepo(cwd, id, savedToRepo) {
 export async function putProject(cwd, project) {
   assertValidId(project?.id);
   await writeProjectFile(cwd, project);
+  await noteForeignWrite(cwd, project.nodes).catch(() => {});
+  await syncHarness(cwd, false);
   return project;
 }
 
 export async function deleteProject(cwd, id) {
   await unlink(projectFile(cwd, id));
+  await syncHarness(cwd, false);
 }
 
 export async function addNode(cwd, id, node) {
@@ -183,7 +198,8 @@ export async function addNode(cwd, id, node) {
   project.nodes = [...(project.nodes || []), newNode];
   project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
-  if (newNode.status === 'built') await syncHarness(cwd, true);
+  await wroteLocally(cwd, [], [newNode]);
+  if (newNode.status === 'built' || newNode.code) await syncHarness(cwd, newNode.status === 'built');
   return newNode;
 }
 
@@ -191,9 +207,11 @@ export async function updateNode(cwd, id, nodeId, updates) {
   assertLiveNode(updates);
   const project = await readProjectFile(cwd, id);
   let updatedNode = null;
+  let previous = null;
   let wasBuilt = false;
   project.nodes = (project.nodes || []).map((n) => {
     if (n.id !== nodeId) return n;
+    previous = n;
     wasBuilt = n.status === 'built';
     updatedNode = settleApproval(n, { ...n, ...updates });
     return updatedNode;
@@ -201,7 +219,10 @@ export async function updateNode(cwd, id, nodeId, updates) {
   if (!updatedNode) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');
   project.updated_at = nextUpdatedAt(project.updated_at);
   await writeProjectFile(cwd, project);
-  if (wasBuilt || updatedNode.status === 'built') await syncHarness(cwd, updatedNode.status === 'built');
+  await wroteLocally(cwd, [previous], [updatedNode]);
+  // A sketch's file follows its code, its export and its turning built (or back).
+  const sketchChanged = previous.code !== updatedNode.code || previous.exportName !== updatedNode.exportName || previous.name !== updatedNode.name || previous.url !== updatedNode.url;
+  if (wasBuilt || updatedNode.status === 'built' || sketchChanged) await syncHarness(cwd, updatedNode.status === 'built');
   return updatedNode;
 }
 

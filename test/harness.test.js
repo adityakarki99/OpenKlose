@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +19,11 @@ const VITE_FIXTURE = path.join(here, 'fixtures', 'vite-app');
 const cli = path.join(here, '..', 'bin', 'klose.js');
 // A developer's own KLOSE_HARNESS must not decide what these tests see.
 delete process.env.KLOSE_HARNESS;
+delete process.env.KLOSE_SKETCHES;
+// Which sketch code was written on "this machine" is recorded under ~/.klose
+// (server/sketchTrust.js); the tests keep their own, not the developer's.
+process.env.KLOSE_HOME = await mkdtemp(path.join(os.tmpdir(), 'klose-home-'));
+process.on('exit', () => rmSync(process.env.KLOSE_HOME, { recursive: true, force: true }));
 const EXPO_FILES = ['klose.config.json', 'klose.harness.tsx', 'klose.registry.ts', 'app/__klose.tsx'];
 const VITE_FILES = ['klose.config.json', 'klose.harness.tsx', 'klose.registry.ts', '__klose.html'];
 
@@ -269,7 +274,7 @@ test('GET /api/harness reports the config and registry, or none', async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const get = async () => (await fetch(`http://127.0.0.1:${server.address().port}/api/harness`)).json();
   try {
-    assert.deepEqual(await get(), { config: null, registry: [], setting: 'auto', settingSource: 'default' });
+    assert.deepEqual(await get(), { config: null, registry: [], setting: 'auto', settingSource: 'default', sketches: 'real', sketchesSource: 'default', pendingSketches: [] });
     await initHarness(dir);
     const p = await store.createProject(dir, 'P');
     await store.addNode(dir, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx', exportName: 'A' });
@@ -289,9 +294,9 @@ test('GET /api/harness reports the config and registry, or none', async () => {
 test('the harness setting: auto by default, read and written in .klose/settings.json, KLOSE_HARNESS wins', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-harness-'));
   try {
-    assert.deepEqual(await readSettings(dir), { harness: 'auto' });
+    assert.deepEqual(await readSettings(dir), { harness: 'auto', sketches: 'real' });
     assert.deepEqual(await harnessSetting(dir, {}), { value: 'auto', source: 'default' });
-    assert.deepEqual(await writeSettings(dir, { harness: 'off' }), { harness: 'off' });
+    assert.deepEqual(await writeSettings(dir, { harness: 'off' }), { harness: 'off', sketches: 'real' });
     assert.deepEqual(JSON.parse(await read(dir, '.klose/settings.json')), { harness: 'off' });
     assert.deepEqual(await harnessSetting(dir, {}), { value: 'off', source: 'file' });
     assert.deepEqual(await harnessSetting(dir, { KLOSE_HARNESS: 'AUTO' }), { value: 'auto', source: 'env' });
@@ -558,7 +563,7 @@ test('PATCH /api/harness changes the setting; off hides a harness that is set up
   const patch = (body) => fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   try {
     const off = await (await patch({ setting: 'off' })).json();
-    assert.deepEqual(off, { config: null, registry: [], setting: 'off', settingSource: 'file' });
+    assert.deepEqual(off, { config: null, registry: [], setting: 'off', settingSource: 'file', sketches: 'real', sketchesSource: 'default', pendingSketches: [] });
     assert.ok(!existsSync(path.join(dir, 'klose.config.json')));
     assert.equal((await patch({ setting: 'sometimes' })).status, 400);
 

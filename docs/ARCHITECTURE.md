@@ -353,9 +353,11 @@ attach to the whole card and the element-pick button is disabled with a hint.
 
 A `built` card can show the real component instead of the `code` restatement. The repo's own dev server
 renders it inside the app's real providers, and the canvas frames that page like any other live card
-(`components/Runtime/LivePreview.tsx`, bridge included).
+(`components/Runtime/LivePreview.tsx`, bridge included). A `sketch` card is drawn the same way, from a file
+Klose writes for it, so a sketch can import the repo's real components: see
+[Sketches drawn by the repo's bundler](#sketches-drawn-by-the-repos-bundler) below.
 
-- **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components? }`.
+- **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components?, sketchDir? }`.
   `devServer` must pass `isAllowedLiveUrl`, so it is localhost only. The schema is `server/harnessCore.js`
   (browser-safe, shared with the canvas); reading it and writing files is `server/harness.js`.
 - **On by default.** The repo's `harness` setting (`.klose/settings.json`, `server/settings.js`; `auto` unless it says
@@ -379,15 +381,82 @@ renders it inside the app's real providers, and the canvas frames that page like
     for their side effect, so components look as they do in the app. `devServer` is the `port` in `vite.config.*`, else
     `http://localhost:5173`. Both generated modules carry `// @ts-nocheck`, so they can't break the repo's own `tsc`.
 - **`klose harness sync`** regenerates the registry from the project's built cards (`builtFilePath` + `exportName`,
-  default export when absent) plus the `components` list in the config. The store runs it itself after any write that
-  touches a built card (`scheduleRegistrySync`, debounced, written only when the content changes, a no-op without a
-  config), so the CLI and the HTTP API stay in step. File and export names are checked before they are written as code.
+  default export when absent), the `components` list in the config and the sketch files, which it brings up to date
+  first. The store runs it itself after any write to a project's nodes (`scheduleRegistrySync`, debounced, written
+  only when the content changes, a no-op without a config), so the CLI and the HTTP API stay in step. File and export
+  names are checked before they are written as code.
 - **Address.** `<devServer><harnessPath>?c=<file>#<export>&props=<base64 json>`. The canvas learns the config and the
   registry from `GET /api/harness` (which also carries `setting` and `settingSource`), and only builds an address for
   components in the registry.
-- **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code` restatement, then the placeholder.
-  Built cards that have both get a Real / Sketch toggle. Static, shared and online canvases never ask for a harness.
+- **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code`, then the placeholder. Built cards
+  that have both get a Real / Sketch toggle, sketches a Real / Sandbox one. Static, shared and online canvases never
+  ask for a harness. Code that imports anything but `react`, `lucide-react` and `recharts` can't run in the sandbox
+  (`repoImports`, `server/sketchImports.js`): where the sandbox would have drawn it, the card shows
+  `components/Canvas/RealOnlyNotice.tsx` ("this sketch uses real components; start your dev server to see it") over
+  the snapshot if there is one, not the sandbox's import error.
 - **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.
+
+### Sketches drawn by the repo's bundler
+
+The sandbox compiles a sketch's `code` with Babel and the browser build of Tailwind, in an opaque origin, and can
+import nothing from the repo, so a sandboxed sketch is a restatement. With a harness in use, Klose also writes each
+sketch into the repo as a file ("materialises" it) and registers it, and the dev server renders it like a built
+component: real imports, real providers, the real stylesheet, the repo's own compile path.
+
+- **The file.** `<sketchDir>/<node id>.tsx` (`sketchFile`, `server/harnessCore.js`), with the generated header and
+  hash, `/* eslint-disable */` and `// @ts-nocheck`, then the code (`sketchSource`). Two things are changed on the
+  way: an `import React` is added when the code has none (the sandbox hands every sketch `React` as a global), and
+  `./…` specifiers are read as relative to the repo root and rewritten for where the file lives, so a sketch says
+  `./src/components/Button` wherever `sketchDir` is. Aliases (`@/…`) are left to the bundler.
+- **The registry.** A sketch's key is `<its file>#<exportName or default>`. Its line calls `pickSketch`, which the
+  registry defines when it lists any sketch: the named export, else the default export, else the first component the
+  file exports, which is how the sandbox finds it too. The canvas builds the address with the same `harnessAddress`.
+- **Lifecycle.** `syncSketches` runs inside every registry sync: the file is written when the code, name or export
+  changes, and removed when the sketch is deleted, is marked built, loses its code, becomes a live `url` card, or its
+  code changes to something this machine did not write. A file a person edited is never rewritten or removed.
+- **Where.** `klose.sketches/` at the repo root by default, a visible folder, not `.klose/`. Tailwind decides this.
+  v4 finds class names in every file that is not git-ignored (verified with its scanner: it reads dot-folders, and
+  skips paths ignored by `.gitignore` or `.git/info/exclude`), so the folder works there as long as it is not
+  ignored. v3 reads only what its `content` globs name, and no project's globs name `.klose/`: `chooseSketchDir`
+  reads `tailwind.config.*` at init, and when the globs don't reach the root folder it puts the sketches inside the
+  first folder they do reach that isn't a routes folder (`src/klose.sketches`), recording it as `sketchDir`. A repo
+  whose globs can't be read that way sets `sketchDir` by hand.
+- **Not git-ignored.** The files are derived from the project JSON, so ignoring them would be natural, but Tailwind
+  v4 would then drop every class only a sketch uses, and a committed Expo registry would `require` files a teammate
+  doesn't have. So they are treated like `klose.registry.ts`: generated, committed or not as the team prefers.
+- **The setting.** `sketches` in `.klose/settings.json`: `real` (the default) or `sandbox`, with `KLOSE_SKETCHES`
+  winning over the file. `sandbox`, or the harness being off, means no sketch has a file: the next sync removes the
+  generated ones. `klose harness sketches [real|sandbox]`, `PATCH /api/harness { sketches }` and the Settings page
+  write it; `GET /api/harness` carries `sketches`, `sketchesSource` and `pendingSketches`.
+
+### The trust boundary
+
+The sandbox exists because sketch code is untrusted. Code the dev server renders runs in the app's origin, with the
+app's cookies and network. So the rule is narrow: **Klose writes a sketch into the repo only when its code was
+written on this machine.**
+
+- **Local writes** are the store's `addNode`, `updateNode` and `updateProject`: the CLI (the user's own agent, which
+  already writes source files into this repo) and the local canvas over the HTTP API, which answers only to
+  localhost and refuses foreign origins. Code such a write *changes or adds* is recorded as trusted
+  (`noteLocalWrite`, `server/sketchTrust.js`). Code a write merely carries along unchanged is not: a canvas tab that
+  saves the whole project, or an agent that round-trips a node it read, vouches for nothing.
+- **Everything else** arrives through `putProject`: a merge from a shared canvas (`server/share.js`) and an online
+  workspace built from GitHub (`server/open.js`). It records the code it brings as foreign (`noteForeignWrite`), so
+  that exact text can't become trusted later by being saved back from a tab that still holds it. A project file that
+  changes on disk by other means (a `git pull`, the hosted canvas writing into the folder) is simply never recorded.
+- **The record** is `~/.klose/sketch-trust/<hash of the repo path>.json`: per node, the hash of the code written
+  here and the hashes seen arriving from elsewhere. It is outside the repo on purpose. A field on the node, or a
+  file under `.klose/`, is something a peer could set; nothing in the project JSON is read to decide trust. It is
+  only kept in a repo that has a harness config.
+- **Accepting.** A sketch that isn't trusted stays in the sandbox and is listed in `pendingSketches`. A person
+  accepts it, as it is now, with `klose harness accept <project> [<id> | --all]` or the card's "Run in my app"
+  (`POST /api/harness/accept`). New code from outside waits again. The skill tells the agent never to accept for
+  the user.
+- **One exception, deliberate.** A generated sketch file that is already in the repo, unedited, and matches its
+  card's code counts as accepted: it arrived as source, by git, like every other file the dev server compiles. A
+  share peer can't create it, because a share carries the project JSON and nothing else.
+- **Unchanged:** sketch code never runs in the Klose server process. Materialising is writing a file; the user's
+  dev server is what compiles and runs it.
 
 ## The App Map (`klose routes`, `klose map`)
 

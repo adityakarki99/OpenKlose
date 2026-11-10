@@ -210,11 +210,13 @@ Worth being straight about, because the pitch is stronger without overclaiming:
   cursors. "Async handoff" there means the comments they leave reach the agent.
 - **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
   inert without an agent driving it.
-- **Preview fidelity ceiling.** A sketch's preview is a self-contained sandboxed snippet; components
-  that import repo-local modules are flagged rather than executed. It is a faithful *restatement* in
-  your tokens, not your real component tree running. A **built** card is different: in an Expo
-  (expo-router) or Vite + React repo it renders the real component through your dev server, set up
-  for you by default (`klose harness auto off` turns that off).
+- **Preview fidelity depends on your stack.** In an Expo (expo-router) or Vite + React repo, a
+  sketch is written into the repo and drawn by your own dev server, so it imports and composes your
+  real components, inside your providers, and a **built** card renders the real file. That is set up
+  for you by default (`klose harness auto off` and `klose harness sketches sandbox` turn it off).
+  Anywhere else (another framework, a shared or hosted canvas, the dev server stopped) a sketch is a
+  self-contained sandboxed snippet: a faithful *restatement* in your tokens, not your component tree
+  running, and a sketch that imports repo modules shows its last snapshot and says what it needs.
 
 **The one-line version:** a chat artifact shows you a beautiful component. Klose shows you *your*
 component — next to the other five you're considering, in your tokens, reusing what you already
@@ -661,7 +663,9 @@ klose components --classify [--json]              Have Jev label each component'
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
 klose harness auto [on|off]                       Real components on built cards through your dev server: on by default, set up automatically
-klose harness init | sync                         Set the harness up by hand, or regenerate its component registry
+klose harness sketches [real|sandbox]             Draw sketches with your own bundler and real imports (the default), or only in the sandbox
+klose harness accept <project> [<id>|--all]       Let a sketch whose code came from elsewhere (a shared canvas, a pulled file) run in your app
+klose harness init | sync                         Set the harness up by hand, or regenerate its component registry and sketch files
 klose routes [--json]                             List the app's routes (expo-router, Next.js, React Router)
 klose map [--dev-server=URL] [--param id=42]      Put every page on the canvas as a live card; /klose-map adds each route's states
 klose project list                                List projects

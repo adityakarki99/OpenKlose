@@ -7,7 +7,13 @@ export const SETTINGS_FILE = '.klose/settings.json';
 
 /** `auto`: Klose sets the component harness up and uses it. `off`: it does neither. */
 export const HARNESS_SETTINGS = ['auto', 'off'];
-export const DEFAULT_SETTINGS = { harness: 'auto' };
+/**
+ * `real`: with a harness in use, a sketch is also written into the repo and
+ * drawn by the repo's own bundler, so it can import real components.
+ * `sandbox`: sketches are only ever drawn in the sandbox, from their `code`.
+ */
+export const SKETCH_SETTINGS = ['real', 'sandbox'];
+export const DEFAULT_SETTINGS = { harness: 'auto', sketches: 'real' };
 
 const file = (root) => path.join(root, SETTINGS_FILE);
 
@@ -24,13 +30,19 @@ async function readRaw(root) {
 /** The repo's settings, with defaults for anything missing or invalid. */
 export async function readSettings(root) {
   const raw = await readRaw(root);
-  return { harness: HARNESS_SETTINGS.includes(raw.harness) ? raw.harness : DEFAULT_SETTINGS.harness };
+  return {
+    harness: HARNESS_SETTINGS.includes(raw.harness) ? raw.harness : DEFAULT_SETTINGS.harness,
+    sketches: SKETCH_SETTINGS.includes(raw.sketches) ? raw.sketches : DEFAULT_SETTINGS.sketches,
+  };
 }
 
 /** Merge `patch` into the settings file. Keys this version doesn't know are kept. */
 export async function writeSettings(root, patch) {
   if ('harness' in patch && !HARNESS_SETTINGS.includes(patch.harness)) {
     throw new Error(`harness must be one of: ${HARNESS_SETTINGS.join(', ')}`);
+  }
+  if ('sketches' in patch && !SKETCH_SETTINGS.includes(patch.sketches)) {
+    throw new Error(`sketches must be one of: ${SKETCH_SETTINGS.join(', ')}`);
   }
   const next = { ...(await readRaw(root)), ...patch };
   await mkdir(path.dirname(file(root)), { recursive: true });
@@ -48,4 +60,13 @@ export async function harnessSetting(root, env = process.env) {
   const raw = await readRaw(root);
   if (HARNESS_SETTINGS.includes(raw.harness)) return { value: raw.harness, source: 'file' };
   return { value: DEFAULT_SETTINGS.harness, source: 'default' };
+}
+
+/** The sketches setting in force: `KLOSE_SKETCHES=real|sandbox` wins over the file. */
+export async function sketchSetting(root, env = process.env) {
+  const fromEnv = String(env.KLOSE_SKETCHES || '').trim().toLowerCase();
+  if (SKETCH_SETTINGS.includes(fromEnv)) return { value: fromEnv, source: 'env' };
+  const raw = await readRaw(root);
+  if (SKETCH_SETTINGS.includes(raw.sketches)) return { value: raw.sketches, source: 'file' };
+  return { value: DEFAULT_SETTINGS.sketches, source: 'default' };
 }

@@ -5,7 +5,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import type { ThemeMode, UserSettings } from '../types';
 import { Button } from '../components/DesignSystem/Button';
 import { Card } from '../components/DesignSystem/Card';
-import { getHarness, HARNESS_AVAILABLE, HarnessInfo, setHarnessSetting } from '../services/harnessService';
+import { getHarness, HARNESS_AVAILABLE, HarnessInfo, setHarnessSetting, setSketchSetting } from '../services/harnessService';
 
 /** The on/off settings: the keys of UserSettings whose value is a boolean. */
 type ToggleSetting = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
@@ -30,6 +30,12 @@ const SettingsPage: React.FC = () => {
     setHarnessSetting(on ? 'auto' : 'off').then(setHarness, (err: Error) => setHarnessError(err.message));
   };
   const harnessLocked = harness?.settingSource === 'env';
+  const toggleSketches = (real: boolean) => {
+    setHarnessError(null);
+    setSketchSetting(real ? 'real' : 'sandbox').then(setHarness, (err: Error) => setHarnessError(err.message));
+  };
+  const sketchesLocked = harness?.sketchesSource === 'env';
+  const sketchesIdle = harness?.setting === 'off';
   const themeOptions: Array<{ value: ThemeMode; label: string; description: string; icon: React.ReactNode }> = [
     { value: 'dark', label: 'Dark', description: 'High-contrast workspace for the current visual baseline.', icon: <Moon size={16} /> },
     { value: 'light', label: 'Light', description: 'Bright workspace with softer panels and lighter canvas chrome.', icon: <Sun size={16} /> },
@@ -109,6 +115,33 @@ const SettingsPage: React.FC = () => {
                 />
               </div>
             </label>
+            {harness.sketches && (
+              <label
+                className={`flex items-start gap-4 border-t border-app-border px-6 py-4 transition-colors ${sketchesLocked || sketchesIdle ? 'opacity-60' : 'cursor-pointer hover:bg-app-surface-soft/60'}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium text-app-primary">Draw sketches with your real components</span>
+                  <span className="mt-0.5 block text-xs text-app-muted">
+                    {sketchesLocked
+                      ? 'Set by KLOSE_SKETCHES on this machine'
+                      : sketchesIdle
+                        ? 'Needs the setting above: sketches are drawn in the sandbox while it is off'
+                        : `Klose writes each sketch into ${harness.config?.sketchDir || 'klose.sketches'}/ so your bundler draws it with real imports. Off keeps sketches in the sandbox and removes those files`}
+                    {!sketchesLocked && !sketchesIdle && !!harness.pendingSketches?.length &&
+                      `. ${harness.pendingSketches.length} sketch${harness.pendingSketches.length === 1 ? '' : 'es'} from elsewhere ${harness.pendingSketches.length === 1 ? 'is' : 'are'} waiting to be accepted on the canvas`}
+                  </span>
+                </div>
+                <div className="flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={harness.sketches === 'real'}
+                    disabled={sketchesLocked || sketchesIdle}
+                    onChange={(e) => toggleSketches(e.target.checked)}
+                    className="h-5 w-5 cursor-pointer rounded border-app-border bg-app-surface text-ceko-accent focus:ring-2 focus:ring-ceko-accent focus:ring-offset-0 focus:ring-offset-transparent"
+                  />
+                </div>
+              </label>
+            )}
           </Card>
         )}
 

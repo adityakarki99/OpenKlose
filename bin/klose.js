@@ -16,8 +16,8 @@ import { KLOSE_GITIGNORE, isValidId } from '../server/storeCore.js';
 import { flowStatus, isFlowNode, planNodes, planProblems } from '../server/flow.js';
 import { randomUUID } from 'node:crypto';
 import { exportProject } from '../server/export.js';
-import { HarnessError, ensureHarness, initHarness, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
-import { harnessSetting, writeSettings } from '../server/settings.js';
+import { HarnessError, acceptPendingSketches, ensureHarness, initHarness, loadHarnessConfig, pendingSketches, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
+import { harnessSetting, sketchSetting, writeSettings } from '../server/settings.js';
 import * as share from '../server/share.js';
 import { DEFAULT_MAP_PROJECT, defaultDevServer, detectRouters, discoverRoutes, harnessPathOf, planMap } from '../server/routes.js';
 import { openOnline } from '../server/open.js';
@@ -87,7 +87,8 @@ Canvas data
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
   harness       Render real built components on the canvas through your dev
-                server (on by default; auto on|off, init, sync)
+                server, and sketches with their real imports (on by default;
+                auto on|off, sketches real|sandbox, accept, init, sync)
   lint          Audit real source files: literal colours, radii and shadows
                 where the repo has a token for them
   routes        List the app's routes (expo-router, Next.js, React Router)
@@ -130,12 +131,14 @@ cards you have are never moved or rewritten (they are matched on their "route"
 field). A route the app no longer has is reported; its cards are left for you
 to delete. Run /klose-map to have your agent add each route's states.`,
   harness: `Usage: klose harness auto [on|off] [--json]
+       klose harness sketches [real|sandbox] [--json]
+       klose harness accept <project> [<sketch id> | --all] [--json]
        klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
        klose harness sync [--force] [--json]
 
-Lets the canvas render the real component behind a built card, inside your
-app's own providers, through your dev server (Expo with expo-router, and
-Vite + React apps).
+Lets the canvas render the real component behind a built card, and a sketch
+with its real imports, inside your app's own providers, through your dev
+server (Expo with expo-router, and Vite + React apps).
 
 It is on by default: "klose init", and the first card marked built, set it up
 without being asked, and say which files they wrote.
@@ -144,6 +147,19 @@ without being asked, and say which files they wrote.
          (.klose/settings.json, meant to be committed). Off also stops the
          canvas using a harness that is already set up: built cards show
          their sketch. KLOSE_HARNESS=off does the same for one machine.
+  sketches
+         Shows or sets how sketches are drawn. "real" (the default): a
+         sketch is also written into the repo (klose.sketches/<id>.tsx, or
+         "sketchDir" in klose.config.json) and drawn by your own bundler, so
+         it can import your real components. "sandbox": sketches are only
+         drawn in the sandbox, and the files written for them are removed.
+         KLOSE_SKETCHES does the same for one machine.
+  accept Only code written on this machine (by your agent, or on the local
+         canvas) is written into the repo. A sketch that came from a shared
+         canvas, an online workspace or a pulled project file stays in the
+         sandbox until you accept it here: read its code first, because once
+         accepted it runs in your app, with everything your app can reach.
+         Without a sketch id, lists the sketches waiting.
   init   Writes klose.config.json (if missing), klose.harness.tsx, the
          generated klose.registry.ts and the page your dev server serves:
          with expo-router the route app/__klose.tsx, with Vite __klose.html.
@@ -151,9 +167,9 @@ without being asked, and say which files they wrote.
          pass --force. An Expo project without expo-router needs this run by
          hand, because the route has to be added to your navigator.
   sync   Regenerates klose.registry.ts from the project's built cards
-         (builtFilePath + exportName) and the "components" list in
-         klose.config.json. It also runs by itself whenever a card becomes
-         built or its file or export changes.
+         (builtFilePath + exportName), the "components" list in
+         klose.config.json and the sketch files, which it also brings up to
+         date. It also runs by itself whenever a card or a sketch changes.
 
 klose.config.json: { "framework": "expo" | "vite", "devServer":
 "http://localhost:8081", "harnessPath": "/__klose", "providers":
@@ -1443,6 +1459,51 @@ async function cmdHarness(args) {
       }
       return;
     }
+    if (sub === 'sketches') {
+      const want = rest.find((a) => !a.startsWith('--'));
+      if (want !== undefined && want !== 'real' && want !== 'sandbox') fail('usage: klose harness sketches [real|sandbox]');
+      if (want) {
+        await writeSettings(root, { sketches: want });
+        await ensureHarness(root, store);
+        takeAutoSetupNotices();
+      }
+      const { value, source } = await sketchSetting(root);
+      const config = (await harnessSetting(root)).value === 'off' ? null : await loadHarnessConfig(root);
+      const real = value === 'real' && !!config;
+      const pending = real ? await pendingSketches(root, await readAllProjects(store, root), config) : [];
+      if (json) return printJson({ sketches: value, source, real, sketchDir: real ? config.sketchDir || 'klose.sketches' : null, pending });
+      const where = source === 'env' ? ' (KLOSE_SKETCHES overrides .klose/settings.json)' : source === 'default' ? ' (the default)' : '';
+      if (real) console.log(`Sketches: drawn by your bundler, with real imports${where}. Their files are in ${config.sketchDir || 'klose.sketches'}/.`);
+      else if (value === 'real') console.log(`Sketches: drawn in the sandbox, because this repo has no component harness in use (klose harness init)${where}.`);
+      else console.log(`Sketches: drawn in the sandbox only${where}.`);
+      if (pending.length) console.log(`${plural(pending.length, 'sketch', 'sketches')} came from somewhere else and ${pending.length === 1 ? 'stays' : 'stay'} in the sandbox until accepted: klose harness accept <project>`);
+      return;
+    }
+    if (sub === 'accept') {
+      const [ref, nodeRef] = rest.filter((a) => !a.startsWith('--'));
+      if (!ref) fail('usage: klose harness accept <project> [<sketch id> | --all]');
+      const config = await loadHarnessConfig(root);
+      if (!config) fail('No klose.config.json here. Run "klose harness init" first.');
+      const project = await findProject(ref);
+      const projects = await readAllProjects(store, root);
+      const waiting = new Set(await pendingSketches(root, projects, config));
+      const pending = (project.nodes || []).filter((n) => waiting.has(n.id));
+      const all = hasFlag(rest, '--all');
+      if (!nodeRef && !all) {
+        if (json) return printJson({ pending: pending.map((n) => ({ id: n.id, name: n.name })) });
+        if (!pending.length) return console.log(`No sketch in "${project.name}" is waiting to be accepted.`);
+        console.log(`Waiting in "${project.name}" (their code did not come from this machine):`);
+        for (const n of pending) console.log(`  ${n.id}  ${n.name || 'Untitled sketch'}`);
+        console.log('\nRead the code ("klose project get"), then: klose harness accept <project> <sketch id>, or --all');
+        return;
+      }
+      const chosen = all ? pending : pending.filter((n) => n.id === nodeRef);
+      if (!all && !chosen.length) fail(`no sketch ${JSON.stringify(nodeRef)} is waiting in "${project.name}" (run "klose harness accept ${ref}" to list them)`);
+      const accepted = await acceptPendingSketches(root, chosen, projects);
+      if (json) return printJson({ accepted });
+      console.log(`Accepted ${plural(accepted.length, 'sketch', 'sketches')}. ${accepted.length === 1 ? 'It is' : 'They are'} now written into the repo and drawn by your bundler.`);
+      return;
+    }
     if (sub === 'init') {
       if ((await harnessSetting(root)).value === 'off') process.stderr.write('klose: the harness is turned off for this repo, so the canvas will not use it until you run "klose harness auto on".\n');
       const projects = await readAllProjects(store, root);
@@ -1461,17 +1522,19 @@ async function cmdHarness(args) {
       return;
     }
     if (sub === 'sync') {
-      const { result, keys } = await syncRegistry(root, await readAllProjects(store, root), { force });
-      if (json) return printJson({ result, components: keys });
-      console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'})`);
+      const { result, keys, sketches } = await syncRegistry(root, await readAllProjects(store, root), { force });
+      if (json) return printJson({ result, components: keys, sketches });
+      console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'}${sketches.keys.length ? `, ${sketches.keys.length} of them sketches` : ''})`);
       if (result === 'skipped') console.log('klose.registry.ts was edited by hand and left alone. Use --force to regenerate it.');
+      for (const f of sketches.files) if (f.result !== 'unchanged') console.log(`${f.result.padEnd(9)} ${f.file}`);
+      if (sketches.pending.length) console.log(`${plural(sketches.pending.length, 'sketch', 'sketches')} waiting to be accepted (klose harness accept <project>).`);
       return;
     }
   } catch (err) {
     if (err instanceof HarnessError) fail(err.message);
     throw err;
   }
-  fail('usage: klose harness <auto|init|sync> (see "klose help harness")');
+  fail('usage: klose harness <auto|sketches|accept|init|sync> (see "klose help harness")');
 }
 
 async function cmdRoutes(args) {

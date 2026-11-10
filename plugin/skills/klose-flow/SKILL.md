@@ -51,8 +51,11 @@ order, the states under each, and what you are reusing from the repo. Change it 
 ## 3. Put the flow on the canvas
 
 Write the plan as a JSON file. Each state's `code` is preview code under the same contract as any
-sketch (`/klose` step 5): self-contained, in the repo's tokens, showing that state for real (the
-error text, the disabled button, the skeleton), not a note saying which state it is.
+sketch (`/klose` step 5), showing that state for real (the error text, the disabled button, the
+skeleton), not a note saying which state it is. Run `npx klose harness sketches` first: when it says
+sketches are drawn by your bundler, compose each frame from the repo's real components with real
+imports ("A sketch with real imports" in `/klose`); otherwise keep each one self-contained, in the
+repo's tokens.
 
 ```json
 // /tmp/flow.json

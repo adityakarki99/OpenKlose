@@ -29,3 +29,6 @@ web/static
 # The demo video pipeline keeps its voice model, audio and raw recording here.
 scripts/demo-video/.work
 __pycache__
+
+# The Vite harness browser test copies its fixture app here, to resolve react and vite from this repo.
+test/.tmp-*

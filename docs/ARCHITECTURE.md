@@ -348,7 +348,7 @@ bridge answers after a load, the card also refreshes its `snapshot` (the image s
 down), at most once every three minutes per card. A page without the bridge stays a plain frame: comments
 attach to the whole card and the element-pick button is disabled with a hint.
 
-## The Component Harness (Expo/Metro)
+## The Component Harness (Expo/Metro and Vite)
 
 A `built` card can show the real component instead of the `code` restatement. The repo's own dev server
 renders it inside the app's real providers, and the canvas frames that page like any other live card
@@ -357,17 +357,33 @@ renders it inside the app's real providers, and the canvas frames that page like
 - **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components? }`.
   `devServer` must pass `isAllowedLiveUrl`, so it is localhost only. The schema is `server/harnessCore.js`
   (browser-safe, shared with the canvas); reading it and writing files is `server/harness.js`.
+- **On by default.** The repo's `harness` setting (`.klose/settings.json`, `server/settings.js`; `auto` unless it says
+  `off`, and `KLOSE_HARNESS=off|auto` wins over the file) decides two things. With `auto`, `autoSetupHarness` runs
+  `initHarness` unasked from `klose init`, from the first store write that leaves a `built` node behind, and when the
+  setting is turned on, provided there is no `klose.config.json` and the project is one init can finish alone (Expo with
+  expo-router, or Vite + React). It never throws and never fails the save; a CLI command reports what it wrote on
+  stderr, so `--json` on stdout stays valid. With `off`, nothing is set up and `GET /api/harness` answers "no harness",
+  so built cards show their sketch even where one exists. The setting is not in `.klose/.gitignore`: it is the team's.
+  `klose harness auto [on|off]`, `PATCH /api/harness { setting }` and the toggle on the Settings page all write it.
 - **`klose harness init`** writes the config if missing, `klose.harness.tsx` (the page: reads `c`, the export and `props`
   from its address, renders the component inside `providers`, loads `klose-bridge.js` from the framing canvas when that
-  is on localhost), the generated `klose.registry.ts` (static `require`s, because Metro can't import a path chosen at
-  runtime) and, with expo-router, the route `app/__klose.tsx`. Every generated file carries a header and a hash of its
-  body: a file that no longer matches was edited by hand and is left alone without `--force`.
+  is on localhost), the generated `klose.registry.ts` and the page the dev server serves. Every generated file carries a
+  header and a hash of its body: a file that no longer matches was edited by hand and is left alone without `--force`.
+  - *Expo:* the registry is static `require`s, because Metro can't import a path chosen at runtime; with expo-router the
+    page is the route `app/__klose.tsx`. Without expo-router init prints the manual step, and automatic setup skips it.
+  - *Vite:* detected as `vite` + `react` + `react-dom` and an `index.html` at the repo root that loads a module script
+    (frameworks that only build with Vite route requests themselves). The page is `__klose.html` next to `index.html`:
+    Vite's dev server answers `/__klose` with it, with no change to `vite.config`, and it is not a build input. The
+    registry is one dynamic `import()` per component. The harness imports the stylesheets the app's entry module imports
+    for their side effect, so components look as they do in the app. `devServer` is the `port` in `vite.config.*`, else
+    `http://localhost:5173`. Both generated modules carry `// @ts-nocheck`, so they can't break the repo's own `tsc`.
 - **`klose harness sync`** regenerates the registry from the project's built cards (`builtFilePath` + `exportName`,
   default export when absent) plus the `components` list in the config. The store runs it itself after any write that
   touches a built card (`scheduleRegistrySync`, debounced, written only when the content changes, a no-op without a
   config), so the CLI and the HTTP API stay in step. File and export names are checked before they are written as code.
 - **Address.** `<devServer><harnessPath>?c=<file>#<export>&props=<base64 json>`. The canvas learns the config and the
-  registry from `GET /api/harness`, and only builds an address for components in the registry.
+  registry from `GET /api/harness` (which also carries `setting` and `settingSource`), and only builds an address for
+  components in the registry.
 - **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code` restatement, then the placeholder.
   Built cards that have both get a Real / Sketch toggle. Static, shared and online canvases never ask for a harness.
 - **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.

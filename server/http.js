@@ -21,7 +21,8 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
-import { HarnessError, loadHarnessConfig, readRegistryKeys } from './harness.js';
+import { HarnessError, ensureHarness, loadHarnessConfig, readRegistryKeys } from './harness.js';
+import { HARNESS_SETTINGS, harnessSetting, writeSettings } from './settings.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -218,15 +219,31 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     }
 
     // The harness the canvas may frame built cards through: the repo's config
-    // and which components its registry holds. `null` when there is none.
-    if (only('harness') && req.method === 'GET') {
+    // and which components its registry holds. `null` when there is none, or
+    // when the repo's `harness` setting is off (server/settings.js).
+    const harnessInfo = async () => {
+      const { value: setting, source } = await harnessSetting(root);
+      const info = { config: null, registry: [], setting, settingSource: source };
+      if (setting === 'off') return info;
       try {
         const config = await loadHarnessConfig(root);
-        sendJson(res, 200, config ? { config, registry: await readRegistryKeys(root) } : { config: null, registry: [] });
+        return config ? { ...info, config, registry: await readRegistryKeys(root) } : info;
       } catch (err) {
         if (!(err instanceof HarnessError)) throw err;
-        sendJson(res, 200, { config: null, registry: [], error: err.message });
+        return { ...info, error: err.message };
       }
+    };
+    if (only('harness') && req.method === 'GET') {
+      sendJson(res, 200, await harnessInfo());
+      return true;
+    }
+    // Turn the harness on or off for this repo. Turning it on sets it up at once.
+    if (only('harness') && req.method === 'PATCH') {
+      const { setting } = await readBody(req);
+      if (!HARNESS_SETTINGS.includes(setting)) throw new HttpError(`setting must be one of: ${HARNESS_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
+      await writeSettings(root, { harness: setting });
+      if ((await harnessSetting(root)).value === 'auto') await ensureHarness(root, store);
+      sendJson(res, 200, await harnessInfo());
       return true;
     }
 

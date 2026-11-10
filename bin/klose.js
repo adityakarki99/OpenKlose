@@ -14,7 +14,8 @@ import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
 import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
-import { HarnessError, initHarness, readAllProjects, syncRegistry } from '../server/harness.js';
+import { HarnessError, ensureHarness, initHarness, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
+import { harnessSetting, writeSettings } from '../server/settings.js';
 import * as share from '../server/share.js';
 import { openOnline } from '../server/open.js';
 import {
@@ -81,7 +82,7 @@ Canvas data
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
   harness       Render real built components on the canvas through your dev
-                server (init, sync)
+                server (on by default; auto on|off, init, sync)
   lint          Audit real source files: literal colours, radii and shadows
                 where the repo has a token for them
 
@@ -93,25 +94,36 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
-  harness: `Usage: klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
+  harness: `Usage: klose harness auto [on|off] [--json]
+       klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
        klose harness sync [--force] [--json]
 
 Lets the canvas render the real component behind a built card, inside your
-app's own providers, through your dev server (Expo/Metro today).
+app's own providers, through your dev server (Expo with expo-router, and
+Vite + React apps).
 
+It is on by default: "klose init", and the first card marked built, set it up
+without being asked, and say which files they wrote.
+
+  auto   Shows whether that is on, or turns it on or off for this repo
+         (.klose/settings.json, meant to be committed). Off also stops the
+         canvas using a harness that is already set up: built cards show
+         their sketch. KLOSE_HARNESS=off does the same for one machine.
   init   Writes klose.config.json (if missing), klose.harness.tsx, the
-         generated klose.registry.ts and, with expo-router, the route
-         app/__klose.tsx. Safe to run again: files you have edited are left
-         alone unless you pass --force.
+         generated klose.registry.ts and the page your dev server serves:
+         with expo-router the route app/__klose.tsx, with Vite __klose.html.
+         Safe to run again: files you have edited are left alone unless you
+         pass --force. An Expo project without expo-router needs this run by
+         hand, because the route has to be added to your navigator.
   sync   Regenerates klose.registry.ts from the project's built cards
          (builtFilePath + exportName) and the "components" list in
          klose.config.json. It also runs by itself whenever a card becomes
          built or its file or export changes.
 
-klose.config.json: { "framework": "expo", "devServer": "http://localhost:8081",
-"harnessPath": "/__klose", "providers": "src/Providers.tsx" }. devServer must be
-on localhost. Add "props" to a card (klose project update-node) to show a
-component in a given state.`,
+klose.config.json: { "framework": "expo" | "vite", "devServer":
+"http://localhost:8081", "harnessPath": "/__klose", "providers":
+"src/Providers.tsx" }. devServer must be on localhost. Add "props" to a card
+(klose project update-node) to show a component in a given state.`,
   open: `Usage: klose open --online [--repo owner/name] [--branch main] [--project id] [--host URL] [--json]
 
 Opens or resumes one online workspace. From a repo, omit --repo. With --repo,
@@ -558,6 +570,15 @@ async function cmdInit(args) {
   if (skipSkills) console.log('  ✓ Skills       left to the Klose plugin (--no-skills)');
   else printSkillReport(report);
   console.log(`  ✓ Storage      ${relToRoot('.klose')}/${seeded ? ' (with a demo project, so the canvas isn\'t empty)' : ''}`);
+
+  // On by default (klose harness auto off): built cards render the real component.
+  const harness = await ensureHarness(root, store);
+  takeAutoSetupNotices();
+  if (harness) {
+    console.log(`  ✓ Harness      ${wroteFiles(harness).join(', ')}`);
+    console.log(`                 Built cards render your real components through ${harness.config.devServer}.`);
+    console.log('                 To turn this off: npx klose harness auto off');
+  }
 
   if (hasFlag(args, '--wire-claude-md')) {
     const wired = await wireClaudeMd(root);
@@ -1321,6 +1342,19 @@ function printLint(result) {
   else if (!jev.asked && findings.some((f) => f.candidates > 0)) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
 }
 
+const wroteFiles = (setup) => setup.files.filter((f) => f.result === 'created' || f.result === 'updated').map((f) => f.file);
+
+// Automatic harness setup during any other command (marking a card built) is
+// reported on stderr, so a --json answer on stdout stays valid JSON.
+function reportAutoSetup() {
+  for (const setup of takeAutoSetupNotices()) {
+    process.stderr.write(
+      `klose: set up the component harness (${wroteFiles(setup).join(', ')}), so built cards render your real components ` +
+        `through ${setup.config.devServer}. To turn this off: klose harness auto off\n`
+    );
+  }
+}
+
 async function cmdHarness(args) {
   const [sub, ...rest] = args;
   const flag = (name) => {
@@ -1330,7 +1364,26 @@ async function cmdHarness(args) {
   const json = hasFlag(rest, '--json');
   const force = hasFlag(rest, '--force');
   try {
+    if (sub === 'auto') {
+      const want = rest.find((a) => !a.startsWith('--'));
+      if (want !== undefined && want !== 'on' && want !== 'off') fail('usage: klose harness auto [on|off]');
+      let setup = null;
+      if (want) {
+        await writeSettings(root, { harness: want === 'on' ? 'auto' : 'off' });
+        if ((await harnessSetting(root)).value === 'auto') setup = await ensureHarness(root, store);
+        takeAutoSetupNotices();
+      }
+      const { value, source } = await harnessSetting(root);
+      if (json) return printJson({ harness: value, source, ...(setup ? { files: setup.files, config: setup.config } : {}) });
+      console.log(`Component harness: ${value === 'auto' ? 'on' : 'off'}${source === 'env' ? ' (KLOSE_HARNESS overrides .klose/settings.json)' : source === 'default' ? ' (the default)' : ''}`);
+      if (setup) {
+        console.log(`Set up: ${wroteFiles(setup).join(', ')}`);
+        console.log(`Start your dev server (${setup.config.devServer}); built cards then render your real components.`);
+      }
+      return;
+    }
     if (sub === 'init') {
+      if ((await harnessSetting(root)).value === 'off') process.stderr.write('klose: the harness is turned off for this repo, so the canvas will not use it until you run "klose harness auto on".\n');
       const projects = await readAllProjects(store, root);
       const result = await initHarness(root, {
         force,
@@ -1357,7 +1410,7 @@ async function cmdHarness(args) {
     if (err instanceof HarnessError) fail(err.message);
     throw err;
   }
-  fail('usage: klose harness <init|sync> (see "klose help harness")');
+  fail('usage: klose harness <auto|init|sync> (see "klose help harness")');
 }
 
 async function cmdLint(args) {
@@ -1674,7 +1727,9 @@ async function main() {
   // The hub and a global init aren't about this repo, so which root was picked is noise.
   const machineWide = command === 'hub' || command === 'tray' || command === 'setup' || (command === 'init' && hasFlag(args, '--global'));
   if (root !== invokedFrom && !machineWide) process.stderr.write(`klose: using repo root ${root}\n`);
-  return run(args);
+  const result = await run(args);
+  reportAutoSetup();
+  return result;
 }
 
 main().catch((err) => fail(err.message || String(err)));

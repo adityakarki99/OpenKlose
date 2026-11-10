@@ -348,10 +348,17 @@ Then mark the sketch as built so the canvas reflects reality:
 npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
 ```
 
-**If the repo has a component harness** (a `klose.config.json` at the repo root — set up once with
-`npx klose harness init`), the canvas can show the real component instead of your restatement. Marking
-the sketch `built` with `builtFilePath` and `exportName` registers it automatically; to be sure, or after
-renaming files, run:
+**The component harness** lets the canvas show the real component instead of your restatement. It is
+on by default and sets itself up: in an Expo (expo-router) or Vite + React repo, the first sketch you
+mark `built` writes `klose.config.json`, `klose.harness.tsx`, `klose.registry.ts` and one page for the
+dev server (`app/__klose.tsx` or `__klose.html`) at the repo root, and the command says so on stderr.
+Tell the user those files appeared and what they are for; they are meant to be committed. If the user
+does not want them, run `npx klose harness auto off` (and delete the files): built cards then keep
+showing `code`. An Expo repo without expo-router is not set up automatically; `npx klose harness init`
+prints the one manual step.
+
+Marking the sketch `built` with `builtFilePath` and `exportName` registers it automatically; to be
+sure, or after renaming files, run:
 
 ```
 npx klose harness sync
@@ -365,9 +372,11 @@ npx klose project update-node <projectId> <nodeId> '{"props":{"title":"Pro plan"
 ```
 
 Keep the `code` restatement on the card: it is the fallback when the dev server isn't running, and the
-"Sketch" side of the card's Real / Sketch toggle. The dev server (e.g. `npx expo start --web`) must be
-running for the real component to render; if it isn't, the card falls back to its snapshot, then to `code`.
-Without a harness, nothing changes: built cards keep showing `code`.
+"Sketch" side of the card's Real / Sketch toggle. The repo's dev server must be
+running for the real component to render (e.g. `npx expo start --web`, or `npm run dev` for Vite; the
+address is `devServer` in `klose.config.json`, so correct it there if the port differs); if it isn't,
+the card falls back to its snapshot, then to `code`. Without a harness (another framework, or turned
+off), nothing changes: built cards keep showing `code`.
 
 If this build was in response to comments, **resolve** the ones you addressed, so the canvas shows
 them as done instead of as stale feedback:

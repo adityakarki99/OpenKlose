@@ -210,9 +210,11 @@ Worth being straight about, because the pitch is stronger without overclaiming:
   cursors. "Async handoff" there means the comments they leave reach the agent.
 - **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
   inert without an agent driving it.
-- **Preview fidelity ceiling.** Klose previews are self-contained sandboxed snippets; components that
-  import repo-local modules are flagged rather than executed. The preview is a faithful *restatement*
-  in your tokens, not your real component tree running.
+- **Preview fidelity ceiling.** A sketch's preview is a self-contained sandboxed snippet; components
+  that import repo-local modules are flagged rather than executed. It is a faithful *restatement* in
+  your tokens, not your real component tree running. A **built** card is different: in an Expo
+  (expo-router) or Vite + React repo it renders the real component through your dev server, set up
+  for you by default (`klose harness auto off` turns that off).
 
 **The one-line version:** a chat artifact shows you a beautiful component. Klose shows you *your*
 component — next to the other five you're considering, in your tokens, reusing what you already
@@ -658,6 +660,8 @@ klose components "<need>" --rank --all-repos      The same, across every repo th
 klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
+klose harness auto [on|off]                       Real components on built cards through your dev server: on by default, set up automatically
+klose harness init | sync                         Set the harness up by hand, or regenerate its component registry
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)

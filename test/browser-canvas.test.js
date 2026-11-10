@@ -244,7 +244,12 @@ test('with a key: triage labels comments, classify badges the frame, and the tok
     await select(page, a.id);
     await page.getByRole('button', { name: 'More actions' }).click();
     await page.getByRole('menuitem', { name: 'Classify with Jev' }).click();
-    await page.getByText('primitive · action').first().waitFor();
+    await page.getByText('primitive · action').first().waitFor().catch(async (err) => {
+      // Say what the page showed instead: a toast, an error, or nothing at all.
+      const text = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 1500);
+      const onDisk = JSON.stringify((await store.getProject(jevCwd, project.id)).nodes[0].classification || null);
+      throw new Error(`${err.message}\npage errors: ${JSON.stringify(errors)}\non disk: ${onDisk}\npage text: ${text}`);
+    });
     await eventually(async () => (await store.getProject(jevCwd, project.id)).nodes[0].classification?.role === 'primitive', 'classification on disk');
 
     // Check tokens: the stock blue gets a brand replacement.

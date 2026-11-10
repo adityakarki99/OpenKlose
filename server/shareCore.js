@@ -196,6 +196,12 @@ export function mergeShared({ base, local, incoming }) {
     }
     combined.comments = !same(theirs.comments || [], before?.comments || []) ? unionComments(node.comments, theirs.comments) : node.comments;
     combined.updatedAt = Math.max(node.updatedAt || 0, theirs.updatedAt || 0);
+    // An approval is of the code its side was looking at: when the merge took
+    // the code from the other side, the approval doesn't carry over.
+    if (combined.approval) {
+      const approver = same(node.approval, before?.approval) ? theirs : node;
+      if (!same(approver.code, combined.code)) delete combined.approval;
+    }
     // Competing code edits are both valuable. Keep the other design as an
     // explicitly labelled sketch rather than silently discarding its code.
     if (!same(node.code, before?.code) && !same(theirs.code, before?.code) && !same(node.code, theirs.code)) {

@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Moon, Sun } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import type { ThemeMode, UserSettings } from '../types';
 import { Button } from '../components/DesignSystem/Button';
 import { Card } from '../components/DesignSystem/Card';
+import { getHarness, HARNESS_AVAILABLE, HarnessInfo, setHarnessSetting, setSketchSetting } from '../services/harnessService';
 
 /** The on/off settings: the keys of UserSettings whose value is a boolean. */
 type ToggleSetting = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
@@ -17,6 +18,24 @@ const SETTING_CONFIG: { key: ToggleSetting; label: string; description: string }
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const { settings, updateSettings } = useSettings();
+  // The one setting that belongs to the repo, not this browser: it lives in
+  // .klose/settings.json, so only a canvas served next to the repo can show it.
+  const [harness, setHarness] = useState<HarnessInfo | null>(null);
+  const [harnessError, setHarnessError] = useState<string | null>(null);
+  useEffect(() => {
+    if (HARNESS_AVAILABLE()) getHarness(true).then(setHarness);
+  }, []);
+  const toggleHarness = (on: boolean) => {
+    setHarnessError(null);
+    setHarnessSetting(on ? 'auto' : 'off').then(setHarness, (err: Error) => setHarnessError(err.message));
+  };
+  const harnessLocked = harness?.settingSource === 'env';
+  const toggleSketches = (real: boolean) => {
+    setHarnessError(null);
+    setSketchSetting(real ? 'real' : 'sandbox').then(setHarness, (err: Error) => setHarnessError(err.message));
+  };
+  const sketchesLocked = harness?.sketchesSource === 'env';
+  const sketchesIdle = harness?.setting === 'off';
   const themeOptions: Array<{ value: ThemeMode; label: string; description: string; icon: React.ReactNode }> = [
     { value: 'dark', label: 'Dark', description: 'High-contrast workspace for the current visual baseline.', icon: <Moon size={16} /> },
     { value: 'light', label: 'Light', description: 'Bright workspace with softer panels and lighter canvas chrome.', icon: <Sun size={16} /> },
@@ -36,7 +55,7 @@ const SettingsPage: React.FC = () => {
         </Button>
 
         <h1 className="mb-2 text-2xl font-bold text-app-primary">Settings</h1>
-        <p className="mb-8 text-sm text-app-muted">Appearance and internationalization preferences.</p>
+        <p className="mb-8 text-sm text-app-muted">Appearance, built components and internationalization preferences.</p>
 
         <Card variant="default" noPadding className="mb-8 overflow-hidden">
           <h2 className="border-b border-app-border bg-app-surface-soft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
@@ -66,6 +85,65 @@ const SettingsPage: React.FC = () => {
             })}
           </div>
         </Card>
+
+        {harness?.setting && (
+          <Card variant="default" noPadding className="mb-8 overflow-hidden">
+            <h2 className="border-b border-app-border bg-app-surface-soft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">
+              Built components
+            </h2>
+            <label
+              className={`flex items-start gap-4 px-6 py-4 transition-colors ${harnessLocked ? 'opacity-60' : 'cursor-pointer hover:bg-app-surface-soft/60'}`}
+            >
+              <div className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-app-primary">Render built components from the real code</span>
+                <span className="mt-0.5 block text-xs text-app-muted">
+                  {harnessLocked
+                    ? 'Set by KLOSE_HARNESS on this machine'
+                    : harnessError ||
+                      (harness.config
+                        ? `Through your dev server at ${harness.config.devServer}. Off shows each card's sketch instead`
+                        : harness.error || 'Klose sets up a harness page in this repo (Expo or Vite + React) and saves the choice in .klose/settings.json')}
+                </span>
+              </div>
+              <div className="flex-shrink-0">
+                <input
+                  type="checkbox"
+                  checked={harness.setting === 'auto'}
+                  disabled={harnessLocked}
+                  onChange={(e) => toggleHarness(e.target.checked)}
+                  className="h-5 w-5 cursor-pointer rounded border-app-border bg-app-surface text-ceko-accent focus:ring-2 focus:ring-ceko-accent focus:ring-offset-0 focus:ring-offset-transparent"
+                />
+              </div>
+            </label>
+            {harness.sketches && (
+              <label
+                className={`flex items-start gap-4 border-t border-app-border px-6 py-4 transition-colors ${sketchesLocked || sketchesIdle ? 'opacity-60' : 'cursor-pointer hover:bg-app-surface-soft/60'}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium text-app-primary">Draw sketches with your real components</span>
+                  <span className="mt-0.5 block text-xs text-app-muted">
+                    {sketchesLocked
+                      ? 'Set by KLOSE_SKETCHES on this machine'
+                      : sketchesIdle
+                        ? 'Needs the setting above: sketches are drawn in the sandbox while it is off'
+                        : `Klose writes each sketch into ${harness.config?.sketchDir || 'klose.sketches'}/ so your bundler draws it with real imports. Off keeps sketches in the sandbox and removes those files`}
+                    {!sketchesLocked && !sketchesIdle && !!harness.pendingSketches?.length &&
+                      `. ${harness.pendingSketches.length} sketch${harness.pendingSketches.length === 1 ? '' : 'es'} from elsewhere ${harness.pendingSketches.length === 1 ? 'is' : 'are'} waiting to be accepted on the canvas`}
+                  </span>
+                </div>
+                <div className="flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={harness.sketches === 'real'}
+                    disabled={sketchesLocked || sketchesIdle}
+                    onChange={(e) => toggleSketches(e.target.checked)}
+                    className="h-5 w-5 cursor-pointer rounded border-app-border bg-app-surface text-ceko-accent focus:ring-2 focus:ring-ceko-accent focus:ring-offset-0 focus:ring-offset-transparent"
+                  />
+                </div>
+              </label>
+            )}
+          </Card>
+        )}
 
         <Card variant="default" noPadding className="overflow-hidden">
           <h2 className="border-b border-app-border bg-app-surface-soft/60 px-6 py-4 text-sm font-semibold uppercase tracking-wider text-app-secondary">

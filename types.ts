@@ -14,6 +14,13 @@ export interface ComponentNode {
   status?: 'sketch' | 'built';
   /** Path (relative to the repo root) of the real component file, once built. */
   builtFilePath?: string;
+  /** For a frame of a flow (server/flow.js): its 1-based position in the flow. */
+  step?: number;
+  /**
+   * The user's verdict on a flow frame, as it looked at `at`. The agent builds only
+   * approved frames; a change to `code` clears it (settleApproval in server/storeCore.js).
+   */
+  approval?: { status: 'approved' | 'changes'; at: number } | null;
   /** For a node pulled from a real repo component: which export in `code` to render. */
   exportName?: string;
   /**
@@ -39,6 +46,10 @@ export interface ComponentNode {
    * through the harness (server/harnessCore.js), to show it in a given state.
    */
   props?: Record<string, unknown>;
+  /** The route pattern this card shows (`/users/[id]`), set by `klose map` (server/routes.js). */
+  route?: string;
+  /** A short label for the state this card shows: "loading", "empty", "error". */
+  state?: string;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
   /** What Jev said this sketch is, once classified (server/classify.js). */

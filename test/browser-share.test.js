@@ -86,11 +86,13 @@ const project = (nodes) => ({
 const sketch = (id, name, x) => ({ id, name, description: '', x, y: 100, width: 420, height: 300, createdAt: 1, updatedAt: 1, status: 'sketch', code: CARD, comments: [] });
 
 /** The agent shares a project, as `klose share` does. */
+const AGENT_EXTRAS = { themeCss: ':root{--brand:#f00}', repoName: 'acme-web' };
+
 async function agentShares(nodes) {
   const key = newShareKey();
   const client = shareClient(shareApi(origin));
   const p = project(nodes);
-  const { id, etag } = await client.create(await encryptBundle(key, makeBundle(p, { themeCss: ':root{--brand:#f00}', repoName: 'acme-web' })));
+  const { id, etag } = await client.create(await encryptBundle(key, makeBundle(p, AGENT_EXTRAS)));
   return { id, key, client, synced: { etag, project: p }, project: p };
 }
 
@@ -127,7 +129,8 @@ test('a sketch the agent pushes appears on the open share, and a mark the user m
 
     // The agent adds a sketch from its checkout.
     const next = { ...agent.project, nodes: [...agent.project.nodes, sketch('b', 'Pricing table', 600)] };
-    const pushed = await syncShare({ client: agent.client, id: agent.id, key: agent.key, synced: agent.synced, local: next });
+    // Like the CLI (server/share.js), the agent's side sends its tokens and repo name with every push.
+    const pushed = await syncShare({ client: agent.client, id: agent.id, key: agent.key, synced: agent.synced, local: next, bundleExtras: AGENT_EXTRAS });
     assert.equal(pushed.pushed, true);
     agent.synced = pushed.synced;
     await page.getByText('Pricing table', { exact: true }).first().waitFor({ timeout: 10000 });

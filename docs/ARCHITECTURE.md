@@ -49,6 +49,7 @@ server/instance.js     .klose/server.json bookkeeping: is this repo's server run
 server/skills.js       Installs skill files without clobbering the user's edits
 server/theme.js        Extracts the repo's design tokens for the preview sandbox
 server/scanner.js      Indexes the repo's real components
+server/routes.js       Finds the app's routes and plans the app-map cards (`klose routes`, `klose map`)
 server/hub.js          The hub: one server for every repo, found from Claude Code's session files
 server/setup.js        First-run setup for the hub (`klose setup`, the /welcome page)
 server/tray.js         Builds the macOS menu bar app; its start-at-login LaunchAgent
@@ -65,7 +66,7 @@ web/                    The canvas UI source (built to web/dist for packaging)
 `npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
 holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
 1. Copies each `plugin/skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
-   `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
+   `/klose`, `/klose-flow`, `/klose-map`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
    each file as written; a later `init` or `update` replaces only files that still match it, and
    leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
 2. Creates `.klose/projects/` for local project storage, seeded with a demo project, and a
@@ -75,11 +76,11 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
 
 ### As a plugin: `/plugin install klose --marketplace adityakarki99/OpenKlose`
 
-The same three skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
+The same skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
 marketplace: `.claude-plugin/marketplace.json` lists one plugin, `klose`, whose source is the
 `plugin/` directory. That directory holds `.claude-plugin/plugin.json` (name, version, metadata) and
 `skills/`, which Claude Code loads in place under the plugin's namespace: `/klose:klose`,
-`/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
+`/klose:klose-flow`, `/klose:klose-map`, `/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
 it is bumped with `package.json` (`test/plugin.test.js` checks they agree).
 
 The plugin is deliberately thin. It carries no code: the CLI, the server and the canvas are still the
@@ -348,29 +349,136 @@ bridge answers after a load, the card also refreshes its `snapshot` (the image s
 down), at most once every three minutes per card. A page without the bridge stays a plain frame: comments
 attach to the whole card and the element-pick button is disabled with a hint.
 
-## The Component Harness (Expo/Metro)
+## The Component Harness (Expo/Metro and Vite)
 
 A `built` card can show the real component instead of the `code` restatement. The repo's own dev server
 renders it inside the app's real providers, and the canvas frames that page like any other live card
-(`components/Runtime/LivePreview.tsx`, bridge included).
+(`components/Runtime/LivePreview.tsx`, bridge included). A `sketch` card is drawn the same way, from a file
+Klose writes for it, so a sketch can import the repo's real components: see
+[Sketches drawn by the repo's bundler](#sketches-drawn-by-the-repos-bundler) below.
 
-- **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components? }`.
+- **Config.** `klose.config.json` at the repo root: `{ framework, devServer, harnessPath, providers?, components?, sketchDir? }`.
   `devServer` must pass `isAllowedLiveUrl`, so it is localhost only. The schema is `server/harnessCore.js`
   (browser-safe, shared with the canvas); reading it and writing files is `server/harness.js`.
+- **On by default.** The repo's `harness` setting (`.klose/settings.json`, `server/settings.js`; `auto` unless it says
+  `off`, and `KLOSE_HARNESS=off|auto` wins over the file) decides two things. With `auto`, `autoSetupHarness` runs
+  `initHarness` unasked from `klose init`, from the first store write that leaves a `built` node behind, and when the
+  setting is turned on, provided there is no `klose.config.json` and the project is one init can finish alone (Expo with
+  expo-router, or Vite + React). It never throws and never fails the save; a CLI command reports what it wrote on
+  stderr, so `--json` on stdout stays valid. With `off`, nothing is set up and `GET /api/harness` answers "no harness",
+  so built cards show their sketch even where one exists. The setting is not in `.klose/.gitignore`: it is the team's.
+  `klose harness auto [on|off]`, `PATCH /api/harness { setting }` and the toggle on the Settings page all write it.
 - **`klose harness init`** writes the config if missing, `klose.harness.tsx` (the page: reads `c`, the export and `props`
   from its address, renders the component inside `providers`, loads `klose-bridge.js` from the framing canvas when that
-  is on localhost), the generated `klose.registry.ts` (static `require`s, because Metro can't import a path chosen at
-  runtime) and, with expo-router, the route `app/__klose.tsx`. Every generated file carries a header and a hash of its
-  body: a file that no longer matches was edited by hand and is left alone without `--force`.
+  is on localhost), the generated `klose.registry.ts` and the page the dev server serves. Every generated file carries a
+  header and a hash of its body: a file that no longer matches was edited by hand and is left alone without `--force`.
+  - *Expo:* the registry is static `require`s, because Metro can't import a path chosen at runtime; with expo-router the
+    page is the route `app/__klose.tsx`. Without expo-router init prints the manual step, and automatic setup skips it.
+  - *Vite:* detected as `vite` + `react` + `react-dom` and an `index.html` at the repo root that loads a module script
+    (frameworks that only build with Vite route requests themselves). The page is `__klose.html` next to `index.html`:
+    Vite's dev server answers `/__klose` with it, with no change to `vite.config`, and it is not a build input. The
+    registry is one dynamic `import()` per component. The harness imports the stylesheets the app's entry module imports
+    for their side effect, so components look as they do in the app. `devServer` is the `port` in `vite.config.*`, else
+    `http://localhost:5173`. Both generated modules carry `// @ts-nocheck`, so they can't break the repo's own `tsc`.
 - **`klose harness sync`** regenerates the registry from the project's built cards (`builtFilePath` + `exportName`,
-  default export when absent) plus the `components` list in the config. The store runs it itself after any write that
-  touches a built card (`scheduleRegistrySync`, debounced, written only when the content changes, a no-op without a
-  config), so the CLI and the HTTP API stay in step. File and export names are checked before they are written as code.
+  default export when absent), the `components` list in the config and the sketch files, which it brings up to date
+  first. The store runs it itself after any write to a project's nodes (`scheduleRegistrySync`, debounced, written
+  only when the content changes, a no-op without a config), so the CLI and the HTTP API stay in step. File and export
+  names are checked before they are written as code.
 - **Address.** `<devServer><harnessPath>?c=<file>#<export>&props=<base64 json>`. The canvas learns the config and the
-  registry from `GET /api/harness`, and only builds an address for components in the registry.
-- **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code` restatement, then the placeholder.
-  Built cards that have both get a Real / Sketch toggle. Static, shared and online canvases never ask for a harness.
+  registry from `GET /api/harness` (which also carries `setting` and `settingSource`), and only builds an address for
+  components in the registry.
+- **Fallback order.** Harness frame, then `snapshot`, then the sandboxed `code`, then the placeholder. Built cards
+  that have both get a Real / Sketch toggle, sketches a Real / Sandbox one. Static, shared and online canvases never
+  ask for a harness. Code that imports anything but `react`, `lucide-react` and `recharts` can't run in the sandbox
+  (`repoImports`, `server/sketchImports.js`): where the sandbox would have drawn it, the card shows
+  `components/Canvas/RealOnlyNotice.tsx` ("this sketch uses real components; start your dev server to see it") over
+  the snapshot if there is one, not the sandbox's import error.
 - **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.
+
+### Sketches drawn by the repo's bundler
+
+The sandbox compiles a sketch's `code` with Babel and the browser build of Tailwind, in an opaque origin, and can
+import nothing from the repo, so a sandboxed sketch is a restatement. With a harness in use, Klose also writes each
+sketch into the repo as a file ("materialises" it) and registers it, and the dev server renders it like a built
+component: real imports, real providers, the real stylesheet, the repo's own compile path.
+
+- **The file.** `<sketchDir>/<node id>.tsx` (`sketchFile`, `server/harnessCore.js`), with the generated header and
+  hash, `/* eslint-disable */` and `// @ts-nocheck`, then the code (`sketchSource`). Two things are changed on the
+  way: an `import React` is added when the code has none (the sandbox hands every sketch `React` as a global), and
+  `./…` specifiers are read as relative to the repo root and rewritten for where the file lives, so a sketch says
+  `./src/components/Button` wherever `sketchDir` is. Aliases (`@/…`) are left to the bundler.
+- **The registry.** A sketch's key is `<its file>#<exportName or default>`. Its line calls `pickSketch`, which the
+  registry defines when it lists any sketch: the named export, else the default export, else the first component the
+  file exports, which is how the sandbox finds it too. The canvas builds the address with the same `harnessAddress`.
+- **Lifecycle.** `syncSketches` runs inside every registry sync: the file is written when the code, name or export
+  changes, and removed when the sketch is deleted, is marked built, loses its code, becomes a live `url` card, or its
+  code changes to something this machine did not write. A file a person edited is never rewritten or removed.
+- **Where.** `klose.sketches/` at the repo root by default, a visible folder, not `.klose/`. Tailwind decides this.
+  v4 finds class names in every file that is not git-ignored (verified with its scanner: it reads dot-folders, and
+  skips paths ignored by `.gitignore` or `.git/info/exclude`), so the folder works there as long as it is not
+  ignored. v3 reads only what its `content` globs name, and no project's globs name `.klose/`: `chooseSketchDir`
+  reads `tailwind.config.*` at init, and when the globs don't reach the root folder it puts the sketches inside the
+  first folder they do reach that isn't a routes folder (`src/klose.sketches`), recording it as `sketchDir`. A repo
+  whose globs can't be read that way sets `sketchDir` by hand.
+- **Not git-ignored.** The files are derived from the project JSON, so ignoring them would be natural, but Tailwind
+  v4 would then drop every class only a sketch uses, and a committed Expo registry would `require` files a teammate
+  doesn't have. So they are treated like `klose.registry.ts`: generated, committed or not as the team prefers.
+- **The setting.** `sketches` in `.klose/settings.json`: `real` (the default) or `sandbox`, with `KLOSE_SKETCHES`
+  winning over the file. `sandbox`, or the harness being off, means no sketch has a file: the next sync removes the
+  generated ones. `klose harness sketches [real|sandbox]`, `PATCH /api/harness { sketches }` and the Settings page
+  write it; `GET /api/harness` carries `sketches`, `sketchesSource` and `pendingSketches`.
+
+### The trust boundary
+
+The sandbox exists because sketch code is untrusted. Code the dev server renders runs in the app's origin, with the
+app's cookies and network. So the rule is narrow: **Klose writes a sketch into the repo only when its code was
+written on this machine.**
+
+- **Local writes** are the store's `addNode`, `updateNode` and `updateProject`: the CLI (the user's own agent, which
+  already writes source files into this repo) and the local canvas over the HTTP API, which answers only to
+  localhost and refuses foreign origins. Code such a write *changes or adds* is recorded as trusted
+  (`noteLocalWrite`, `server/sketchTrust.js`). Code a write merely carries along unchanged is not: a canvas tab that
+  saves the whole project, or an agent that round-trips a node it read, vouches for nothing.
+- **Everything else** arrives through `putProject`: a merge from a shared canvas (`server/share.js`) and an online
+  workspace built from GitHub (`server/open.js`). It records the code it brings as foreign (`noteForeignWrite`), so
+  that exact text can't become trusted later by being saved back from a tab that still holds it. A project file that
+  changes on disk by other means (a `git pull`, the hosted canvas writing into the folder) is simply never recorded.
+- **The record** is `~/.klose/sketch-trust/<hash of the repo path>.json`: per node, the hash of the code written
+  here and the hashes seen arriving from elsewhere. It is outside the repo on purpose. A field on the node, or a
+  file under `.klose/`, is something a peer could set; nothing in the project JSON is read to decide trust. It is
+  only kept in a repo that has a harness config.
+- **Accepting.** A sketch that isn't trusted stays in the sandbox and is listed in `pendingSketches`. A person
+  accepts it, as it is now, with `klose harness accept <project> [<id> | --all]` or the card's "Run in my app"
+  (`POST /api/harness/accept`). New code from outside waits again. The skill tells the agent never to accept for
+  the user.
+- **One exception, deliberate.** A generated sketch file that is already in the repo, unedited, and matches its
+  card's code counts as accepted: it arrived as source, by git, like every other file the dev server compiles. A
+  share peer can't create it, because a share carries the project JSON and nothing else.
+- **Unchanged:** sketch code never runs in the Klose server process. Materialising is writing a file; the user's
+  dev server is what compiles and runs it.
+
+## The App Map (`klose routes`, `klose map`)
+
+`server/routes.js` reads the app's routes off its files (nothing is run) and plans the cards that put them on
+the canvas. It imports only `node:fs` and `storeCore.js`.
+
+- **Discovery.** `discoverRoutes(root)` returns `[{ path, file, params, framework, kind }]`. The router comes from
+  `package.json`: expo-router (`app/` or `src/app/`), Next.js (`app/**/page.*` and `pages/**`, with or without `src/`)
+  and React Router, best effort, from `path:` and `<Route path=` literals in files that import it, with nested
+  paths joined to their parent. One pattern syntax whatever the router: `/users/[id]`, `/docs/[...rest]`. Route
+  groups `(x)` are dropped; `kind` is `page`, `layout` or `api`; `+not-found`, `_`-prefixed files, a top-level `*`
+  and the harness route (`harnessPath`, default `/__klose`) are left out.
+- **Plan.** `planMap({ routes, nodes, devServer, params })` is pure: it returns the cards to add (one `url` card per
+  page route, `url = devServer + path`, laid out below whatever the project already holds, a band per first path
+  segment), the routes already on the canvas, the routes that have cards but no longer exist (reported, never
+  deleted), and the dynamic routes still waiting for a `--param`. A card is matched on its `route` field, so
+  running it again never moves or rewrites one; the only write to an existing card is giving a frameless one its
+  `url` once its params have values.
+- **`route` and `state`** are optional node fields (`mapFieldsProblem` in `server/storeCore.js`, checked by every
+  store): the route pattern a card shows, and a short label for the state it shows. The route's own card has no
+  `state`; the `/klose-map` skill has the agent read each route's file and add one card per real state beside it
+  (through the harness with `props`, a live `url`, or a `code` restatement). The frame header shows both as a chip.
 
 ## Local Server
 
@@ -426,6 +534,35 @@ project get` / `klose feedback`) read the same thing, and the plain path intact 
   of its namespace (plus `none`) and the answer becomes a replacement class with Jev's probability.
   `klose project lint`, `GET /api/projects/:id/nodes/:nodeId/lint`, **Check tokens…** in the ⋯
   menu, and `lib/lintText.js` for the copied text.
+
+## Flows (`klose flow`, `/klose-flow`)
+
+A flow starts from what the user is trying to do instead of from a component: one project holding a
+frame for every step of a user flow and every state of each step, which the user approves frame by
+frame before anything is built.
+
+- **Fields.** A flow frame is an ordinary sketch with `step` (1-based position), `state` (a short
+  label: `default`, `loading`, `error`, …) and, once the user has ruled on it,
+  `approval: { status: 'approved' | 'changes', at }`. `flowNodeProblem` in `server/storeCore.js`
+  validates them on every write, in both stores.
+- **An approval is of what was seen.** `settleApproval` (same file) drops a frame's approval when its
+  `code` changes, unless the write brings a new verdict. Both stores call it from `updateNode` and
+  `updateProject`, the canvas applies it to its own edits, and `mergeShared` drops an approval whose
+  side did not supply the merged code. So `approved` always means "approved as it looks now".
+- **`server/flow.js`** (pure, no filesystem): `planProblems` reports every problem with a plan at
+  once; `planNodes` places the frames, one column per step, states stacked, from the default frame
+  size; `flowStatus` reports each frame, `ready` (approved, not built, no open comments) and
+  `blocked` (with the reason).
+- **CLI.** `klose flow create "<name>" @plan.json`, `flow status <project>`,
+  `flow approve|unapprove <project> <nodeId|step:state>… | --all`. A project is named by id or exact
+  name.
+- **Canvas.** A frame with `step` shows a `2 · error` chip and an Approve / Changes control in its
+  header (`components/Canvas/FlowApproval.tsx`); an approved frame gets a green border. The verdict
+  is saved with the project like any other node field, so there is no flow endpoint: the agent
+  reads it with `klose flow status`.
+- **The skill** (`plugin/skills/klose-flow/SKILL.md`) has the agent confirm the steps and states,
+  create the flow, wait, and then loop on `flow status`: address comments, build only `ready`
+  frames, and wire the steps together once all are built.
 
 ## The Component Index
 

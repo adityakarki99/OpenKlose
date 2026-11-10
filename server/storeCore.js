@@ -51,9 +51,9 @@ export function nextUpdatedAt(previous, now = Date.now()) {
 
 // Where a sketch lands when whoever adds it (usually the agent) doesn't say:
 // in a row to the right of the existing ones, top-aligned with them.
-const DEFAULT_NODE = { width: 480, height: 360 };
-const NODE_GAP = 80;
-const FIRST_NODE_AT = { x: 200, y: 160 };
+export const DEFAULT_NODE = { width: 480, height: 360 };
+export const NODE_GAP = 80;
+export const FIRST_NODE_AT = { x: 200, y: 160 };
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -205,6 +205,29 @@ export function isAllowedLiveUrl(url) {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
 }
 
+/** Longest `route` and `state` a card may carry, in characters. */
+export const MAX_ROUTE_CHARS = 512;
+export const MAX_STATE_CHARS = 40;
+
+/**
+ * Why a card's `route` (the route pattern it shows, e.g. `/users/[id]`) or
+ * `state` (a short label: "loading", "empty", "error") can't be stored, or null.
+ */
+export function mapFieldsProblem(node) {
+  const { route, state } = node;
+  if (route !== undefined && route !== null) {
+    if (typeof route !== 'string' || !route.startsWith('/') || route.length > MAX_ROUTE_CHARS || /[\u0000-\u001f\s]/.test(route)) {
+      return `route must be a route pattern starting with "/" (no spaces, at most ${MAX_ROUTE_CHARS} characters): ${JSON.stringify(route)}`;
+    }
+  }
+  if (state !== undefined && state !== null) {
+    if (typeof state !== 'string' || !state.trim() || state !== state.trim() || state.length > MAX_STATE_CHARS || /[\u0000-\u001f]/.test(state)) {
+      return `state must be a short one-line label (at most ${MAX_STATE_CHARS} characters): ${JSON.stringify(state)}`;
+    }
+  }
+  return null;
+}
+
 /**
  * What is wrong with a card's `url` / `snapshot`, or null when they're fine.
  * Only the fields present are checked, so an update that touches neither passes.
@@ -213,6 +236,10 @@ export function liveNodeProblem(node) {
   if (!node || typeof node !== 'object') return null;
   const props = propsProblem(node.props);
   if (props) return props;
+  const flow = flowNodeProblem(node);
+  if (flow) return flow;
+  const mapFields = mapFieldsProblem(node);
+  if (mapFields) return mapFields;
   if (node.url !== undefined && node.url !== null && !isAllowedLiveUrl(node.url)) {
     return `Live card url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(node.url)}`;
   }
@@ -225,4 +252,49 @@ export function liveNodeProblem(node) {
     }
   }
   return null;
+}
+
+// ── Flow frames ─────────────────────────────────────────────────────────────
+
+export const APPROVAL_STATUSES = ['approved', 'changes'];
+
+/**
+ * What is wrong with a frame's flow fields, or null. `step` is its 1-based
+ * position in a flow (its `state` label is checked by mapFieldsProblem),
+ * `approval` the user's verdict on what the frame showed at `at`
+ * (null clears it). Only the fields present are checked.
+ */
+export function flowNodeProblem(node) {
+  if (!node || typeof node !== 'object') return null;
+  const { step, approval } = node;
+  if (step !== undefined && step !== null && (!Number.isInteger(step) || step < 1 || step > 999)) {
+    return `step must be a whole number from 1 to 999: ${JSON.stringify(step)}`;
+  }
+  if (approval !== undefined && approval !== null) {
+    if (typeof approval !== 'object' || Array.isArray(approval) || !APPROVAL_STATUSES.includes(approval.status) || !isNum(approval.at)) {
+      return 'approval must be { status: "approved" | "changes", at: <timestamp> } or null';
+    }
+  }
+  return null;
+}
+
+/**
+ * An approval is of what was seen: when a frame's `code` changes, the approval
+ * it carried goes, wherever the write comes from. A write that brings a new
+ * verdict of its own (a different `at` or status) keeps it. Returns `after`,
+ * or a copy without `approval`.
+ */
+export function settleApproval(before, after) {
+  if (!before?.approval || !after?.approval) return after;
+  if ((before.code ?? null) === (after.code ?? null)) return after;
+  if (after.approval.at !== before.approval.at || after.approval.status !== before.approval.status) return after;
+  const { approval: _stale, ...rest } = after;
+  return rest;
+}
+
+/** `settleApproval` over a whole node list, matched by id against the list it replaces. */
+export function settleApprovals(beforeNodes, afterNodes) {
+  if (!Array.isArray(afterNodes)) return afterNodes;
+  const before = new Map((beforeNodes || []).map((n) => [n.id, n]));
+  return afterNodes.map((n) => settleApproval(before.get(n?.id), n));
 }

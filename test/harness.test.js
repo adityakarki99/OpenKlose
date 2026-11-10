@@ -1,20 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateHarnessConfig, harnessAddress, registryKey } from '../server/harnessCore.js';
-import { initHarness, loadHarnessConfig, readRegistryKeys, HarnessError } from '../server/harness.js';
+import { autoSetupHarness, detectFramework, initHarness, loadHarnessConfig, readRegistryKeys, takeAutoSetupNotices, HarnessError } from '../server/harness.js';
+import { harnessSetting, readSettings, writeSettings } from '../server/settings.js';
 import { liveNodeProblem } from '../server/storeCore.js';
 import * as store from '../server/store.js';
 import { createKloseServer } from '../server/http.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.join(here, 'fixtures', 'expo-app');
+const VITE_FIXTURE = path.join(here, 'fixtures', 'vite-app');
 const cli = path.join(here, '..', 'bin', 'klose.js');
+// A developer's own KLOSE_HARNESS must not decide what these tests see.
+delete process.env.KLOSE_HARNESS;
+delete process.env.KLOSE_SKETCHES;
+// Which sketch code was written on "this machine" is recorded under ~/.klose
+// (server/sketchTrust.js); the tests keep their own, not the developer's.
+process.env.KLOSE_HOME = await mkdtemp(path.join(os.tmpdir(), 'klose-home-'));
+process.on('exit', () => rmSync(process.env.KLOSE_HOME, { recursive: true, force: true }));
+const EXPO_FILES = ['klose.config.json', 'klose.harness.tsx', 'klose.registry.ts', 'app/__klose.tsx'];
+const VITE_FILES = ['klose.config.json', 'klose.harness.tsx', 'klose.registry.ts', '__klose.html'];
+
+async function viteRepo() {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-harness-'));
+  await cp(VITE_FIXTURE, dir, { recursive: true });
+  return dir;
+}
 
 async function expoRepo() {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-harness-'));
@@ -166,9 +183,10 @@ test('marking a node built updates the registry, and only when the content chang
   }
 });
 
-test('unsafe built paths and export names never reach the registry; no config means no registry file', async () => {
+test('unsafe built paths and export names never reach the registry; harness off and no config means no registry file', async () => {
   const dir = await expoRepo();
   try {
+    await writeSettings(dir, { harness: 'off' });
     const p = await store.createProject(dir, 'P');
     await store.addNode(dir, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx' });
     assert.ok(!existsSync(path.join(dir, 'klose.registry.ts')), 'no harness config → nothing written');
@@ -256,7 +274,7 @@ test('GET /api/harness reports the config and registry, or none', async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const get = async () => (await fetch(`http://127.0.0.1:${server.address().port}/api/harness`)).json();
   try {
-    assert.deepEqual(await get(), { config: null, registry: [] });
+    assert.deepEqual(await get(), { config: null, registry: [], setting: 'auto', settingSource: 'default', sketches: 'real', sketchesSource: 'default', pendingSketches: [] });
     await initHarness(dir);
     const p = await store.createProject(dir, 'P');
     await store.addNode(dir, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx', exportName: 'A' });
@@ -267,6 +285,297 @@ test('GET /api/harness reports the config and registry, or none', async () => {
     const bad = await get();
     assert.equal(bad.config, null);
     assert.match(bad.error, /devServer/);
+  } finally {
+    await new Promise((r) => server.close(r));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the harness setting: auto by default, read and written in .klose/settings.json, KLOSE_HARNESS wins', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-harness-'));
+  try {
+    assert.deepEqual(await readSettings(dir), { harness: 'auto', sketches: 'real' });
+    assert.deepEqual(await harnessSetting(dir, {}), { value: 'auto', source: 'default' });
+    assert.deepEqual(await writeSettings(dir, { harness: 'off' }), { harness: 'off', sketches: 'real' });
+    assert.deepEqual(JSON.parse(await read(dir, '.klose/settings.json')), { harness: 'off' });
+    assert.deepEqual(await harnessSetting(dir, {}), { value: 'off', source: 'file' });
+    assert.deepEqual(await harnessSetting(dir, { KLOSE_HARNESS: 'AUTO' }), { value: 'auto', source: 'env' });
+    assert.deepEqual(await harnessSetting(dir, { KLOSE_HARNESS: 'nonsense' }), { value: 'off', source: 'file' });
+    await assert.rejects(writeSettings(dir, { harness: 'sometimes' }), /auto, off/);
+
+    // A key this version doesn't know survives a write; a broken file means the default.
+    await writeFile(path.join(dir, '.klose/settings.json'), JSON.stringify({ harness: 'off', future: 1 }));
+    await writeSettings(dir, { harness: 'auto' });
+    assert.deepEqual(JSON.parse(await read(dir, '.klose/settings.json')), { harness: 'auto', future: 1 });
+    for (const broken of ['{nope', '[]', JSON.stringify({ harness: 'maybe' })]) {
+      await writeFile(path.join(dir, '.klose/settings.json'), broken);
+      assert.deepEqual(await harnessSetting(dir, {}), { value: 'auto', source: 'default' }, broken);
+    }
+    assert.deepEqual(await harnessSetting(dir, { KLOSE_HARNESS: 'off' }), { value: 'off', source: 'env' });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the first built node sets the harness up by itself; a sketch does not', async () => {
+  const dir = await expoRepo();
+  try {
+    takeAutoSetupNotices();
+    const p = await store.createProject(dir, 'P');
+    const node = await store.addNode(dir, p.id, { name: 'Card', description: '' });
+    await store.updateProject(dir, p.id, { nodes: [{ ...node, description: 'still a sketch' }] });
+    assert.ok(EXPO_FILES.every((f) => !existsSync(path.join(dir, f))), 'a sketch sets nothing up');
+    assert.deepEqual(takeAutoSetupNotices(), []);
+
+    await store.updateNode(dir, p.id, node.id, { status: 'built', builtFilePath: 'src/Card.tsx', exportName: 'Card' });
+    assert.ok(EXPO_FILES.every((f) => existsSync(path.join(dir, f))));
+    assert.deepEqual(await readRegistryKeys(dir), ['src/Card.tsx#Card']);
+    const [notice, ...more] = takeAutoSetupNotices();
+    assert.equal(more.length, 0);
+    assert.deepEqual(notice.files.map((f) => [f.file, f.result]), EXPO_FILES.map((f) => [f, 'created']));
+
+    // Set up once: the next built node only updates the registry.
+    await store.addNode(dir, p.id, { name: 'Screen', status: 'built', builtFilePath: 'app/Screen.tsx' });
+    assert.deepEqual(takeAutoSetupNotices(), []);
+    assert.deepEqual(await readRegistryKeys(dir), ['app/Screen.tsx#default', 'src/Card.tsx#Card']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a canvas save that leaves a built node behind sets the harness up too', async () => {
+  const dir = await expoRepo();
+  try {
+    const p = await store.createProject(dir, 'P');
+    await store.updateProject(dir, p.id, { nodes: [{ id: 'n1', name: 'A', status: 'built', builtFilePath: 'src/A.tsx', exportName: 'A' }] });
+    assert.deepEqual(await readRegistryKeys(dir), ['src/A.tsx#A']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('harness off (setting or KLOSE_HARNESS) writes nothing, and the save still succeeds', async () => {
+  for (const off of ['file', 'env']) {
+    const dir = await expoRepo();
+    try {
+      if (off === 'file') await writeSettings(dir, { harness: 'off' });
+      else process.env.KLOSE_HARNESS = 'off';
+      const p = await store.createProject(dir, 'P');
+      const node = await store.addNode(dir, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx' });
+      assert.equal(node.status, 'built');
+      assert.equal(await autoSetupHarness(dir, async () => []), null);
+      assert.ok(EXPO_FILES.every((f) => !existsSync(path.join(dir, f))), off);
+    } finally {
+      delete process.env.KLOSE_HARNESS;
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('automatic setup leaves hand-edited files, non-router Expo and unsupported repos alone', async () => {
+  // A generated file the user changed, then a config that went missing: setup runs, the edit stays.
+  const edited = await expoRepo();
+  try {
+    await initHarness(edited);
+    await writeFile(path.join(edited, 'klose.harness.tsx'), (await read(edited, 'klose.harness.tsx')) + '// mine\n');
+    await rm(path.join(edited, 'klose.config.json'));
+    const p = await store.createProject(edited, 'P');
+    await store.addNode(edited, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx' });
+    assert.match(await read(edited, 'klose.harness.tsx'), /\/\/ mine\n$/);
+    assert.ok(existsSync(path.join(edited, 'klose.config.json')));
+    // An existing config, even an invalid one, is the user's: never replaced.
+    await writeFile(path.join(edited, 'klose.config.json'), '{nope');
+    await store.addNode(edited, p.id, { name: 'B', status: 'built', builtFilePath: 'src/B.tsx' });
+    assert.equal(await read(edited, 'klose.config.json'), '{nope');
+  } finally {
+    await rm(edited, { recursive: true, force: true });
+  }
+
+  for (const pkg of [{ dependencies: { expo: '~52.0.0' } }, { dependencies: { react: '18' } }, null]) {
+    const dir = await expoRepo();
+    try {
+      if (pkg) await writeFile(path.join(dir, 'package.json'), JSON.stringify(pkg));
+      else await rm(path.join(dir, 'package.json'));
+      const p = await store.createProject(dir, 'P');
+      await store.addNode(dir, p.id, { name: 'A', status: 'built', builtFilePath: 'src/A.tsx' });
+      assert.ok(EXPO_FILES.every((f) => !existsSync(path.join(dir, f))), JSON.stringify(pkg));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('Vite + React apps are detected; frameworks that only build with Vite are not', async () => {
+  const dir = await viteRepo();
+  try {
+    assert.deepEqual(await detectFramework(dir), { framework: 'vite', router: false, entry: 'src/main.tsx' });
+    const pkg = JSON.parse(await read(dir, 'package.json'));
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ ...pkg, dependencies: {} }));
+    assert.equal(await detectFramework(dir), null, 'no react');
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify(pkg));
+    await writeFile(path.join(dir, 'index.html'), '<!doctype html><script src="/legacy.js"></script>');
+    assert.equal(await detectFramework(dir), null, 'no module entry');
+    await rm(path.join(dir, 'index.html'));
+    assert.equal(await detectFramework(dir), null, 'no index.html');
+    await assert.rejects(initHarness(dir), /Vite \+ React/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('init generates the Vite files: a page the dev server serves, imports instead of requires', async () => {
+  const dir = await viteRepo();
+  try {
+    const first = await initHarness(dir, { providers: 'src/Providers.tsx' });
+    assert.equal(first.framework, 'vite');
+    assert.equal(first.manual, undefined);
+    assert.deepEqual(first.files.map((f) => [f.file, f.result]), VITE_FILES.map((f) => [f, 'created']));
+    // The port comes from vite.config.ts; without one it is Vite's default.
+    assert.deepEqual(JSON.parse(await read(dir, 'klose.config.json')), {
+      framework: 'vite',
+      devServer: 'http://localhost:5199',
+      harnessPath: '/__klose',
+      providers: 'src/Providers.tsx',
+    });
+    const page = await read(dir, '__klose.html');
+    assert.match(page, /generated by klose, do not edit/);
+    assert.match(page, /<script type="module" src="\.\/klose\.harness\.tsx"><\/script>/);
+    const harness = await read(dir, 'klose.harness.tsx');
+    assert.match(harness, /^\/\/ generated by klose, do not edit/);
+    assert.match(harness, /import "\.\/src\/index\.css";/, "the app entry's stylesheet");
+    assert.match(harness, /import \* as providersModule from "\.\/src\/Providers\.tsx"/);
+    assert.match(harness, /klose-bridge\.js/);
+    assert.doesNotMatch(harness, /react-native|require\(/);
+
+    assert.ok((await initHarness(dir)).files.every((f) => f.result === 'unchanged'));
+    await writeFile(path.join(dir, '__klose.html'), (await read(dir, '__klose.html')) + '<!-- mine -->\n');
+    assert.equal((await initHarness(dir)).files.find((f) => f.file === '__klose.html').result, 'skipped');
+    assert.equal((await initHarness(dir, { force: true })).files.find((f) => f.file === '__klose.html').result, 'updated');
+
+    const p = await store.createProject(dir, 'P');
+    await store.addNode(dir, p.id, { name: 'Card', status: 'built', builtFilePath: 'src/Card.tsx', exportName: 'Card' });
+    await store.addNode(dir, p.id, { name: 'Screen', status: 'built', builtFilePath: 'src/Card.tsx' });
+    assert.deepEqual(await readRegistryKeys(dir), ['src/Card.tsx#Card', 'src/Card.tsx#default']);
+    const registry = await read(dir, 'klose.registry.ts');
+    assert.match(registry, /"src\/Card\.tsx#Card": \(\) => import\("\.\/src\/Card\.tsx"\)\.then\(\(m\) => m\["Card"\]\)/);
+    assert.match(registry, /"src\/Card\.tsx#default": \(\) => import\("\.\/src\/Card\.tsx"\)\.then\(\(m\) => m\["default"\]\)/);
+
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  const nested = await viteRepo();
+  try {
+    await rm(path.join(nested, 'vite.config.ts'));
+    const result = await initHarness(nested, { harnessPath: '/dev/klose' });
+    assert.equal(result.config.devServer, 'http://localhost:5173');
+    assert.match(await read(nested, 'dev/klose.html'), /src="\.\.\/klose\.harness\.tsx"/);
+  } finally {
+    await rm(nested, { recursive: true, force: true });
+  }
+});
+
+test('a Vite repo is set up by its first built node, and by klose init', async () => {
+  const dir = await viteRepo();
+  try {
+    const p = await store.createProject(dir, 'P');
+    await store.addNode(dir, p.id, { name: 'Card', status: 'built', builtFilePath: 'src/Card.tsx', exportName: 'Card' });
+    assert.ok(VITE_FILES.every((f) => existsSync(path.join(dir, f))));
+    assert.deepEqual(await readRegistryKeys(dir), ['src/Card.tsx#Card']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  const viaInit = await viteRepo();
+  try {
+    const init = spawnSync(process.execPath, [cli, 'init', '--here', '--no-skills', '--no-demo'], { cwd: viaInit, encoding: 'utf-8' });
+    assert.equal(init.status, 0, init.stderr);
+    assert.match(init.stdout, /Harness\s+klose\.config\.json, klose\.harness\.tsx, klose\.registry\.ts, __klose\.html/);
+    assert.match(init.stdout, /klose harness auto off/);
+    assert.ok(VITE_FILES.every((f) => existsSync(path.join(viaInit, f))));
+    // The setting is the team's: .klose/.gitignore must not hide it.
+    assert.doesNotMatch(await read(viaInit, '.klose/.gitignore'), /settings/);
+  } finally {
+    await rm(viaInit, { recursive: true, force: true });
+  }
+
+  const off = await viteRepo();
+  try {
+    const init = spawnSync(process.execPath, [cli, 'init', '--here', '--no-skills', '--no-demo'], { cwd: off, encoding: 'utf-8', env: { ...process.env, KLOSE_HARNESS: 'off' } });
+    assert.equal(init.status, 0, init.stderr);
+    assert.doesNotMatch(init.stdout, /Harness/);
+    assert.ok(VITE_FILES.every((f) => !existsSync(path.join(off, f))));
+  } finally {
+    await rm(off, { recursive: true, force: true });
+  }
+});
+
+test('klose harness auto shows and changes the setting; setup during a command keeps --json valid', async () => {
+  const dir = await expoRepo();
+  try {
+    const env = { ...process.env };
+    delete env.KLOSE_HARNESS;
+    const run = (args, extra = {}) => spawnSync(process.execPath, [cli, ...args], { cwd: dir, encoding: 'utf-8', env: { ...env, ...extra } });
+    assert.deepEqual(JSON.parse(run(['harness', 'auto', '--json']).stdout), { harness: 'auto', source: 'default' });
+    assert.match(run(['harness', 'auto']).stdout, /harness: on \(the default\)/);
+    assert.deepEqual(JSON.parse(run(['harness', 'auto', 'off', '--json']).stdout), { harness: 'off', source: 'file' });
+    assert.match(run(['harness', 'auto'], { KLOSE_HARNESS: 'auto' }).stdout, /harness: on \(KLOSE_HARNESS overrides/);
+    assert.notEqual(run(['harness', 'auto', 'maybe']).status, 0);
+
+    // Off: marking a card built through the CLI writes nothing and says nothing.
+    const id = JSON.parse(run(['project', 'create', 'P']).stdout).id;
+    const built = JSON.stringify({ name: 'X', status: 'built', builtFilePath: 'src/X.tsx', exportName: 'X' });
+    const quiet = run(['project', 'add-node', id, built]);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.doesNotMatch(quiet.stderr, /harness/);
+    assert.ok(!existsSync(path.join(dir, 'klose.config.json')));
+
+    // Turning it on sets it up at once, built cards included.
+    const on = JSON.parse(run(['harness', 'auto', 'on', '--json']).stdout);
+    assert.equal(on.harness, 'auto');
+    assert.deepEqual(on.files.map((f) => f.file), EXPO_FILES);
+    assert.deepEqual(await readRegistryKeys(dir), ['src/X.tsx#X']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  const fresh = await expoRepo();
+  try {
+    const env = { ...process.env };
+    delete env.KLOSE_HARNESS;
+    const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: fresh, encoding: 'utf-8', env });
+    const id = JSON.parse(run(['project', 'create', 'P']).stdout).id;
+    const add = run(['project', 'add-node', id, JSON.stringify({ name: 'X', status: 'built', builtFilePath: 'src/X.tsx', exportName: 'X' })]);
+    assert.equal(add.status, 0, add.stderr);
+    assert.equal(JSON.parse(add.stdout).status, 'built', 'stdout is still only the node');
+    assert.match(add.stderr, /set up the component harness \(klose\.config\.json, klose\.harness\.tsx, klose\.registry\.ts, app\/__klose\.tsx\)/);
+    assert.match(add.stderr, /klose harness auto off/);
+  } finally {
+    await rm(fresh, { recursive: true, force: true });
+  }
+});
+
+test('PATCH /api/harness changes the setting; off hides a harness that is set up', async () => {
+  const dir = await expoRepo();
+  const server = createKloseServer({ cwd: dir, version: '9.9.9' });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}/api/harness`;
+  const patch = (body) => fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    const off = await (await patch({ setting: 'off' })).json();
+    assert.deepEqual(off, { config: null, registry: [], setting: 'off', settingSource: 'file', sketches: 'real', sketchesSource: 'default', pendingSketches: [] });
+    assert.ok(!existsSync(path.join(dir, 'klose.config.json')));
+    assert.equal((await patch({ setting: 'sometimes' })).status, 400);
+
+    const on = await (await patch({ setting: 'auto' })).json();
+    assert.equal(on.setting, 'auto');
+    assert.equal(on.config.framework, 'expo', 'turning it on sets it up');
+    assert.ok(EXPO_FILES.every((f) => existsSync(path.join(dir, f))));
+
+    const hidden = await (await patch({ setting: 'off' })).json();
+    assert.equal(hidden.config, null);
+    assert.deepEqual(hidden.registry, []);
+    assert.ok(existsSync(path.join(dir, 'klose.config.json')), 'off removes nothing');
   } finally {
     await new Promise((r) => server.close(r));
     await rm(dir, { recursive: true, force: true });

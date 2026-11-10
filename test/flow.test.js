@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -172,7 +173,7 @@ test('changing a frame\'s code clears its approval, from updateNode and from a p
 });
 
 test('the folder store (hosted canvas) settles approvals the same way', async () => {
-  const folder = createFolderStore(memoryFolder());
+  const folder = createFolderStore(memoryFolder(), { uuid: randomUUID });
   const project = await folder.createProject('Flow');
   const node = await folder.addNode(project.id, { name: 'A', step: 1, state: 'default', code: 'a', approval: { status: 'approved', at: 1 } });
   await assert.rejects(() => folder.updateNode(project.id, node.id, { step: 'one' }), /step must be/);

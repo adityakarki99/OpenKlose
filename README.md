@@ -249,10 +249,11 @@ into any of them. Inside Claude Code:
 ```
 
 (Claude Code 2.1.275 or later. Older versions take it in two steps: `/plugin marketplace add
-adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the three
+adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the
 skills; the canvas and its CLI are still the `klose` npm package, so install that once with
 `npm install -g klose` (or from GitHub until it is on npm, see below) and the skill does the rest.
-The skills run as `/klose:klose`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
+The skills run as `/klose:klose`, `/klose:klose-map`, `/klose:klose-update` and
+`/klose:klose-cleanup`, and Claude
 Code keeps them current through `/plugin marketplace update openklose`. If you also `klose init` a
 repo, pass `--no-skills` so it doesn't get a second copy.
 
@@ -298,14 +299,14 @@ npx klose init
 > npx klose init
 > ```
 
-`klose init` installs the `/klose`, `/klose-update`, and `/klose-cleanup` skills into
+`klose init` installs the `/klose`, `/klose-map`, `/klose-update`, and `/klose-cleanup` skills into
 `.claude/skills/`, creates local storage at `.klose/` (seeded with a demo sketch so the canvas isn't
 empty), and then tells you what it found in your repo:
 
 ```
 Klose 0.2.0 is set up in /code/acme-web
 
-  ✓ Skills       /klose, /klose-cleanup, /klose-update → .claude/skills/
+  ✓ Skills       /klose, /klose-cleanup, /klose-map, /klose-update → .claude/skills/
   ✓ Storage      .klose/ (with a demo project, so the canvas isn't empty)
 
 What Klose found in this repo
@@ -368,7 +369,8 @@ npm install -D klose
 npx klose init
 ```
 
-You'll get the `/klose`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
+You'll get the `/klose`, `/klose-map`, `/klose-update` and `/klose-cleanup` skills in
+`.claude/skills/`, a
 `.klose/projects/` folder holding a demo project, and a short report of the design tokens and
 components Klose found. If `/klose` doesn't show up in Claude Code's command list, restart Claude
 Code.
@@ -658,6 +660,8 @@ klose components "<need>" --rank --all-repos      The same, across every repo th
 klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
 klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
+klose routes [--json]                             List the app's routes (expo-router, Next.js, React Router)
+klose map [--dev-server=URL] [--param id=42]      Put every page on the canvas as a live card; /klose-map adds each route's states
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)

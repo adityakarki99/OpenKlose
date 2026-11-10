@@ -39,6 +39,10 @@ export interface ComponentNode {
    * through the harness (server/harnessCore.js), to show it in a given state.
    */
   props?: Record<string, unknown>;
+  /** The route pattern this card shows (`/users/[id]`), set by `klose map` (server/routes.js). */
+  route?: string;
+  /** A short label for the state this card shows: "loading", "empty", "error". */
+  state?: string;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
   /** What Jev said this sketch is, once classified (server/classify.js). */

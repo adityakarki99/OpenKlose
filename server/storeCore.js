@@ -205,6 +205,29 @@ export function isAllowedLiveUrl(url) {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
 }
 
+/** Longest `route` and `state` a card may carry, in characters. */
+export const MAX_ROUTE_CHARS = 512;
+export const MAX_STATE_CHARS = 40;
+
+/**
+ * Why a card's `route` (the route pattern it shows, e.g. `/users/[id]`) or
+ * `state` (a short label: "loading", "empty", "error") can't be stored, or null.
+ */
+export function mapFieldsProblem(node) {
+  const { route, state } = node;
+  if (route !== undefined && route !== null) {
+    if (typeof route !== 'string' || !route.startsWith('/') || route.length > MAX_ROUTE_CHARS || /[\u0000-\u001f\s]/.test(route)) {
+      return `route must be a route pattern starting with "/" (no spaces, at most ${MAX_ROUTE_CHARS} characters): ${JSON.stringify(route)}`;
+    }
+  }
+  if (state !== undefined && state !== null) {
+    if (typeof state !== 'string' || !state.trim() || state !== state.trim() || state.length > MAX_STATE_CHARS || /[\u0000-\u001f]/.test(state)) {
+      return `state must be a short one-line label (at most ${MAX_STATE_CHARS} characters): ${JSON.stringify(state)}`;
+    }
+  }
+  return null;
+}
+
 /**
  * What is wrong with a card's `url` / `snapshot`, or null when they're fine.
  * Only the fields present are checked, so an update that touches neither passes.
@@ -213,6 +236,8 @@ export function liveNodeProblem(node) {
   if (!node || typeof node !== 'object') return null;
   const props = propsProblem(node.props);
   if (props) return props;
+  const mapFields = mapFieldsProblem(node);
+  if (mapFields) return mapFields;
   if (node.url !== undefined && node.url !== null && !isAllowedLiveUrl(node.url)) {
     return `Live card url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(node.url)}`;
   }

@@ -330,6 +330,15 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ≈ {overlaps[0].name}{overlaps.length > 1 ? ` +${overlaps.length - 1}` : ''}
           </span>
         )}
+        {(node.route || node.state) && (
+          <span
+            className="flex-shrink-0 truncate rounded-md bg-sky-400/15 px-1.5 py-px font-mono text-[10.5px] font-medium text-sky-300"
+            style={{ maxWidth: 200 }}
+            title={[node.route && `Route ${node.route}`, node.state && `State: ${node.state}`].filter(Boolean).join(' · ')}
+          >
+            {[node.route, node.state].filter(Boolean).join(' · ')}
+          </span>
+        )}
         {/* The built path lives in the header, so it never covers the preview. */}
         <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-xs text-emerald-300" title={node.builtFilePath}>
           {isBuilt && node.builtFilePath && (

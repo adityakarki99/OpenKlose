@@ -16,6 +16,7 @@ import { KLOSE_GITIGNORE } from '../server/storeCore.js';
 import { exportProject } from '../server/export.js';
 import { HarnessError, initHarness, readAllProjects, syncRegistry } from '../server/harness.js';
 import * as share from '../server/share.js';
+import { DEFAULT_MAP_PROJECT, defaultDevServer, detectRouters, discoverRoutes, harnessPathOf, planMap } from '../server/routes.js';
 import { openOnline } from '../server/open.js';
 import {
   defaultHubOptions,
@@ -84,6 +85,9 @@ Canvas data
                 server (init, sync)
   lint          Audit real source files: literal colours, radii and shadows
                 where the repo has a token for them
+  routes        List the app's routes (expo-router, Next.js, React Router)
+  map           Put every page of the app on the canvas as a live card, one
+                project that grows as the app does
 
 Maintenance
   update        Upgrade klose and refresh the installed skills
@@ -93,6 +97,33 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
+  routes: `Usage: klose routes [--json]
+
+Lists the app's routes, read off its files (nothing is run): expo-router
+(app/ or src/app/), Next.js (app/ and pages/, with or without src/), and React
+Router, best effort, from "path" literals in files that import it.
+
+Every route is printed in one syntax whatever the router: /users/[id] for a
+param, /docs/[...rest] for a catch-all. Layouts and API routes are listed with
+their kind; only pages are mapped by "klose map". --json prints
+[{ path, file, params, framework, kind }].`,
+  map: `Usage: klose map [--dev-server=URL] [--project=ID] [--param name=value ...] [--json]
+
+Puts every page of the app on the canvas: one live card per page route, in a
+project named "${DEFAULT_MAP_PROJECT}" (or --project), grouped by first path segment.
+
+  --dev-server=URL     Where the app is running. Defaults to devServer in
+                       klose.config.json, else the router's usual port
+                       (Expo 8081, Next.js 3000, Vite 5173). Localhost only.
+  --param name=value   A value for a dynamic segment, e.g. --param id=42 for
+                       /users/[id]. Repeatable. A route whose params have no
+                       value gets a card without a frame, and a note saying
+                       what it needs.
+
+Safe to run again: new routes get new cards below the ones already there, and
+cards you have are never moved or rewritten (they are matched on their "route"
+field). A route the app no longer has is reported; its cards are left for you
+to delete. Run /klose-map to have your agent add each route's states.`,
   harness: `Usage: klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
        klose harness sync [--force] [--json]
 
@@ -139,7 +170,7 @@ Sets Klose up once for the whole machine, so no repo needs its own init:
 Safe to run again: anything already done is left as it is.`,
   init: `Usage: klose init [options]
 
-Installs the /klose, /klose-update and /klose-cleanup skills into
+Installs the /klose, /klose-map, /klose-update and /klose-cleanup skills into
 .claude/skills/, creates .klose/ storage, and reports what Klose found in the
 repo (design tokens, components).
 
@@ -1360,6 +1391,86 @@ async function cmdHarness(args) {
   fail('usage: klose harness <init|sync> (see "klose help harness")');
 }
 
+async function cmdRoutes(args) {
+  const routes = await discoverRoutes(root, { harnessPath: await harnessPathOf(root) });
+  if (hasFlag(args, '--json')) return printJson(routes);
+  if (!routes.length) {
+    const routers = await detectRouters(root);
+    return console.log(routers.length ? `No routes found for ${routers.join(', ')}.` : 'No router found: klose routes reads expo-router, Next.js and React Router projects.');
+  }
+  const width = Math.max(...routes.map((r) => r.path.length));
+  for (const r of routes) console.log(`${r.path.padEnd(width)}  ${r.kind.padEnd(6)}  ${r.file}`);
+  const pages = routes.filter((r) => r.kind === 'page').length;
+  console.log(`\n${plural(pages, 'page')} of ${plural(routes.length, 'route')}. "klose map" puts the pages on the canvas.`);
+}
+
+async function cmdMap(args) {
+  const json = hasFlag(args, '--json');
+  const options = { params: {} };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--json') continue;
+    const [flag, inline] = args[i].split(/=(.*)/s);
+    if (!['--dev-server', '--project', '--param'].includes(flag)) fail(`unknown map option: ${args[i]}\n\n${COMMAND_HELP.map}`);
+    const value = inline ?? args[++i];
+    if (!value || value.startsWith('--')) fail(`${flag} needs a value`);
+    if (flag === '--param') {
+      const eq = value.indexOf('=');
+      if (eq < 1) fail(`--param takes name=value, got ${JSON.stringify(value)}`);
+      options.params[value.slice(0, eq)] = value.slice(eq + 1);
+    } else {
+      options[flag === '--project' ? 'project' : 'devServer'] = value;
+    }
+  }
+
+  const routers = await detectRouters(root);
+  const routes = await discoverRoutes(root, { harnessPath: await harnessPathOf(root), routers });
+  if (!routes.some((r) => r.kind === 'page')) {
+    fail(routers.length ? `no page routes found for ${routers.join(', ')}` : 'no router found: klose map reads expo-router, Next.js and React Router projects');
+  }
+  const devServer = options.devServer || (await defaultDevServer(root, routers));
+
+  let project;
+  if (options.project) {
+    project = await store.getProject(root, options.project);
+  } else {
+    const existing = (await store.listProjects(root)).find((p) => p.name === DEFAULT_MAP_PROJECT);
+    project = existing ? await store.getProject(root, existing.id) : null;
+  }
+  let plan;
+  try {
+    plan = planMap({ routes, nodes: project?.nodes || [], devServer, params: options.params });
+  } catch (err) {
+    fail(err.message);
+  }
+  const created = !project;
+  if (!project) project = await store.createProject(root, DEFAULT_MAP_PROJECT);
+
+  const result = await withShare(project.id, async () => {
+    const added = [];
+    for (const node of plan.add) added.push(await store.addNode(root, project.id, node));
+    for (const { id, updates } of plan.fill) await store.updateNode(root, project.id, id, updates);
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      created,
+      devServer: devServer.replace(/\/+$/, ''),
+      added: added.map((n) => ({ id: n.id, route: n.route, url: n.url || null })),
+      filled: plan.fill.map((f) => ({ id: f.id, route: f.route, url: f.updates.url })),
+      kept: plan.kept,
+      needParams: plan.needParams,
+      missing: plan.missing,
+    };
+  }, { pullFirst: false });
+  if (json) return printJson(result);
+
+  console.log(`${created ? 'Created' : 'Updated'} "${result.projectName}" (${result.projectId}) against ${result.devServer}`);
+  console.log(`  ${plural(result.added.length, 'route')} added, ${result.kept.length} already on the canvas${result.filled.length ? `, ${result.filled.length} given a frame` : ''}`);
+  for (const n of result.added) console.log(`  + ${n.route}${n.url ? '' : '  (no frame yet)'}`);
+  for (const n of result.needParams) console.log(`  ? ${n.route} needs ${n.params.map((p) => `--param ${p}=<value>`).join(' ')}`);
+  for (const m of result.missing) console.log(`  - ${m.route} is no longer a route (${plural(m.nodeIds.length, 'card')} left on the canvas)`);
+  console.log('\nRun /klose-map to have your agent add the states of each route.');
+}
+
 async function cmdLint(args) {
   const inputs = args.filter((a) => !a.startsWith('--'));
   if (!inputs.length) fail(`lint needs a file or folder\n\n${COMMAND_HELP.lint}`);
@@ -1651,6 +1762,8 @@ const COMMANDS = {
   theme: cmdTheme,
   harness: cmdHarness,
   lint: cmdLint,
+  routes: cmdRoutes,
+  map: cmdMap,
   feedback: cmdFeedback,
   resolve: cmdResolve,
   share: cmdShare,

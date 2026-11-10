@@ -259,6 +259,8 @@ test('with a key: triage labels comments, classify badges the frame, and the tok
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
+    // A step that failed leaves its page open, holding the update stream; without this the close never returns.
+    jevServer.closeAllConnections?.();
     await new Promise((resolve) => jevServer.close(resolve));
     await rm(jevCwd, { recursive: true, force: true });
   }

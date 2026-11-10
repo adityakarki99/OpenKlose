@@ -205,6 +205,29 @@ export function isAllowedLiveUrl(url) {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
 }
 
+/** Longest `route` and `state` a card may carry, in characters. */
+export const MAX_ROUTE_CHARS = 512;
+export const MAX_STATE_CHARS = 40;
+
+/**
+ * Why a card's `route` (the route pattern it shows, e.g. `/users/[id]`) or
+ * `state` (a short label: "loading", "empty", "error") can't be stored, or null.
+ */
+export function mapFieldsProblem(node) {
+  const { route, state } = node;
+  if (route !== undefined && route !== null) {
+    if (typeof route !== 'string' || !route.startsWith('/') || route.length > MAX_ROUTE_CHARS || /[\u0000-\u001f\s]/.test(route)) {
+      return `route must be a route pattern starting with "/" (no spaces, at most ${MAX_ROUTE_CHARS} characters): ${JSON.stringify(route)}`;
+    }
+  }
+  if (state !== undefined && state !== null) {
+    if (typeof state !== 'string' || !state.trim() || state !== state.trim() || state.length > MAX_STATE_CHARS || /[\u0000-\u001f]/.test(state)) {
+      return `state must be a short one-line label (at most ${MAX_STATE_CHARS} characters): ${JSON.stringify(state)}`;
+    }
+  }
+  return null;
+}
+
 /**
  * What is wrong with a card's `url` / `snapshot`, or null when they're fine.
  * Only the fields present are checked, so an update that touches neither passes.
@@ -215,6 +238,8 @@ export function liveNodeProblem(node) {
   if (props) return props;
   const flow = flowNodeProblem(node);
   if (flow) return flow;
+  const mapFields = mapFieldsProblem(node);
+  if (mapFields) return mapFields;
   if (node.url !== undefined && node.url !== null && !isAllowedLiveUrl(node.url)) {
     return `Live card url must be http(s) on localhost, 127.0.0.1, [::1] or *.localhost, with no credentials: ${JSON.stringify(node.url)}`;
   }
@@ -231,26 +256,19 @@ export function liveNodeProblem(node) {
 
 // ── Flow frames ─────────────────────────────────────────────────────────────
 
-/** Longest `state` label a frame may carry. */
-export const MAX_STATE_CHARS = 40;
 export const APPROVAL_STATUSES = ['approved', 'changes'];
 
 /**
  * What is wrong with a frame's flow fields, or null. `step` is its 1-based
- * position in a flow, `state` a short one-line label ("default", "loading",
- * "error"), `approval` the user's verdict on what the frame showed at `at`
+ * position in a flow (its `state` label is checked by mapFieldsProblem),
+ * `approval` the user's verdict on what the frame showed at `at`
  * (null clears it). Only the fields present are checked.
  */
 export function flowNodeProblem(node) {
   if (!node || typeof node !== 'object') return null;
-  const { step, state, approval } = node;
+  const { step, approval } = node;
   if (step !== undefined && step !== null && (!Number.isInteger(step) || step < 1 || step > 999)) {
     return `step must be a whole number from 1 to 999: ${JSON.stringify(step)}`;
-  }
-  if (state !== undefined && state !== null) {
-    if (typeof state !== 'string' || !state.trim() || state !== state.trim() || state.length > MAX_STATE_CHARS || /[\r\n]/.test(state)) {
-      return `state must be a short one-line label (up to ${MAX_STATE_CHARS} characters): ${JSON.stringify(state)}`;
-    }
   }
   if (approval !== undefined && approval !== null) {
     if (typeof approval !== 'object' || Array.isArray(approval) || !APPROVAL_STATUSES.includes(approval.status) || !isNum(approval.at)) {

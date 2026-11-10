@@ -16,8 +16,6 @@ export interface ComponentNode {
   builtFilePath?: string;
   /** For a frame of a flow (server/flow.js): its 1-based position in the flow. */
   step?: number;
-  /** Short label of the state this frame shows: "default", "loading", "empty", "error"… */
-  state?: string;
   /**
    * The user's verdict on a flow frame, as it looked at `at`. The agent builds only
    * approved frames; a change to `code` clears it (settleApproval in server/storeCore.js).
@@ -48,6 +46,10 @@ export interface ComponentNode {
    * through the harness (server/harnessCore.js), to show it in a given state.
    */
   props?: Record<string, unknown>;
+  /** The route pattern this card shows (`/users/[id]`), set by `klose map` (server/routes.js). */
+  route?: string;
+  /** A short label for the state this card shows: "loading", "empty", "error". */
+  state?: string;
   /** Freeform feedback on this sketch — left by the user, read (and clearable) by the agent. */
   comments?: Comment[];
   /** What Jev said this sketch is, once classified (server/classify.js). */

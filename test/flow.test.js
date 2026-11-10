@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import * as store from '../server/store.js';
 import { createFolderStore, memoryFolder } from '../lib/folderStore.js';
 import { flowStatus, planNodes, planProblems } from '../server/flow.js';
-import { DEFAULT_NODE, FIRST_NODE_AT, NODE_GAP, flowNodeProblem, settleApproval } from '../server/storeCore.js';
+import { DEFAULT_NODE, FIRST_NODE_AT, NODE_GAP, flowNodeProblem, liveNodeProblem, settleApproval } from '../server/storeCore.js';
 import { mergeShared } from '../server/shareCore.js';
 
 const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'klose.js');
@@ -112,14 +112,14 @@ test('planNodes runs steps left to right and stacks a step\'s states top to bott
 
 // ── fields and approval through the write paths ─────────────────────────────
 
-test('flowNodeProblem checks step, state and approval, and only when present', () => {
+test('flow fields are checked (step and approval by flowNodeProblem, state with the map fields), and only when present', () => {
   assert.equal(flowNodeProblem({ name: 'x' }), null);
   assert.equal(flowNodeProblem({ step: 2, state: 'error', approval: { status: 'approved', at: 1 } }), null);
   assert.equal(flowNodeProblem({ approval: null }), null);
   assert.match(flowNodeProblem({ step: 0 }), /step must be/);
   assert.match(flowNodeProblem({ step: 1.5 }), /step must be/);
-  assert.match(flowNodeProblem({ state: '' }), /state must be/);
-  assert.match(flowNodeProblem({ state: 'x'.repeat(41) }), /state must be/);
+  assert.match(liveNodeProblem({ step: 1, state: '' }), /state must be/);
+  assert.match(liveNodeProblem({ step: 1, state: 'x'.repeat(41) }), /state must be/);
   assert.match(flowNodeProblem({ approval: { status: 'yes', at: 1 } }), /approval must be/);
   assert.match(flowNodeProblem({ approval: { status: 'approved' } }), /approval must be/);
 });

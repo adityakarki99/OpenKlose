@@ -49,6 +49,7 @@ server/instance.js     .klose/server.json bookkeeping: is this repo's server run
 server/skills.js       Installs skill files without clobbering the user's edits
 server/theme.js        Extracts the repo's design tokens for the preview sandbox
 server/scanner.js      Indexes the repo's real components
+server/routes.js       Finds the app's routes and plans the app-map cards (`klose routes`, `klose map`)
 server/hub.js          The hub: one server for every repo, found from Claude Code's session files
 server/setup.js        First-run setup for the hub (`klose setup`, the /welcome page)
 server/tray.js         Builds the macOS menu bar app; its start-at-login LaunchAgent
@@ -65,7 +66,7 @@ web/                    The canvas UI source (built to web/dist for packaging)
 `npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
 holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
 1. Copies each `plugin/skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
-   `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
+   `/klose`, `/klose-flow`, `/klose-map`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
    each file as written; a later `init` or `update` replaces only files that still match it, and
    leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
 2. Creates `.klose/projects/` for local project storage, seeded with a demo project, and a
@@ -75,11 +76,11 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
 
 ### As a plugin: `/plugin install klose --marketplace adityakarki99/OpenKlose`
 
-The same three skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
+The same skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
 marketplace: `.claude-plugin/marketplace.json` lists one plugin, `klose`, whose source is the
 `plugin/` directory. That directory holds `.claude-plugin/plugin.json` (name, version, metadata) and
 `skills/`, which Claude Code loads in place under the plugin's namespace: `/klose:klose`,
-`/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
+`/klose:klose-flow`, `/klose:klose-map`, `/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
 it is bumped with `package.json` (`test/plugin.test.js` checks they agree).
 
 The plugin is deliberately thin. It carries no code: the CLI, the server and the canvas are still the
@@ -388,6 +389,28 @@ renders it inside the app's real providers, and the canvas frames that page like
   Built cards that have both get a Real / Sketch toggle. Static, shared and online canvases never ask for a harness.
 - **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.
 
+## The App Map (`klose routes`, `klose map`)
+
+`server/routes.js` reads the app's routes off its files (nothing is run) and plans the cards that put them on
+the canvas. It imports only `node:fs` and `storeCore.js`.
+
+- **Discovery.** `discoverRoutes(root)` returns `[{ path, file, params, framework, kind }]`. The router comes from
+  `package.json`: expo-router (`app/` or `src/app/`), Next.js (`app/**/page.*` and `pages/**`, with or without `src/`)
+  and React Router, best effort, from `path:` and `<Route path=` literals in files that import it, with nested
+  paths joined to their parent. One pattern syntax whatever the router: `/users/[id]`, `/docs/[...rest]`. Route
+  groups `(x)` are dropped; `kind` is `page`, `layout` or `api`; `+not-found`, `_`-prefixed files, a top-level `*`
+  and the harness route (`harnessPath`, default `/__klose`) are left out.
+- **Plan.** `planMap({ routes, nodes, devServer, params })` is pure: it returns the cards to add (one `url` card per
+  page route, `url = devServer + path`, laid out below whatever the project already holds, a band per first path
+  segment), the routes already on the canvas, the routes that have cards but no longer exist (reported, never
+  deleted), and the dynamic routes still waiting for a `--param`. A card is matched on its `route` field, so
+  running it again never moves or rewrites one; the only write to an existing card is giving a frameless one its
+  `url` once its params have values.
+- **`route` and `state`** are optional node fields (`mapFieldsProblem` in `server/storeCore.js`, checked by every
+  store): the route pattern a card shows, and a short label for the state it shows. The route's own card has no
+  `state`; the `/klose-map` skill has the agent read each route's file and add one card per real state beside it
+  (through the harness with `props`, a live `url`, or a `code` restatement). The frame header shows both as a chip.
+
 ## Local Server
 
 `server/http.js` is a small Node `http` server (no Express) that:
@@ -442,6 +465,35 @@ project get` / `klose feedback`) read the same thing, and the plain path intact 
   of its namespace (plus `none`) and the answer becomes a replacement class with Jev's probability.
   `klose project lint`, `GET /api/projects/:id/nodes/:nodeId/lint`, **Check tokens…** in the ⋯
   menu, and `lib/lintText.js` for the copied text.
+
+## Flows (`klose flow`, `/klose-flow`)
+
+A flow starts from what the user is trying to do instead of from a component: one project holding a
+frame for every step of a user flow and every state of each step, which the user approves frame by
+frame before anything is built.
+
+- **Fields.** A flow frame is an ordinary sketch with `step` (1-based position), `state` (a short
+  label: `default`, `loading`, `error`, …) and, once the user has ruled on it,
+  `approval: { status: 'approved' | 'changes', at }`. `flowNodeProblem` in `server/storeCore.js`
+  validates them on every write, in both stores.
+- **An approval is of what was seen.** `settleApproval` (same file) drops a frame's approval when its
+  `code` changes, unless the write brings a new verdict. Both stores call it from `updateNode` and
+  `updateProject`, the canvas applies it to its own edits, and `mergeShared` drops an approval whose
+  side did not supply the merged code. So `approved` always means "approved as it looks now".
+- **`server/flow.js`** (pure, no filesystem): `planProblems` reports every problem with a plan at
+  once; `planNodes` places the frames, one column per step, states stacked, from the default frame
+  size; `flowStatus` reports each frame, `ready` (approved, not built, no open comments) and
+  `blocked` (with the reason).
+- **CLI.** `klose flow create "<name>" @plan.json`, `flow status <project>`,
+  `flow approve|unapprove <project> <nodeId|step:state>… | --all`. A project is named by id or exact
+  name.
+- **Canvas.** A frame with `step` shows a `2 · error` chip and an Approve / Changes control in its
+  header (`components/Canvas/FlowApproval.tsx`); an approved frame gets a green border. The verdict
+  is saved with the project like any other node field, so there is no flow endpoint: the agent
+  reads it with `klose flow status`.
+- **The skill** (`plugin/skills/klose-flow/SKILL.md`) has the agent confirm the steps and states,
+  create the flow, wait, and then loop on `flow status`: address comments, build only `ready`
+  frames, and wire the steps together once all are built.
 
 ## The Component Index
 

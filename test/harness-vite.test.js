@@ -93,20 +93,25 @@ test('the harness page renders a real component that imports a sibling file, and
   const origin = await ensureViteHarness(FIXTURE, { providers: 'src/Providers.jsx' });
   assert.match(origin, /^http:\/\/localhost:\d+$/);
   assert.equal(await ensureViteHarness(FIXTURE, { providers: 'src/Providers.jsx' }), origin, 'one server is reused across cards');
+  const moved = await ensureViteHarness(FIXTURE, { providers: 'src/Providers.jsx', harnessPath: '/__other' });
+  assert.notEqual(moved, origin, 'changed options start a fresh server');
+  assert.equal((await fetch(`${moved}/__other`)).status, 200);
+  const back = await ensureViteHarness(FIXTURE, { providers: 'src/Providers.jsx' });
+  assert.equal((await fetch(`${back}/__klose`)).status, 200);
 
   const browser = await playwright.chromium.launch({ executablePath: executable, headless: true });
   try {
     const page = await browser.newPage();
     const props = Buffer.from(JSON.stringify({ name: 'Klose' })).toString('base64');
-    await page.goto(`${origin}/__klose?c=${encodeURIComponent('src/Greeting.jsx')}#Greeting&props=${encodeURIComponent(props)}`);
+    await page.goto(`${back}/__klose?c=${encodeURIComponent('src/Greeting.jsx')}#Greeting&props=${encodeURIComponent(props)}`);
     await page.locator('#greeting').waitFor({ timeout: 30000 });
     assert.equal(await page.locator('#greeting').innerText(), 'Hello, Klose! (config-applied)');
     assert.equal(await page.locator('main[data-providers="yes"] #greeting').count(), 1, 'rendered inside the providers');
 
     // Same file, other export: only the fragment changes, and the page starts over.
-    await page.goto(`${origin}/__klose?c=${encodeURIComponent('src/Greeting.jsx')}#Missing`);
+    await page.goto(`${back}/__klose?c=${encodeURIComponent('src/Greeting.jsx')}#Missing`);
     await page.getByText('has no export "Missing"').waitFor({ timeout: 30000 });
-    await page.goto(`${origin}/__klose?c=${encodeURIComponent('../secret.js')}#x`);
+    await page.goto(`${back}/__klose?c=${encodeURIComponent('../secret.js')}#x`);
     await page.getByText('open this page from the Klose canvas').waitFor({ timeout: 30000 });
   } finally {
     await browser.close();

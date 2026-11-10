@@ -193,7 +193,7 @@ export function kloseHarnessPlugin({ harnessPath = DEFAULT_HARNESS_PATH, provide
 
 // ── Lifecycle: one lazily started server per repo, stopped with Klose ───────
 
-const running = new Map(); // root -> Promise<{ url, close }>
+const running = new Map(); // root -> { key, promise: Promise<{ url, close }> }
 
 async function start(root, { harnessPath, providers }) {
   const found = findRepoVite(root);
@@ -240,25 +240,34 @@ async function start(root, { harnessPath, providers }) {
  * reloading the canvas works.
  */
 export function ensureViteHarness(root, options = {}) {
+  // The plugin captures its options, so a changed providers module or harness path needs a new server.
+  const key = JSON.stringify([options.harnessPath ?? DEFAULT_HARNESS_PATH, options.providers ?? null]);
   let entry = running.get(root);
-  if (!entry) {
-    entry = start(root, options);
-    running.set(root, entry);
-    entry.catch(() => running.delete(root));
+  if (entry && entry.key !== key) {
+    stopEntry(entry.promise);
+    entry = undefined;
   }
-  return entry.then((s) => s.url);
+  if (!entry) {
+    const promise = start(root, options);
+    entry = { key, promise };
+    running.set(root, entry);
+    promise.catch(() => running.get(root) === entry && running.delete(root));
+  }
+  return entry.promise.then((s) => s.url);
 }
 
 const stopping = new Set();
+
+function stopEntry(promise) {
+  const done = promise.then((s) => s.close()).catch(() => {});
+  stopping.add(done);
+  done.finally(() => stopping.delete(done));
+}
 
 /** Stop every server we started (the Klose server is closing). Resolves when they are all down, including stops already under way. */
 export async function stopViteHarnesses() {
   const all = [...running.values()];
   running.clear();
-  for (const p of all) {
-    const done = p.then((s) => s.close()).catch(() => {});
-    stopping.add(done);
-    done.finally(() => stopping.delete(done));
-  }
+  for (const { promise } of all) stopEntry(promise);
   await Promise.all([...stopping]);
 }

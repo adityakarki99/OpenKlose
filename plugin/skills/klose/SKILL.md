@@ -348,8 +348,9 @@ Then mark the sketch as built so the canvas reflects reality:
 npx klose project update-node <projectId> <nodeId> '{"status":"built","builtFilePath":"src/components/PricingCard.tsx"}'
 ```
 
-**If the repo has a component harness** (a `klose.config.json` at the repo root — set up once with
-`npx klose harness init`), the canvas can show the real component instead of your restatement. Marking
+**If the repo has a component harness** (an Expo repo with a `klose.config.json`, set up once with
+`npx klose harness init`; or a Vite repo, which needs no setup), the canvas can show the real component
+instead of your restatement. Marking
 the sketch `built` with `builtFilePath` and `exportName` registers it automatically; to be sure, or after
 renaming files, run:
 
@@ -364,9 +365,18 @@ real component loading, empty, errored and so on, not just its default:
 npx klose project update-node <projectId> <nodeId> '{"props":{"title":"Pro plan","loading":false}}'
 ```
 
+In a Vite repo there is no registry and no `harness sync`: Klose starts its own Vite server the first
+time a built card needs one. Don't write files for it. If the repo's components need providers, add
+`{"framework":"vite","providers":"src/Providers.tsx"}` to `klose.config.json`.
+
+To point a card at a page that is already running on this machine (a Storybook story, a route of the
+app), add a `url` node instead: `npx klose project add-node <projectId> '{"name":"Home","status":"built","url":"http://localhost:6006/?path=/story/home"}'`.
+Only `localhost`, `127.0.0.1`, `[::1]` and `*.localhost` are accepted. Don't put a `url` on a card that
+the harness can already draw, and never use one for a sketch: sketches stay sandboxed `code`.
+
 Keep the `code` restatement on the card: it is the fallback when the dev server isn't running, and the
 "Sketch" side of the card's Real / Sketch toggle. The dev server (e.g. `npx expo start --web`) must be
-running for the real component to render; if it isn't, the card falls back to its snapshot, then to `code`.
+running for the real component to render (Vite: Klose runs it); if it isn't, the card falls back to its snapshot, then to `code`.
 Without a harness, nothing changes: built cards keep showing `code`.
 
 If this build was in response to comments, **resolve** the ones you addressed, so the canvas shows

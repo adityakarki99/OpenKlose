@@ -210,9 +210,12 @@ Worth being straight about, because the pitch is stronger without overclaiming:
   cursors. "Async handoff" there means the comments they leave reach the agent.
 - **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
   inert without an agent driving it.
-- **Preview fidelity ceiling.** Klose previews are self-contained sandboxed snippets; components that
-  import repo-local modules are flagged rather than executed. The preview is a faithful *restatement*
-  in your tokens, not your real component tree running.
+- **Preview fidelity ceiling.** A *sketch* is a self-contained snippet in a sandbox, so it is a faithful
+  *restatement* in your tokens, not your component tree running: code that imports repo-local modules is
+  flagged rather than executed. A *built* component is different. Through the [harness](#set-up-the-harness)
+  its card renders the real component, in your app's providers, fonts and icons, served by your own dev
+  server (Expo/Metro, or Vite). That works on your machine only: shared canvases, online workspaces and the
+  hosted canvas show the card's saved snapshot instead.
 
 **The one-line version:** a chat artifact shows you a beautiful component. Klose shows you *your*
 component — next to the other five you're considering, in your tokens, reusing what you already
@@ -542,9 +545,10 @@ The **Components** tab indexes your repo's *real* components — every exported 
 with its props, file path, and doc comment — so you can search what already exists before building
 something new. A repo badge (name, branch, path) shows exactly *which* project you're looking at, so a
 global install stays unambiguous. Click a component to see its props, a copy-paste import, its full
-source, and a **live preview** rendered in an isolated sandbox (best-effort — self-contained components
+source, and a **preview** rendered in an isolated sandbox (best-effort: self-contained components
 render; ones that import repo-local modules are flagged instead). **Add to canvas** drops it onto any
 project's board as a *built* node linking the real file, so found components sit alongside your sketches.
+With the [harness](#set-up-the-harness) set up, that card renders the real component instead of the sandbox.
 
 <div align="center">
 <img src="docs/images/components-detail.png" alt="A component's detail view — repo badge, live preview, props, import, and Add to canvas" width="900">
@@ -553,6 +557,54 @@ project's board as a *built* node linking the real file, so found components sit
 The agent uses the same index. Before it sketches anything, `/klose` runs `npx klose components <query>`
 to check for a component it can reuse or extend — and the detail view's **"Copy for agent"** hands it a
 ready-made reuse note.
+
+### Set up the harness
+
+Three things can draw a card, from strictest to most real:
+
+| Card | Drawn by | Needs |
+|---|---|---|
+| `sketch` (has `code`) | The sandboxed `preview.html`. Untrusted agent code: no network, no repo imports. | Nothing |
+| `url` | A frame at a page on your machine (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, any port). | A running page |
+| `built` + harness | A frame at your dev server's harness page, which renders **one** of your components inside your providers. | `klose.config.json` and a running dev server |
+
+A card falls back in order: the live frame, then its `snapshot` image, then the sandboxed `code`, then a
+placeholder. So stopping the dev server shows the snapshot, never a broken frame. Live frames need Klose
+to run next to your repo: shared canvases, online workspaces and the hosted canvas show snapshots.
+
+**Expo / Metro.** Metro can't import a file by a path chosen at runtime, so Klose generates a registry:
+
+```bash
+npx klose harness init --providers=src/Providers.tsx   # providers is optional
+npx expo start --web                                   # your own dev server
+```
+
+`init` writes `klose.config.json`, `klose.harness.tsx`, `klose.registry.ts` and, with expo-router, the route
+`app/__klose.tsx`. Mark a card `built` (with `builtFilePath` and `exportName`) and the registry updates by
+itself; `npx klose harness sync` regenerates it by hand. Files you edit are left alone without `--force`.
+
+**Vite.** Nothing to set up and nothing written to your repo. The first time a built card needs it, Klose starts a
+Vite dev server of its own, with your `vite.config` and the copy of `vite` in your `node_modules`, on a free
+port, and stops it when Klose stops. To wrap components in your providers, add a `klose.config.json`:
+
+```json
+{ "framework": "vite", "providers": "src/Providers.tsx" }
+```
+
+If `vite` isn't installed in the repo (or needs a newer Node than the one running Klose), the cards show their
+snapshot or sketch until it is.
+
+**Showing a state.** Give a card a JSON `props` object to render the component in that state:
+`npx klose project update-node <id> <nodeId> '{"props":{"loading":true}}'`.
+
+**Comments on elements.** The harness page loads `klose-bridge.js` from the canvas, so you can pick an element
+inside a live card and pin a comment to it, exactly as on a sketch. A plain `url` page does the same if it
+loads `<script src="http://localhost:<klose-port>/klose-bridge.js">`; without it, comments attach to the whole card.
+
+**Trust.** The harness runs your repo's code with the same trust as `npm run dev`. The sandbox for agent-written
+`code` is unchanged. Live addresses are checked against the local-only list when saved and again when drawn.
+Browsers share cookies across ports, so a framed app can read cookies set for `localhost`; Klose keeps nothing
+sensitive in one.
 
 ### Local, private, multi-project
 
@@ -657,6 +709,9 @@ klose components "<need>" --rank [--top=N] [--json]   Rank components by fit usi
 klose components "<need>" --rank --all-repos      The same, across every repo the hub knows
 klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
+klose harness init [--dev-server=URL] [--harness-path=/p] [--providers=FILE] [--force]
+                                                  Set up Expo so built cards render the real component (Vite needs no setup)
+klose harness sync [--force]                      Regenerate klose.registry.ts from the built cards (Expo)
 klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
 klose project list                                List projects
 klose project create <name>                       Create a project

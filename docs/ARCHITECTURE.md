@@ -65,7 +65,7 @@ web/                    The canvas UI source (built to web/dist for packaging)
 `npx klose init` in a target repo (from anywhere inside it — every command resolves the nearest parent
 holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/`):
 1. Copies each `plugin/skills/*/SKILL.md` into `.claude/skills/`, so Claude Code picks them up as the
-   `/klose`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
+   `/klose`, `/klose-flow`, `/klose-update` and `/klose-cleanup` commands. `.klose/skills.json` records a hash of
    each file as written; a later `init` or `update` replaces only files that still match it, and
    leaves ones the user edited alone unless `--force` (which keeps a `.bak`).
 2. Creates `.klose/projects/` for local project storage, seeded with a demo project, and a
@@ -75,11 +75,11 @@ holding a `.klose/` or `.git`, so a subfolder never gets a stray second `.klose/
 
 ### As a plugin: `/plugin install klose --marketplace adityakarki99/OpenKlose`
 
-The same three skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
+The same skills ship as a Claude Code plugin, so no repo needs a copy. This repo is the
 marketplace: `.claude-plugin/marketplace.json` lists one plugin, `klose`, whose source is the
 `plugin/` directory. That directory holds `.claude-plugin/plugin.json` (name, version, metadata) and
 `skills/`, which Claude Code loads in place under the plugin's namespace: `/klose:klose`,
-`/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
+`/klose:klose-flow`, `/klose:klose-update`, `/klose:klose-cleanup`. The plugin's `version` pins users until it changes, so
 it is bumped with `package.json` (`test/plugin.test.js` checks they agree).
 
 The plugin is deliberately thin. It carries no code: the CLI, the server and the canvas are still the
@@ -426,6 +426,35 @@ project get` / `klose feedback`) read the same thing, and the plain path intact 
   of its namespace (plus `none`) and the answer becomes a replacement class with Jev's probability.
   `klose project lint`, `GET /api/projects/:id/nodes/:nodeId/lint`, **Check tokens…** in the ⋯
   menu, and `lib/lintText.js` for the copied text.
+
+## Flows (`klose flow`, `/klose-flow`)
+
+A flow starts from what the user is trying to do instead of from a component: one project holding a
+frame for every step of a user flow and every state of each step, which the user approves frame by
+frame before anything is built.
+
+- **Fields.** A flow frame is an ordinary sketch with `step` (1-based position), `state` (a short
+  label: `default`, `loading`, `error`, …) and, once the user has ruled on it,
+  `approval: { status: 'approved' | 'changes', at }`. `flowNodeProblem` in `server/storeCore.js`
+  validates them on every write, in both stores.
+- **An approval is of what was seen.** `settleApproval` (same file) drops a frame's approval when its
+  `code` changes, unless the write brings a new verdict. Both stores call it from `updateNode` and
+  `updateProject`, the canvas applies it to its own edits, and `mergeShared` drops an approval whose
+  side did not supply the merged code. So `approved` always means "approved as it looks now".
+- **`server/flow.js`** (pure, no filesystem): `planProblems` reports every problem with a plan at
+  once; `planNodes` places the frames, one column per step, states stacked, from the default frame
+  size; `flowStatus` reports each frame, `ready` (approved, not built, no open comments) and
+  `blocked` (with the reason).
+- **CLI.** `klose flow create "<name>" @plan.json`, `flow status <project>`,
+  `flow approve|unapprove <project> <nodeId|step:state>… | --all`. A project is named by id or exact
+  name.
+- **Canvas.** A frame with `step` shows a `2 · error` chip and an Approve / Changes control in its
+  header (`components/Canvas/FlowApproval.tsx`); an approved frame gets a green border. The verdict
+  is saved with the project like any other node field, so there is no flow endpoint: the agent
+  reads it with `klose flow status`.
+- **The skill** (`plugin/skills/klose-flow/SKILL.md`) has the agent confirm the steps and states,
+  create the flow, wait, and then loop on `flow status`: address comments, build only `ready`
+  frames, and wire the steps together once all are built.
 
 ## The Component Index
 

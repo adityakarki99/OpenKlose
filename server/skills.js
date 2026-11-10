@@ -4,8 +4,8 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 /**
- * Copies every skill that ships with the package (klose, klose-update,
- * klose-cleanup, ...) into `<root>/.claude/skills/`, without clobbering edits.
+ * Copies every skill that ships with the package (klose, klose-flow,
+ * klose-update, klose-cleanup, ...) into `<root>/.claude/skills/`, without clobbering edits.
  *
  * `.klose/skills.json` records the hash of each SKILL.md as Klose last wrote
  * it. On the next `init` or `update`:

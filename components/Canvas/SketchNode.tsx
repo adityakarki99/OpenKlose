@@ -8,6 +8,7 @@ import LivePreview from '../Runtime/LivePreview';
 import CodeView from './CodeView';
 import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
+import { FlowApproval, FlowChip } from './FlowApproval';
 import { openComments } from '../../lib/feedback.js';
 import { MAX_SNAPSHOT_CHARS } from '../../server/storeCore.js';
 import { harnessAddress } from '../../server/harnessCore.js';
@@ -253,7 +254,9 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ? 'border-blue-500 ring-2 ring-blue-500/30'
             : agentBadge
               ? 'border-violet-400 ring-4 ring-violet-400/30'
-              : 'border-app-border hover:border-app-border-strong'
+              : node.step && node.approval?.status === 'approved'
+                ? 'border-emerald-400/70 ring-2 ring-emerald-400/25'
+                : 'border-app-border hover:border-app-border-strong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
@@ -309,6 +312,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         >
           {isBuilt ? 'Built' : 'Sketch'}
         </span>
+        <FlowChip node={node} />
         <span className="flex-shrink-0 truncate text-sm font-semibold text-app-primary" style={{ maxWidth: '60%' }}>
           {node.name || 'Untitled sketch'}
         </span>
@@ -354,6 +358,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ))}
           </div>
         )}
+        <FlowApproval node={node} onUpdate={onUpdate} />
         {commentCount > 0 && (
           <span
             className="flex flex-shrink-0 items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[11px] font-medium text-app-secondary"

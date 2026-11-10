@@ -12,7 +12,9 @@ import { rankComponents, JEV_DEFAULT_BASE_URL, MAX_CANDIDATES } from '../server/
 import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
-import { KLOSE_GITIGNORE } from '../server/storeCore.js';
+import { KLOSE_GITIGNORE, isValidId } from '../server/storeCore.js';
+import { flowStatus, isFlowNode, planNodes, planProblems } from '../server/flow.js';
+import { randomUUID } from 'node:crypto';
 import { exportProject } from '../server/export.js';
 import { HarnessError, initHarness, readAllProjects, syncRegistry } from '../server/harness.js';
 import * as share from '../server/share.js';
@@ -76,6 +78,8 @@ Canvas data
   project       List, create, read and edit projects and their sketches
   feedback      Read pending comments as JSON
   resolve       Mark comments as addressed, so the canvas shows them done
+  flow          Lay a whole user flow out, every step and state, and build
+                only the frames the user approved
   share         Put a project at a link the user can open anywhere, for when
                 you (the agent) run somewhere their browser can't reach
   components    Search this repo's real components
@@ -139,7 +143,7 @@ Sets Klose up once for the whole machine, so no repo needs its own init:
 Safe to run again: anything already done is left as it is.`,
   init: `Usage: klose init [options]
 
-Installs the /klose, /klose-update and /klose-cleanup skills into
+Installs the /klose, /klose-flow, /klose-update and /klose-cleanup skills into
 .claude/skills/, creates .klose/ storage, and reports what Klose found in the
 repo (design tokens, components).
 
@@ -271,6 +275,32 @@ Marks comments on a sketch as addressed. With no comment ids, resolves every
 open comment on that sketch. The canvas shows them as resolved (the user can
 reopen one), and they drop out of "klose feedback" and out of what the canvas
 copies for the agent. --note is shown to the user next to each comment.`,
+  flow: `Usage: klose flow create "<name>" <json|@plan.json> [--json]
+       klose flow status <project> [--json]
+       klose flow approve <project> <nodeId|step:state>... | --all [--json]
+       klose flow unapprove <project> <nodeId|step:state>... | --all [--json]
+
+A flow is one project holding a frame for every step of a user flow and every
+state of each step. <project> is a project id or its exact name.
+
+  create     Reads a plan and puts one sketch per step and state on the
+             canvas: steps left to right, a step's states stacked under it.
+             The plan:
+               { "description": "…",
+                 "steps": [ { "name": "Enter email", "description": "…",
+                              "states": [ { "state": "default", "code": "…" },
+                                          { "state": "error", "notes": "…", "code": "…" } ] } ] }
+             A state may also carry name, description, width and height. Every
+             problem with the plan is reported at once, and nothing is created
+             until it is valid.
+  status     Each frame's approval, open comments and built file, plus
+             "ready" (approved, not built, no open comments: build these) and
+             "blocked" (with the reason: not approved yet, changes requested,
+             or open comments).
+  approve    Records the user's approval from the terminal. They normally
+  unapprove  approve on the canvas; use this only when they told you to.
+
+Changing a frame's code clears its approval: an approval is of what was seen.`,
   share: `Usage: klose share <projectId> [--host=<url>] [--json]
        klose share list [--json]
        klose share pull|push [projectId] [--json]
@@ -1617,6 +1647,107 @@ async function cmdResolve(args) {
   return printJson(result);
 }
 
+// ------------------------------------------------------------------ flow
+
+// A project by id, or by its exact name (flows are usually spoken of by name).
+async function findProject(ref) {
+  if (isValidId(ref)) return store.getProject(root, ref);
+  const named = (await store.listProjects(root)).filter((p) => p.name.toLowerCase() === ref.toLowerCase());
+  if (!named.length) fail(`no project with the id or name ${JSON.stringify(ref)} (see "klose project list")`);
+  if (named.length > 1) fail(`${named.length} projects are named ${JSON.stringify(ref)}; use the id: ${named.map((p) => p.id).join(', ')}`);
+  return store.getProject(root, named[0].id);
+}
+
+function printFlowStatus(status) {
+  const { totals } = status;
+  if (!status.isFlow) return console.log(`"${status.projectName}" has no flow frames (none of its sketches has a step). Create one with "klose flow create".`);
+  console.log(`${status.projectName}: ${totals.steps} step${totals.steps === 1 ? '' : 's'}, ${totals.frames} frame${totals.frames === 1 ? '' : 's'} — ${totals.approved} approved, ${totals.built} built, ${totals.ready} ready to build, ${totals.blocked} blocked`);
+  for (const step of status.steps) {
+    console.log(`\n  Step ${step.step}`);
+    for (const f of step.states) {
+      const mark = f.status === 'built' ? '■' : f.approval === 'approved' ? '✓' : f.approval === 'changes' ? '!' : '·';
+      const what =
+        f.status === 'built'
+          ? `built → ${f.builtFilePath || '(no file path recorded)'}`
+          : status.blocked.find((b) => b.nodeId === f.nodeId)?.reason || 'ready to build';
+      console.log(`    ${mark} ${f.state.padEnd(14)} ${what.padEnd(28)} ${f.nodeId}`);
+    }
+  }
+  if (status.complete) console.log('\nEvery frame is built.');
+  else if (totals.ready) console.log(`\nBuild the ${totals.ready} ready frame${totals.ready === 1 ? '' : 's'}; leave the rest until the user approves them.`);
+  else console.log('\nNothing is ready to build: waiting on the user to approve frames on the canvas, or on open comments.');
+}
+
+async function cmdFlow(args) {
+  const [sub, ...rest] = args;
+  const json = hasFlag(rest, '--json');
+  const positional = rest.filter((a) => !a.startsWith('--'));
+  switch (sub) {
+    case 'create': {
+      const [name, planArg] = positional;
+      if (!name || !planArg) fail('usage: klose flow create "<name>" <json|@plan.json> [--json]');
+      const plan = await parseJsonArg(planArg);
+      const problems = planProblems(plan);
+      if (problems.length) fail(`the flow plan has ${problems.length} problem${problems.length === 1 ? '' : 's'}:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+      const project = await store.createProject(root, name);
+      const nodes = planNodes(plan, { newId: randomUUID });
+      await store.updateProject(root, project.id, { description: typeof plan.description === 'string' ? plan.description.trim() : '', nodes });
+      const result = {
+        projectId: project.id,
+        name: project.name,
+        steps: plan.steps.length,
+        frames: nodes.length,
+        nodes: nodes.map((n) => ({ nodeId: n.id, name: n.name, step: n.step, state: n.state })),
+      };
+      if (json) return printJson(result);
+      console.log(`Created the flow "${project.name}" (${project.id}): ${result.steps} step${result.steps === 1 ? '' : 's'}, ${result.frames} frame${result.frames === 1 ? '' : 's'}.`);
+      console.log('Steps run left to right on the canvas; each step’s states are stacked under it.');
+      console.log(`Ask the user to approve frames or comment on them there, then run: klose flow status ${project.id}`);
+      return;
+    }
+    case 'status': {
+      if (!positional[0]) fail('usage: klose flow status <project> [--json]');
+      const first = await findProject(positional[0]);
+      await syncShared(first.id);
+      const status = flowStatus(await store.getProject(root, first.id));
+      return json ? printJson(status) : printFlowStatus(status);
+    }
+    case 'approve':
+    case 'unapprove': {
+      const [ref, ...nodeRefs] = positional;
+      const all = hasFlag(rest, '--all');
+      if (!ref || (!all && !nodeRefs.length)) fail(`usage: klose flow ${sub} <project> <nodeId|step:state>... | --all [--json]`);
+      const project = await findProject(ref);
+      const frames = (project.nodes || []).filter(isFlowNode);
+      const wanted = all
+        ? frames
+        : nodeRefs.map((nodeRef) => {
+            const byStep = /^(\d+):(.+)$/.exec(nodeRef);
+            const frame = frames.find((n) => n.id === nodeRef || (byStep && n.step === Number(byStep[1]) && (n.state || 'default').toLowerCase() === byStep[2].toLowerCase()));
+            if (!frame) fail(`no flow frame ${JSON.stringify(nodeRef)} in "${project.name}" (see "klose flow status ${project.id}")`);
+            return frame;
+          });
+      const approve = sub === 'approve';
+      const changed = wanted.filter((n) => (approve ? n.approval?.status !== 'approved' : !!n.approval));
+      const at = Date.now();
+      await withShare(project.id, async () => {
+        for (const n of changed) await store.updateNode(root, project.id, n.id, { approval: approve ? { status: 'approved', at } : null });
+      });
+      const result = {
+        projectId: project.id,
+        [approve ? 'approved' : 'unapproved']: changed.map((n) => ({ nodeId: n.id, name: n.name, step: n.step, state: n.state || 'default' })),
+        unchanged: wanted.length - changed.length,
+      };
+      if (json) return printJson(result);
+      console.log(`${approve ? 'Approved' : 'Cleared the approval of'} ${changed.length} frame${changed.length === 1 ? '' : 's'} in "${project.name}"${result.unchanged ? ` (${result.unchanged} already ${approve ? 'approved' : 'without one'})` : ''}.`);
+      for (const n of changed) console.log(`  step ${n.step} · ${n.state || 'default'}  ${n.name}`);
+      return;
+    }
+    default:
+      fail(`${sub ? `unknown flow subcommand "${sub}"` : 'missing flow subcommand'}\n\n${COMMAND_HELP.flow}`);
+  }
+}
+
 // ------------------------------------------------------------------ main
 
 async function cmdOpen(args) {
@@ -1653,6 +1784,7 @@ const COMMANDS = {
   lint: cmdLint,
   feedback: cmdFeedback,
   resolve: cmdResolve,
+  flow: cmdFlow,
   share: cmdShare,
 };
 

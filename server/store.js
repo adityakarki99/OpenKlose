@@ -14,6 +14,8 @@ import {
   nextUpdatedAt,
   placeNode,
   projectSummary,
+  settleApproval,
+  settleApprovals,
 } from './storeCore.js';
 
 // The pure parts (ids, placement, the demo sketch) live in storeCore.js, which
@@ -130,6 +132,7 @@ export async function updateProject(cwd, id, updates) {
   const existing = await readProjectFile(cwd, id);
   const { savedToRepo: _ignored, ...rest } = updates || {};
   const merged = { ...existing, ...rest, id, updated_at: nextUpdatedAt(existing.updated_at) };
+  if (rest.nodes) merged.nodes = settleApprovals(existing.nodes, rest.nodes);
   await writeProjectFile(cwd, merged);
   if (updates?.nodes) await syncHarness(cwd);
   return merged;
@@ -188,7 +191,7 @@ export async function updateNode(cwd, id, nodeId, updates) {
   project.nodes = (project.nodes || []).map((n) => {
     if (n.id !== nodeId) return n;
     wasBuilt = n.status === 'built';
-    updatedNode = { ...n, ...updates };
+    updatedNode = settleApproval(n, { ...n, ...updates });
     return updatedNode;
   });
   if (!updatedNode) throw notFound(`Node ${nodeId} not found in project ${id}`, 'NODE_NOT_FOUND');

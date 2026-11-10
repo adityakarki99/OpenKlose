@@ -14,6 +14,15 @@ export interface ComponentNode {
   status?: 'sketch' | 'built';
   /** Path (relative to the repo root) of the real component file, once built. */
   builtFilePath?: string;
+  /** For a frame of a flow (server/flow.js): its 1-based position in the flow. */
+  step?: number;
+  /** Short label of the state this frame shows: "default", "loading", "empty", "error"… */
+  state?: string;
+  /**
+   * The user's verdict on a flow frame, as it looked at `at`. The agent builds only
+   * approved frames; a change to `code` clears it (settleApproval in server/storeCore.js).
+   */
+  approval?: { status: 'approved' | 'changes'; at: number } | null;
   /** For a node pulled from a real repo component: which export in `code` to render. */
   exportName?: string;
   /**

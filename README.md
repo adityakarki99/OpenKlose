@@ -249,10 +249,10 @@ into any of them. Inside Claude Code:
 ```
 
 (Claude Code 2.1.275 or later. Older versions take it in two steps: `/plugin marketplace add
-adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the three
+adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the
 skills; the canvas and its CLI are still the `klose` npm package, so install that once with
 `npm install -g klose` (or from GitHub until it is on npm, see below) and the skill does the rest.
-The skills run as `/klose:klose`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
+The skills run as `/klose:klose`, `/klose:klose-flow`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
 Code keeps them current through `/plugin marketplace update openklose`. If you also `klose init` a
 repo, pass `--no-skills` so it doesn't get a second copy.
 
@@ -298,14 +298,14 @@ npx klose init
 > npx klose init
 > ```
 
-`klose init` installs the `/klose`, `/klose-update`, and `/klose-cleanup` skills into
+`klose init` installs the `/klose`, `/klose-flow`, `/klose-update`, and `/klose-cleanup` skills into
 `.claude/skills/`, creates local storage at `.klose/` (seeded with a demo sketch so the canvas isn't
 empty), and then tells you what it found in your repo:
 
 ```
 Klose 0.2.0 is set up in /code/acme-web
 
-  ✓ Skills       /klose, /klose-cleanup, /klose-update → .claude/skills/
+  ✓ Skills       /klose, /klose-cleanup, /klose-flow, /klose-update → .claude/skills/
   ✓ Storage      .klose/ (with a demo project, so the canvas isn't empty)
 
 What Klose found in this repo
@@ -368,7 +368,7 @@ npm install -D klose
 npx klose init
 ```
 
-You'll get the `/klose`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
+You'll get the `/klose`, `/klose-flow`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
 `.klose/projects/` folder holding a demo project, and a short report of the design tokens and
 components Klose found. If `/klose` doesn't show up in Claude Code's command list, restart Claude
 Code.
@@ -671,6 +671,9 @@ klose feedback --triage [--project=<id>]          The same, after Jev says what 
 klose project lint <id> <nodeId> [--no-jev]       Literal colours/radii/shadows in a sketch's preview where the repo has a token
 klose project classify <id> [--force]             Ask Jev what each sketch is, and which repo primitives it looks like a copy of
 klose resolve <id> <nodeId> [commentId...] [--note=…]   Mark comments addressed (all open ones if no ids)
+klose flow create "<name>" @plan.json             Lay a user flow out: one sketch per step and state, steps left to right
+klose flow status <project> [--json]              Each frame's approval, open comments and built file; what is ready to build, what is blocked
+klose flow approve|unapprove <project> <nodeId|step:state>... | --all   Record (or take back) the user's approval from the terminal
 klose share <id> [--host=<url>]                   Put the project at a link the user opens anywhere (for an agent
                                                   the user's browser can't reach); the project then syncs on its own
 klose share list | pull | push | join <link> | leave <id>   The shares of this checkout, one sync round, attach a link made elsewhere

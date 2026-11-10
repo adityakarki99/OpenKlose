@@ -36,7 +36,7 @@ test('the plugin carries only skills: one SKILL.md per directory, named after it
   assert.deepEqual(top, ['.claude-plugin', 'skills'], 'anything else in plugin/ is cloned onto every user\'s machine');
   const skillsDir = path.join(root, SKILLS_DIR);
   const names = (await readdir(skillsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  assert.deepEqual(names, ['klose', 'klose-cleanup', 'klose-update']);
+  assert.deepEqual(names, ['klose', 'klose-cleanup', 'klose-flow', 'klose-update']);
   for (const name of names) {
     const text = await readFile(path.join(skillsDir, name, 'SKILL.md'), 'utf-8');
     const m = text.match(/^---\n[\s\S]*?^name:\s*(\S+)\s*$[\s\S]*?^---/m);

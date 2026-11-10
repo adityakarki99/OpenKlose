@@ -21,7 +21,8 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
-import { HarnessError, loadHarnessConfig, readRegistryKeys } from './harness.js';
+import { HarnessError, collectRegistryKeys, loadEffectiveHarnessConfig, loadHarnessConfig, readAllProjects, readRegistryKeys } from './harness.js';
+import { ViteHarnessError, ensureViteHarness, stopViteHarnesses } from './harnessVite.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -221,10 +222,24 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     // and which components its registry holds. `null` when there is none.
     if (only('harness') && req.method === 'GET') {
       try {
-        const config = await loadHarnessConfig(root);
-        sendJson(res, 200, config ? { config, registry: await readRegistryKeys(root) } : { config: null, registry: [] });
+        const found = await loadEffectiveHarnessConfig(root);
+        if (!found) {
+          sendJson(res, 200, { config: null, registry: [] });
+        } else if (!found.auto) {
+          sendJson(res, 200, { config: found.config, registry: await readRegistryKeys(root) });
+        } else {
+          // Vite auto-mode: the list is the built cards, and Klose's own Vite
+          // server is started the first time there is one to show.
+          const registry = collectRegistryKeys(await readAllProjects(store, root), found.config);
+          if (!registry.length) {
+            sendJson(res, 200, { config: found.config, registry });
+          } else {
+            const devServer = await ensureViteHarness(root, { harnessPath: found.config.harnessPath, providers: found.config.providers });
+            sendJson(res, 200, { config: { ...found.config, devServer }, registry });
+          }
+        }
       } catch (err) {
-        if (!(err instanceof HarnessError)) throw err;
+        if (!(err instanceof HarnessError) && !(err instanceof ViteHarnessError)) throw err;
         sendJson(res, 200, { config: null, registry: [], error: err.message });
       }
       return true;
@@ -467,6 +482,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
 
   server.on('close', () => {
     for (const channel of events.values()) channel.close();
+    stopViteHarnesses();
   });
   return server;
 }

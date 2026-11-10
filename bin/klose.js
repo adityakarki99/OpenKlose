@@ -97,16 +97,22 @@ const COMMAND_HELP = {
        klose harness sync [--force] [--json]
 
 Lets the canvas render the real component behind a built card, inside your
-app's own providers, through your dev server (Expo/Metro today).
+app's own providers: through your Expo/Metro dev server, or, for a Vite
+project, through a Vite server Klose starts itself (nothing to set up).
 
-  init   Writes klose.config.json (if missing), klose.harness.tsx, the
+  init   Expo: writes klose.config.json (if missing), klose.harness.tsx, the
          generated klose.registry.ts and, with expo-router, the route
          app/__klose.tsx. Safe to run again: files you have edited are left
-         alone unless you pass --force.
-  sync   Regenerates klose.registry.ts from the project's built cards
+         alone unless you pass --force. Vite: nothing to write (see below).
+  sync   (Expo) Regenerates klose.registry.ts from the project's built cards
          (builtFilePath + exportName) and the "components" list in
          klose.config.json. It also runs by itself whenever a card becomes
          built or its file or export changes.
+
+Vite: Klose starts its own Vite server the first time a built card needs it,
+using the repo's vite and vite config, and writes no files. Add
+{ "framework": "vite", "providers": "src/Providers.tsx" } to klose.config.json
+to wrap components in your providers.
 
 klose.config.json: { "framework": "expo", "devServer": "http://localhost:8081",
 "harnessPath": "/__klose", "providers": "src/Providers.tsx" }. devServer must be
@@ -1343,12 +1349,14 @@ async function cmdHarness(args) {
       for (const { file, result: what } of result.files) console.log(`${what.padEnd(9)} ${file}`);
       if (result.files.some((f) => f.result === 'skipped')) console.log('Some generated files were edited by hand and left alone. Use --force to regenerate them.');
       if (result.manual) console.log(`\n${result.manual}`);
+      if (result.auto) return;
       console.log(`\nStart your dev server (${result.config.devServer}), then mark a card built: it appears in klose.registry.ts and renders on the canvas.`);
       return;
     }
     if (sub === 'sync') {
       const { result, keys } = await syncRegistry(root, await readAllProjects(store, root), { force });
       if (json) return printJson({ result, components: keys });
+      if (result === 'auto') return console.log(`Vite auto-mode: nothing to sync (${keys.length} built component${keys.length === 1 ? '' : 's'}; no files are written to your repo).`);
       console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'})`);
       if (result === 'skipped') console.log('klose.registry.ts was edited by hand and left alone. Use --force to regenerate it.');
       return;

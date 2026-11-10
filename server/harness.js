@@ -10,10 +10,13 @@ import {
   HARNESS_CONFIG_FILE,
   DEFAULT_EXPO_DEV_SERVER,
   DEFAULT_HARNESS_PATH,
+  DEFAULT_VITE_DEV_SERVER,
   REGISTRY_FILE,
   registryKey,
   validateHarnessConfig,
 } from './harnessCore.js';
+
+import { usesVite } from './harnessVite.js';
 
 export const HARNESS_COMPONENT_FILE = 'klose.harness.tsx';
 
@@ -37,6 +40,20 @@ export async function loadHarnessConfig(root) {
   const { config, error } = validateHarnessConfig(raw);
   if (error) throw new HarnessError(`${HARNESS_CONFIG_FILE}: ${error}`);
   return config;
+}
+
+/**
+ * The config the canvas works from: klose.config.json when there is one, else,
+ * for a repo that uses Vite, the auto-mode default (nothing is written). Null
+ * when there is no harness. `auto` is true when Klose runs the dev server.
+ */
+export async function loadEffectiveHarnessConfig(root) {
+  const config = await loadHarnessConfig(root);
+  if (config) return { config, auto: config.framework === 'vite' };
+  if (usesVite(root)) {
+    return { config: { framework: 'vite', devServer: DEFAULT_VITE_DEV_SERVER, harnessPath: DEFAULT_HARNESS_PATH }, auto: true };
+  }
+  return null;
 }
 
 // ── Generated files ─────────────────────────────────────────────────────────
@@ -137,8 +154,13 @@ export async function readRegistryKeys(root) {
  */
 export async function syncRegistry(root, projects, { force = false } = {}) {
   const config = await loadHarnessConfig(root);
-  if (!config) throw new HarnessError(`No ${HARNESS_CONFIG_FILE} here. Run "klose harness init" first.`);
+  if (!config) {
+    if (usesVite(root)) return { result: 'auto', keys: collectRegistryKeys(projects, null) };
+    throw new HarnessError(`No ${HARNESS_CONFIG_FILE} here. Run "klose harness init" first.`);
+  }
   const keys = collectRegistryKeys(projects, config);
+  // Vite auto-mode keeps the list in memory; no file is written to the repo.
+  if (config.framework === 'vite') return { result: 'auto', keys };
   const result = await writeGenerated(root, REGISTRY_FILE, registrySource(keys), { force });
   return { result, keys };
 }
@@ -276,9 +298,19 @@ function routeSource(dir) {
 export async function initHarness(root, { force = false, devServer, harnessPath, providers, projects = [] } = {}) {
   const detected = await detectFramework(root);
   if (!detected) {
-    throw new HarnessError(
-      'klose harness init supports Expo projects (an "expo" dependency in package.json). Vite projects use the auto-mode harness instead.'
-    );
+    if (usesVite(root)) {
+      return {
+        framework: 'vite',
+        router: false,
+        auto: true,
+        config: (await loadHarnessConfig(root)) || { framework: 'vite', devServer: DEFAULT_VITE_DEV_SERVER, harnessPath: DEFAULT_HARNESS_PATH },
+        files: [],
+        manual:
+          'This is a Vite project, so there is nothing to set up: Klose starts a Vite server of its own, with your vite config, the first time a built card needs it, and writes no files to your repo. ' +
+          `To wrap components in your providers, add a ${HARNESS_CONFIG_FILE} with { "framework": "vite", "providers": "src/Providers.tsx" }.`,
+      };
+    }
+    throw new HarnessError('klose harness init supports Expo projects (an "expo" dependency in package.json) and Vite projects (no setup needed).');
   }
 
   const files = [];

@@ -92,10 +92,13 @@ Render it the most real way available, and say which you used in `notes`:
 2. **A live URL**, when the state has an address of its own (a query string, a step in the path):
    `"url":"http://localhost:3000/orders?status=none"`.
 
-3. **A sketch restatement**, when the state lives behind a network call, a session or a timer and
-   neither of the above reaches it. Write `code` as in the `/klose` skill (self-contained, the
-   repo's real tokens and class names, copied from what the route's file renders in that state),
-   and say in `notes` that it is a restatement and of which lines:
+3. **A sketch**, when the state lives behind a network call, a session or a timer and neither of
+   the above reaches it. Write `code` as in the `/klose` skill. When `npx klose harness sketches`
+   says sketches are drawn by your bundler, import the route's real pieces (its loading skeleton,
+   its empty state, its error component) and render them directly, so the card is the real thing in
+   that state; otherwise write a self-contained restatement in the repo's real tokens and class
+   names, copied from what the route's file renders in that state. Say in `notes` which it is and
+   of which lines:
 
    ```
    npx klose project add-node <projectId> @/tmp/orders-error.json

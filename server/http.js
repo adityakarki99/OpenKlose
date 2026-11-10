@@ -21,8 +21,8 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
-import { HarnessError, ensureHarness, loadHarnessConfig, readRegistryKeys } from './harness.js';
-import { HARNESS_SETTINGS, harnessSetting, writeSettings } from './settings.js';
+import { HarnessError, acceptPendingSketches, ensureHarness, loadHarnessConfig, pendingSketches, readAllProjects, readRegistryKeys } from './harness.js';
+import { HARNESS_SETTINGS, SKETCH_SETTINGS, harnessSetting, sketchSetting, writeSettings } from './settings.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -221,13 +221,20 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     // The harness the canvas may frame built cards through: the repo's config
     // and which components its registry holds. `null` when there is none, or
     // when the repo's `harness` setting is off (server/settings.js).
+    //
+    // `sketches` is the repo's other setting: `real` also draws sketches through
+    // the dev server, from files Klose writes into the repo. `pendingSketches`
+    // are the ones it won't write until a person accepts them, because their
+    // code came from somewhere else (server/sketchTrust.js).
     const harnessInfo = async () => {
       const { value: setting, source } = await harnessSetting(root);
-      const info = { config: null, registry: [], setting, settingSource: source };
+      const sketches = await sketchSetting(root);
+      const info = { config: null, registry: [], setting, settingSource: source, sketches: sketches.value, sketchesSource: sketches.source, pendingSketches: [] };
       if (setting === 'off') return info;
       try {
         const config = await loadHarnessConfig(root);
-        return config ? { ...info, config, registry: await readRegistryKeys(root) } : info;
+        if (!config) return info;
+        return { ...info, config, registry: await readRegistryKeys(root), pendingSketches: await pendingSketches(root, await readAllProjects(store, root), config) };
       } catch (err) {
         if (!(err instanceof HarnessError)) throw err;
         return { ...info, error: err.message };
@@ -238,11 +245,32 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       return true;
     }
     // Turn the harness on or off for this repo. Turning it on sets it up at once.
+    // `{ sketches }` chooses how sketches are drawn; turning it to `sandbox`
+    // removes the files Klose wrote for them.
     if (only('harness') && req.method === 'PATCH') {
-      const { setting } = await readBody(req);
-      if (!HARNESS_SETTINGS.includes(setting)) throw new HttpError(`setting must be one of: ${HARNESS_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
-      await writeSettings(root, { harness: setting });
-      if ((await harnessSetting(root)).value === 'auto') await ensureHarness(root, store);
+      const { setting, sketches } = await readBody(req);
+      if (setting === undefined && sketches === undefined) throw new HttpError('Send { setting } and/or { sketches }', 400, 'INVALID_SETTING');
+      if (setting !== undefined && !HARNESS_SETTINGS.includes(setting)) throw new HttpError(`setting must be one of: ${HARNESS_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
+      if (sketches !== undefined && !SKETCH_SETTINGS.includes(sketches)) throw new HttpError(`sketches must be one of: ${SKETCH_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
+      await writeSettings(root, { ...(setting !== undefined ? { harness: setting } : {}), ...(sketches !== undefined ? { sketches } : {}) });
+      // Sets the harness up if it now should be, and brings the sketch files in step either way.
+      await ensureHarness(root, store);
+      sendJson(res, 200, await harnessInfo());
+      return true;
+    }
+    // A person on the local canvas accepts a sketch that came from somewhere
+    // else: it may now be written into the repo and run in the app.
+    if (parts[0] === 'harness' && parts[1] === 'accept' && parts.length === 2 && req.method === 'POST') {
+      const { nodeId } = await readBody(req);
+      const projects = await readAllProjects(store, root);
+      const nodes = projects.flatMap((p) => p.nodes || []).filter((n) => n.id === nodeId);
+      if (typeof nodeId !== 'string' || !nodes.length) throw new HttpError(`No sketch ${JSON.stringify(nodeId)} in this repo`, 404, 'NODE_NOT_FOUND');
+      try {
+        await acceptPendingSketches(root, nodes, projects);
+      } catch (err) {
+        if (!(err instanceof HarnessError)) throw err;
+        throw new HttpError(err.message, 400, 'NO_HARNESS');
+      }
       sendJson(res, 200, await harnessInfo());
       return true;
     }

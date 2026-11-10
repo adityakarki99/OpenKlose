@@ -1,7 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createKloseServer } from '../server/http.js';
@@ -24,6 +25,11 @@ try {
 } catch {
   // Optional in local development.
 }
+
+// What was written on "this machine" is recorded under ~/.klose (server/sketchTrust.js); keep the tests' own.
+process.env.KLOSE_HOME = await mkdtemp(path.join(os.tmpdir(), 'klose-home-'));
+process.on('exit', () => rmSync(process.env.KLOSE_HOME, { recursive: true, force: true }));
+delete process.env.KLOSE_SKETCHES;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -103,4 +109,75 @@ test('the default export renders, and a component missing from the file says so'
   const missing = await open({ name: 'Gone', builtFilePath: 'src/Card.tsx', exportName: 'Nope' });
   await missing.frame.getByText('"src/Card.tsx#Nope" has no such export').waitFor();
   await missing.page.close();
+});
+
+// A sketch that imports the fixture's real component and reads the app's
+// context: the sandbox can't draw this at all.
+const REAL_SKETCH = `import { Card } from './src/Card';
+import { useGreeting } from './src/Providers';
+export default function Pricing() {
+  const greeting = useGreeting();
+  return (
+    <div data-sketch>
+      <Card title="Pro plan" count={2} />
+      <button id="target" data-testid="buy">{greeting} Buy</button>
+    </div>
+  );
+}`;
+
+test('a sketch renders through the Vite dev server with its real imports, and an element in it can be targeted', { skip }, async () => {
+  const { page, card, frame } = await open({ name: 'Pricing sketch', status: 'sketch', code: REAL_SKETCH });
+  // The fixture's own Card, inside the app's providers, with the app's stylesheet.
+  const real = frame.locator('[data-sketch] [data-real-card]');
+  await real.waitFor();
+  assert.equal(await real.locator('h2').innerText(), 'Real: Pro plan');
+  assert.equal(await real.evaluate((el) => getComputedStyle(el).color), 'rgb(1, 2, 3)');
+  assert.equal(await frame.locator('#target').innerText(), 'Real: Buy');
+  assert.equal(await card.locator('iframe[title="Sketch preview"]').count(), 0, 'real first, not the sandbox');
+
+  // Pick an element in it for a comment, as on any bridged frame.
+  await frame.locator('script[data-klose-bridge]').waitFor({ state: 'attached' });
+  await card.click({ position: { x: 200, y: 16 } });
+  const comment = page.getByRole('button', { name: 'Comment', exact: true });
+  await comment.waitFor();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="pick-unavailable"]'));
+  await comment.click();
+  // The page shows a crosshair once the bridge has been told to pick.
+  await frame.locator('html[style*="crosshair"]').waitFor();
+  await frame.locator('#target').click();
+  await page.getByRole('button', { name: 'Element for the next comment' }).waitFor();
+  await page.getByLabel(/^Comment on Pricing sketch/).fill('Make this primary');
+  await page.getByRole('button', { name: 'Add comment' }).click();
+  await page.getByRole('button', { name: /^Comment 1: Make this primary/ }).waitFor();
+
+  // The sandbox can't load the repo's modules, and says so instead of failing.
+  await card.getByRole('button', { name: 'Sandbox', exact: true }).click();
+  const notice = card.locator('[data-real-only="waiting"]');
+  await notice.waitFor();
+  assert.match(await notice.innerText(), /This sketch uses real components/);
+  assert.match(await notice.innerText(), /Start your dev server/);
+  assert.match(await notice.innerText(), /imports \.\/src\/Card, \.\/src\/Providers/);
+  assert.equal(await card.locator('iframe[title="Sketch preview"]').count(), 0);
+  await page.close();
+});
+
+test('a sketch whose code came from somewhere else stays out of the dev server until it is accepted on the canvas', { skip }, async () => {
+  const project = await store.createProject(cwd, `Arrived ${Date.now()}`);
+  const node = { id: `arrived-${Date.now()}`, name: 'Arrived', status: 'sketch', code: REAL_SKETCH, x: 100, y: 100, width: 420, height: 300 };
+  await store.putProject(cwd, { ...project, nodes: [node] });
+  assert.ok(!existsSync(path.join(cwd, 'klose.sketches', `${node.id}.tsx`)));
+
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${origin}/canvas/${project.id}`);
+  const card = page.locator(`[data-node-id="${node.id}"]`);
+  const notice = card.locator('[data-real-only="pending"]');
+  await notice.waitFor();
+  assert.match(await notice.innerText(), /did not come from this machine/);
+  assert.equal(await card.locator('iframe').count(), 0, 'nothing of it runs anywhere yet');
+
+  await notice.getByRole('button', { name: 'Run in my app' }).click();
+  const frame = page.frameLocator(`[data-node-id="${node.id}"] iframe[data-live-state]`);
+  await frame.locator('[data-sketch] [data-real-card]').waitFor();
+  assert.ok(existsSync(path.join(cwd, 'klose.sketches', `${node.id}.tsx`)));
+  await page.close();
 });

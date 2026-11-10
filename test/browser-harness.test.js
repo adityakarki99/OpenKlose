@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +19,10 @@ try {
 } catch {
   // Optional in local development.
 }
+
+// What was written on "this machine" is recorded under ~/.klose (server/sketchTrust.js); keep the tests' own.
+process.env.KLOSE_HOME = await mkdtemp(path.join(os.tmpdir(), 'klose-home-'));
+process.on('exit', () => rmSync(process.env.KLOSE_HOME, { recursive: true, force: true }));
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = path.join(root, 'web', 'dist');

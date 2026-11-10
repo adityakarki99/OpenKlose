@@ -281,9 +281,22 @@ with real repo context loaded.
 ## 5. Put the sketch on the canvas, rendered live
 
 Once the shape of the component is settled, write a **live-previewable sketch**, not just a labeled
-box — a self-contained React/TSX snippet the canvas renders in a sandboxed iframe, so the user sees
-something real rather than a text card. Write the node as a JSON file (multi-line `code` is painful
-to pass as a shell argument) and pass it with `@`:
+box, so the user sees something real rather than a text card. First find out which of two ways this
+repo draws a sketch, because it decides what the code may import:
+
+```
+npx klose harness sketches
+```
+
+- **"drawn by your bundler, with real imports"**: the repo has a component harness, so Klose also
+  writes your sketch into the repo as a file and the repo's own dev server renders it. Compose the
+  repo's **real components** (the ones step 3b found) instead of restating them. See "A sketch with
+  real imports" below.
+- **"drawn in the sandbox"**: the sketch is a self-contained React/TSX snippet the canvas renders in
+  a sandboxed iframe, under the contract in the `code` bullet below.
+
+Write the node as a JSON file (multi-line `code` is painful to pass as a shell argument) and pass it
+with `@`:
 
 ```json
 // /tmp/sketch.json
@@ -319,6 +332,34 @@ npx klose project add-node <projectId> @/tmp/sketch.json
     import paths or component-splitting conventions, just its *look*.
 - `x`/`y`/`width`/`height` — optional; omit and let the user drag it into place, or place it
   sensibly near existing nodes if you know the layout.
+
+### A sketch with real imports
+
+When `npx klose harness sketches` says sketches are drawn by your bundler, the contract above changes
+in one way: the code may import anything the app can.
+
+- Import the repo's real components and hooks, and compose them: this is where "reuse before you
+  sketch" pays off, because the user sees *their* `Button`, not your copy of it. Use the repo's path
+  alias if it has one (`import { Button } from '@/components/ui/button'`), or name the file **from
+  the repo root** (`import { Button } from './src/components/ui/Button'`); Klose points root-relative
+  paths at the right place in the file it writes.
+- Still one file with one component to render (the default export, or the one `exportName` names),
+  and still no props required: pass the real components realistic placeholder props yourself.
+- It renders inside the app's providers (`providers` in `klose.config.json`) with the app's own
+  stylesheet, so theme, context and tokens are the real ones. It also runs with the app's network
+  access, so do not call real endpoints from a sketch: placeholder data, as before.
+- New things the repo does not have yet are still written inline in the sketch. Only what already
+  exists is imported.
+- Do not edit the generated file (`klose.sketches/<id>.tsx`, or `sketchDir` in `klose.config.json`);
+  change the sketch with `update-node` and the file follows. Tell the user the folder appeared and
+  that it is generated; they can commit it or not.
+- **What the user sees when the dev server is not running:** the card's last snapshot if it has one,
+  otherwise a notice that the sketch uses real components and needs the dev server. The sandbox
+  cannot load the repo's modules, so there is no restatement behind it. If the user is on a shared
+  or hosted canvas (which never reaches a dev server), write a self-contained sketch instead.
+- A sketch whose code came from somewhere else (a shared canvas, a pulled project file) is not
+  written into the repo until the user accepts it: `npx klose harness accept <project>` lists them.
+  Never accept on the user's behalf; say that it is waiting and why.
 
 The node is created with `status: "sketch"`. If the open canvas tab doesn't visually update within a
 second or two, the server may not have picked up the file change — that's fine, a page refresh will
@@ -377,6 +418,10 @@ running for the real component to render (e.g. `npx expo start --web`, or `npm r
 address is `devServer` in `klose.config.json`, so correct it there if the port differs); if it isn't,
 the card falls back to its snapshot, then to `code`. Without a harness (another framework, or turned
 off), nothing changes: built cards keep showing `code`.
+
+The same harness draws sketches with their real imports (step 5, "A sketch with real imports").
+`npx klose harness sketches sandbox` keeps sketches in the sandbox for this repo and removes the
+files written for them; `real` turns it back on.
 
 If this build was in response to comments, **resolve** the ones you addressed, so the canvas shows
 them as done instead of as stale feedback:

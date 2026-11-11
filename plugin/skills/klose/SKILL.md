@@ -396,7 +396,9 @@ dev server (`app/__klose.tsx` or `__klose.html`) at the repo root, and the comma
 Tell the user those files appeared and what they are for; they are meant to be committed. If the user
 does not want them, run `npx klose harness auto off` (and delete the files): built cards then keep
 showing `code`. An Expo repo without expo-router is not set up automatically; `npx klose harness init`
-prints the one manual step.
+prints the one manual step. If the user wants nothing but a config in a Vite repo, run
+`npx klose harness init --server=klose` instead: Klose then runs its own Vite server for built
+cards, writes no other files, and sketches stay in the sandbox.
 
 Marking the sketch `built` with `builtFilePath` and `exportName` registers it automatically; to be
 sure, or after renaming files, run:
@@ -412,10 +414,20 @@ real component loading, empty, errored and so on, not just its default:
 npx klose project update-node <projectId> <nodeId> '{"props":{"title":"Pro plan","loading":false}}'
 ```
 
+If `klose.config.json` has `"server": "klose"` (a Vite repo that opted out of generated files), there
+is no registry and no `harness sync`: Klose starts its own Vite server the first time a built card
+needs one. Don't write harness files for it. Providers go in `klose.config.json` as `"providers"`.
+
+To point a card at a page that is already running on this machine (a Storybook story, a route of the
+app), add a `url` node instead: `npx klose project add-node <projectId> '{"name":"Home","status":"built","url":"http://localhost:6006/?path=/story/home"}'`.
+Only `localhost`, `127.0.0.1`, `[::1]` and `*.localhost` are accepted. Don't put a `url` on a card that
+the harness can already draw, and never use one for a sketch: sketches stay sandboxed `code`.
+
 Keep the `code` restatement on the card: it is the fallback when the dev server isn't running, and the
 "Sketch" side of the card's Real / Sketch toggle. The repo's dev server must be
-running for the real component to render (e.g. `npx expo start --web`, or `npm run dev` for Vite; the
-address is `devServer` in `klose.config.json`, so correct it there if the port differs); if it isn't,
+running for the real component to render (e.g. `npx expo start --web`, or `npm run dev` for Vite, unless `klose.config.json` has
+`"server": "klose"`, when Klose runs it; the address is `devServer` in `klose.config.json`, so correct
+it there if the port differs); if it isn't,
 the card falls back to its snapshot, then to `code`. Without a harness (another framework, or turned
 off), nothing changes: built cards keep showing `code`.
 

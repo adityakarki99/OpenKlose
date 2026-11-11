@@ -349,6 +349,24 @@ bridge answers after a load, the card also refreshes its `snapshot` (the image s
 down), at most once every three minutes per card. A page without the bridge stays a plain frame: comments
 attach to the whole card and the element-pick button is disabled with a hint.
 
+## Three Ways A Card Is Drawn
+
+| Path | Used for | Trust |
+|---|---|---|
+| **Sandbox** (`preview.html`) | `sketch` cards: the agent's `code` | Untrusted. `sandbox="allow-scripts"`, `connect-src 'none'`, `frame-src 'none'`. `test/offline-preview.test.js` asserts it. |
+| **Live frame** | Any card with a `url` | The user's own page on this machine. `sandbox="allow-scripts allow-same-origin allow-forms"`, `referrerpolicy="no-referrer"`. |
+| **Harness** | `built` cards whose component is in the harness registry, and sketches written into the repo | The user's own code and dev server, as trusted as `npm run dev`. Framed exactly like a live frame. |
+
+Fallback order for a card with a live address: the frame, then `snapshot` (a PNG data URL), then the sandboxed `code`, then
+the placeholder. Static, shared and online canvases (`lib/mode.ts`) never frame a live address and show the snapshot.
+
+**Allow-list.** A live address is `http(s)` on `localhost`, `127.0.0.1`, `[::1]` or `*.localhost`, any port, no credentials
+(`isAllowedLiveUrl` in `server/storeCore.js`). It is checked when a card is saved (store, HTTP API, CLI, folder store)
+and again when the canvas draws it. The bridge adds a second check: it only answers a canvas on a localhost-class origin.
+
+**Cookie caution.** Browsers don't separate cookies by port, so a framed app can read every cookie set for `localhost`.
+Klose must never keep anything sensitive in a `localhost` cookie.
+
 ## The Component Harness (Expo/Metro and Vite)
 
 A `built` card can show the real component instead of the `code` restatement. The repo's own dev server
@@ -394,6 +412,20 @@ Klose writes for it, so a sketch can import the repo's real components: see
   (`repoImports`, `server/sketchImports.js`): where the sandbox would have drawn it, the card shows
   `components/Canvas/RealOnlyNotice.tsx` ("this sketch uses real components; start your dev server to see it") over
   the snapshot if there is one, not the sandbox's import error.
+- **Klose's own Vite server** (`server/harnessVite.js`, opt-in with `"server": "klose"` in `klose.config.json`, written
+  by `klose harness init --server=klose`). Nothing else is written to the repo: no `klose.harness.tsx`, registry,
+  `__klose.html` or sketch files, and `devServer` may be left out. `GET /api/harness` starts a Vite server inside the
+  repo on first use, and only once the repo has a built card: `createServer({ root, cacheDir, server: { host: 'localhost', port: <free>, strictPort } })`
+  from the repo's own `vite` (resolved from its `node_modules`, never a dependency of the Klose package), with the repo's
+  vite config and one plugin. `cacheDir` points into the OS temp folder, so not even `node_modules/.vite` is touched. The plugin
+  serves the page at `harnessPath` and a virtual module (`virtual:klose-harness`) that reads `c`, the export and `props` from the
+  address, `import()`s the file, wraps it in `providers` and mounts it with the repo's React, then loads `klose-bridge.js` as
+  the generated pages do. One server per repo is reused across cards; it restarts when `harnessPath` or `providers` change,
+  stops when the setting turns `off`, and stops with the Klose server. The registry is the list of built cards, kept in
+  memory (`collectRegistryKeys`), so `harness sync` has nothing to write, and sketches stay in the sandbox (no
+  `pendingSketches`, nothing to accept). Automatic setup never chooses this mode: a repo without `klose.config.json` gets the
+  generated files as above. A missing `vite`, or one that needs a newer Node than Klose is running on, comes back as `error`
+  in the response and the cards fall back.
 - **`props`** on a card is a JSON-only object (validated in every store, 64 KB at most) for showing a component in a given state.
 
 ### Sketches drawn by the repo's bundler

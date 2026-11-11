@@ -140,8 +140,10 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         if (!live) return;
         setHarness(info);
         // A sketch that is waiting to be accepted, or a repo that keeps sketches
-        // in the sandbox, will not turn up however often we ask.
-        const expected = node.status === 'built' || (info.sketches !== 'sandbox' && !info.pendingSketches?.includes(node.id));
+        // in the sandbox (by setting, or because Klose runs the server and
+        // writes no files), will not turn up however often we ask.
+        const expected =
+          node.status === 'built' || (info.sketches !== 'sandbox' && info.config?.server !== 'klose' && !info.pendingSketches?.includes(node.id));
         const listed = !info.config || !expected || harnessAddress(info.config, node, info.registry);
         if (!listed && attempt < RETRY_DELAYS_MS.length) timer = window.setTimeout(() => load(attempt + 1), RETRY_DELAYS_MS[attempt]);
       });

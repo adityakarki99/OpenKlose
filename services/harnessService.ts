@@ -4,7 +4,8 @@ import { currentShare } from '../lib/shareSession';
 
 /** What the repo's klose.config.json and klose.registry.ts say (server/harness.js). */
 export interface HarnessInfo {
-  config: { framework: 'expo' | 'vite'; devServer: string; harnessPath: string; providers?: string; sketchDir?: string } | null;
+  /** `server: 'klose'`: Klose runs its own Vite server and writes nothing, so sketches stay in the sandbox. */
+  config: { framework: 'expo' | 'vite'; devServer: string; harnessPath: string; providers?: string; sketchDir?: string; server?: 'klose' } | null;
   registry: string[];
   /** The repo's `harness` setting (server/settings.js): `off` means built cards show their sketch. */
   setting?: 'auto' | 'off';

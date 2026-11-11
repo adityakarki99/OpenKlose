@@ -21,7 +21,8 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
-import { HarnessError, acceptPendingSketches, ensureHarness, loadHarnessConfig, pendingSketches, readAllProjects, readRegistryKeys } from './harness.js';
+import { HarnessError, acceptPendingSketches, collectRegistryKeys, ensureHarness, loadEffectiveHarnessConfig, pendingSketches, readAllProjects, readRegistryKeys } from './harness.js';
+import { ViteHarnessError, ensureViteHarness, stopViteHarnesses } from './harnessVite.js';
 import { HARNESS_SETTINGS, SKETCH_SETTINGS, harnessSetting, sketchSetting, writeSettings } from './settings.js';
 
 const MIME = {
@@ -232,11 +233,20 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       const info = { config: null, registry: [], setting, settingSource: source, sketches: sketches.value, sketchesSource: sketches.source, pendingSketches: [] };
       if (setting === 'off') return info;
       try {
-        const config = await loadHarnessConfig(root);
-        if (!config) return info;
-        return { ...info, config, registry: await readRegistryKeys(root), pendingSketches: await pendingSketches(root, await readAllProjects(store, root), config) };
+        const found = await loadEffectiveHarnessConfig(root);
+        if (!found) return info;
+        const { config } = found;
+        if (!found.managed) {
+          return { ...info, config, registry: await readRegistryKeys(root), pendingSketches: await pendingSketches(root, await readAllProjects(store, root), config) };
+        }
+        // `server: "klose"`: the list is the built cards, and Klose's own Vite
+        // server (server/harnessVite.js) is started the first time there is one to show.
+        const registry = collectRegistryKeys(await readAllProjects(store, root), config);
+        if (!registry.length) return { ...info, config, registry };
+        const devServer = await ensureViteHarness(root, { harnessPath: config.harnessPath, providers: config.providers });
+        return { ...info, config: { ...config, devServer }, registry };
       } catch (err) {
-        if (!(err instanceof HarnessError)) throw err;
+        if (!(err instanceof HarnessError) && !(err instanceof ViteHarnessError)) throw err;
         return { ...info, error: err.message };
       }
     };
@@ -253,6 +263,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
       if (setting !== undefined && !HARNESS_SETTINGS.includes(setting)) throw new HttpError(`setting must be one of: ${HARNESS_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
       if (sketches !== undefined && !SKETCH_SETTINGS.includes(sketches)) throw new HttpError(`sketches must be one of: ${SKETCH_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
       await writeSettings(root, { ...(setting !== undefined ? { harness: setting } : {}), ...(sketches !== undefined ? { sketches } : {}) });
+      if ((await harnessSetting(root)).value === 'off') await stopViteHarnesses();
       // Sets the harness up if it now should be, and brings the sketch files in step either way.
       await ensureHarness(root, store);
       sendJson(res, 200, await harnessInfo());
@@ -512,6 +523,7 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
 
   server.on('close', () => {
     for (const channel of events.values()) channel.close();
+    stopViteHarnesses();
   });
   return server;
 }

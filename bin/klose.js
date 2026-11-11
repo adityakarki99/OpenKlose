@@ -16,7 +16,7 @@ import { KLOSE_GITIGNORE, isValidId } from '../server/storeCore.js';
 import { flowStatus, isFlowNode, planNodes, planProblems } from '../server/flow.js';
 import { randomUUID } from 'node:crypto';
 import { exportProject } from '../server/export.js';
-import { HarnessError, acceptPendingSketches, ensureHarness, initHarness, loadHarnessConfig, pendingSketches, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
+import { HarnessError, acceptPendingSketches, ensureHarness, initHarness, isManaged, loadHarnessConfig, pendingSketches, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
 import { harnessSetting, sketchSetting, writeSettings } from '../server/settings.js';
 import * as share from '../server/share.js';
 import { DEFAULT_MAP_PROJECT, defaultDevServer, detectRouters, discoverRoutes, harnessPathOf, planMap } from '../server/routes.js';
@@ -133,7 +133,7 @@ to delete. Run /klose-map to have your agent add each route's states.`,
   harness: `Usage: klose harness auto [on|off] [--json]
        klose harness sketches [real|sandbox] [--json]
        klose harness accept <project> [<sketch id> | --all] [--json]
-       klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
+       klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--server=klose] [--force] [--json]
        klose harness sync [--force] [--json]
 
 Lets the canvas render the real component behind a built card, and a sketch
@@ -166,14 +166,24 @@ without being asked, and say which files they wrote.
          Safe to run again: files you have edited are left alone unless you
          pass --force. An Expo project without expo-router needs this run by
          hand, because the route has to be added to your navigator.
+         --server=klose (Vite): write only klose.config.json, with
+         "server": "klose", and let Klose run the dev server (see below).
   sync   Regenerates klose.registry.ts from the project's built cards
          (builtFilePath + exportName), the "components" list in
          klose.config.json and the sketch files, which it also brings up to
          date. It also runs by itself whenever a card or a sketch changes.
 
+Vite without files in your repo: with "server": "klose" in klose.config.json,
+Klose starts a Vite server of its own the first time a built card needs it,
+using your repo's vite and vite config, and writes nothing else to the repo:
+no klose.harness.tsx, registry, __klose.html or sketch files. Sketches stay in
+the sandbox. It also suits Vite apps the generated page can't serve (no
+index.html at the repo root). Opt in with: klose harness init --server=klose.
+
 klose.config.json: { "framework": "expo" | "vite", "devServer":
 "http://localhost:8081", "harnessPath": "/__klose", "providers":
-"src/Providers.tsx" }. devServer must be on localhost. Add "props" to a card
+"src/Providers.tsx", "server": "repo" | "klose" }. devServer must be on
+localhost; with "server": "klose" it is not needed. Add "props" to a card
 (klose project update-node) to show a component in a given state.`,
   open: `Usage: klose open --online [--repo owner/name] [--branch main] [--project id] [--host URL] [--json]
 
@@ -1469,11 +1479,12 @@ async function cmdHarness(args) {
       }
       const { value, source } = await sketchSetting(root);
       const config = (await harnessSetting(root)).value === 'off' ? null : await loadHarnessConfig(root);
-      const real = value === 'real' && !!config;
+      const real = value === 'real' && !!config && !isManaged(config);
       const pending = real ? await pendingSketches(root, await readAllProjects(store, root), config) : [];
       if (json) return printJson({ sketches: value, source, real, sketchDir: real ? config.sketchDir || 'klose.sketches' : null, pending });
       const where = source === 'env' ? ' (KLOSE_SKETCHES overrides .klose/settings.json)' : source === 'default' ? ' (the default)' : '';
       if (real) console.log(`Sketches: drawn by your bundler, with real imports${where}. Their files are in ${config.sketchDir || 'klose.sketches'}/.`);
+      else if (value === 'real' && isManaged(config)) console.log(`Sketches: drawn in the sandbox, because with "server": "klose" Klose writes no files to the repo${where}.`);
       else if (value === 'real') console.log(`Sketches: drawn in the sandbox, because this repo has no component harness in use (klose harness init)${where}.`);
       else console.log(`Sketches: drawn in the sandbox only${where}.`);
       if (pending.length) console.log(`${plural(pending.length, 'sketch', 'sketches')} came from somewhere else and ${pending.length === 1 ? 'stays' : 'stay'} in the sandbox until accepted: klose harness accept <project>`);
@@ -1512,18 +1523,21 @@ async function cmdHarness(args) {
         devServer: flag('--dev-server'),
         harnessPath: flag('--harness-path'),
         providers: flag('--providers'),
+        server: flag('--server'),
         projects,
       });
       if (json) return printJson(result);
       for (const { file, result: what } of result.files) console.log(`${what.padEnd(9)} ${file}`);
       if (result.files.some((f) => f.result === 'skipped')) console.log('Some generated files were edited by hand and left alone. Use --force to regenerate them.');
       if (result.manual) console.log(`\n${result.manual}`);
+      if (result.managed) return;
       console.log(`\nStart your dev server (${result.config.devServer}), then mark a card built: it appears in klose.registry.ts and renders on the canvas.`);
       return;
     }
     if (sub === 'sync') {
       const { result, keys, sketches } = await syncRegistry(root, await readAllProjects(store, root), { force });
       if (json) return printJson({ result, components: keys, sketches });
+      if (result === 'managed') return console.log(`Klose runs this repo's Vite server: nothing to sync (${keys.length} built component${keys.length === 1 ? '' : 's'}; no files are written to your repo).`);
       console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'}${sketches.keys.length ? `, ${sketches.keys.length} of them sketches` : ''})`);
       if (result === 'skipped') console.log('klose.registry.ts was edited by hand and left alone. Use --force to regenerate it.');
       for (const f of sketches.files) if (f.result !== 'unchanged') console.log(`${f.result.padEnd(9)} ${f.file}`);

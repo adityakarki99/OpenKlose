@@ -20,6 +20,7 @@ import {
 import { mapRelativeImports } from './sketchImports.js';
 import { harnessSetting, sketchSetting } from './settings.js';
 import { acceptSketches, isTrusted, readTrust } from './sketchTrust.js';
+import { usesVite } from './harnessVite.js';
 
 export const HARNESS_COMPONENT_FILE = 'klose.harness.tsx';
 
@@ -43,6 +44,19 @@ export async function loadHarnessConfig(root) {
   const { config, error } = validateHarnessConfig(raw);
   if (error) throw new HarnessError(`${HARNESS_CONFIG_FILE}: ${error}`);
   return config;
+}
+
+/** True for a config where Klose runs its own Vite server and writes nothing (server/harnessVite.js). */
+export const isManaged = (config) => config?.server === 'klose';
+
+/**
+ * The repo's harness config, with `managed` true when Klose runs the dev
+ * server itself (`server: "klose"`, opted into in klose.config.json). Null when
+ * there is none.
+ */
+export async function loadEffectiveHarnessConfig(root) {
+  const config = await loadHarnessConfig(root);
+  return config ? { config, managed: isManaged(config) } : null;
 }
 
 // ── Generated files ─────────────────────────────────────────────────────────
@@ -281,7 +295,8 @@ export async function syncSketches(root, projects, config) {
 
 /** The ids of sketches whose code hasn't been written on, or accepted on, this machine. */
 export async function pendingSketches(root, projects, config) {
-  if ((await sketchSetting(root)).value !== 'real') return [];
+  // Klose's own Vite server writes no files, so sketches stay in the sandbox and none wait.
+  if (isManaged(config) || (await sketchSetting(root)).value !== 'real') return [];
   const trust = await readTrust(root);
   const pending = [];
   for (const project of projects) {
@@ -301,6 +316,7 @@ export async function pendingSketches(root, projects, config) {
 export async function acceptPendingSketches(root, nodes, projects) {
   const config = await loadHarnessConfig(root);
   if (!config) throw new HarnessError(`No ${HARNESS_CONFIG_FILE} here. Run "klose harness init" first.`);
+  if (isManaged(config)) throw new HarnessError('With "server": "klose" Klose writes nothing to the repo, so sketches stay in the sandbox.');
   const accepted = await acceptSketches(root, nodes.filter((n) => sketchFile(config, n)));
   await syncRegistry(root, projects);
   return accepted;
@@ -313,8 +329,11 @@ export async function acceptPendingSketches(root, nodes, projects) {
  * (without force).
  */
 export async function syncRegistry(root, projects, { force = false } = {}) {
-  const config = await loadHarnessConfig(root);
-  if (!config) throw new HarnessError(`No ${HARNESS_CONFIG_FILE} here. Run "klose harness init" first.`);
+  const found = await loadEffectiveHarnessConfig(root);
+  if (!found) throw new HarnessError(`No ${HARNESS_CONFIG_FILE} here. Run "klose harness init" first.`);
+  const { config } = found;
+  // Klose's own Vite server imports components by path: there is no registry file to write.
+  if (found.managed) return { result: 'managed', keys: collectRegistryKeys(projects, config), sketches: { keys: [], files: [], pending: [] } };
   const built = collectRegistryKeys(projects, config);
   const sketches = await syncSketches(root, projects, config);
   const result = await writeGenerated(root, REGISTRY_FILE, registrySource(built, config.framework, sketches.keys), { force });
@@ -679,12 +698,15 @@ createRoot(document.getElementById('klose-harness')).render(<KloseHarness />);
  * generated file the user has edited is left alone unless `force`.
  * Returns `{ framework, router, config, files: [{ file, result }], manual?: string }`.
  */
-export async function initHarness(root, { force = false, devServer, harnessPath, providers, projects = [] } = {}) {
+export async function initHarness(root, { force = false, devServer, harnessPath, providers, server, projects = [] } = {}) {
+  const managed = await initManaged(root, { harnessPath, providers, server });
+  if (managed) return managed;
   const detected = await detectFramework(root);
   if (!detected) {
     throw new HarnessError(
       'klose harness init supports Expo projects (an "expo" dependency in package.json) and Vite + React apps ' +
-        '("vite", "react" and "react-dom" in package.json, and an index.html at the repo root that loads a module script).'
+        '("vite", "react" and "react-dom" in package.json, and an index.html at the repo root that loads a module script). ' +
+        'Another Vite project can use a Vite server Klose runs itself, which writes nothing else to the repo: klose harness init --server=klose.'
     );
   }
   const { framework } = detected;
@@ -733,6 +755,37 @@ export async function initHarness(root, { force = false, devServer, harnessPath,
   }
 
   return { framework, router: detected.router, config, files, manual };
+}
+
+const MANAGED_NOTE =
+  'Klose starts a Vite server of its own, with your vite config, the first time a built card needs it, and writes no files to your repo. ' +
+  'Sketches stay in the sandbox.';
+
+/**
+ * `init` for Klose's own Vite server: with `server: "klose"`, asked for or
+ * already in klose.config.json. Writes at most klose.config.json. Null when
+ * this isn't that case.
+ */
+async function initManaged(root, { harnessPath, providers, server }) {
+  if (server !== undefined && server !== 'klose' && server !== 'repo') throw new HarnessError('--server must be "klose" or "repo"');
+  const existing = await loadHarnessConfig(root);
+  if (existing) {
+    if (!isManaged(existing)) {
+      if (server === 'klose') throw new HarnessError(`${HARNESS_CONFIG_FILE} is already set up for the repo's own dev server. Add "server": "klose" to it to switch.`);
+      return null;
+    }
+    return { framework: 'vite', router: false, managed: true, config: existing, files: [{ file: HARNESS_CONFIG_FILE, result: 'unchanged' }], manual: MANAGED_NOTE };
+  }
+  if (server === 'klose') {
+    if (!usesVite(root)) throw new HarnessError('--server=klose is for Vite projects ("vite" in package.json, or a vite config).');
+    // No devServer: Klose picks a free port each time it starts the server.
+    const raw = { framework: 'vite', server: 'klose', ...(harnessPath ? { harnessPath } : {}), ...(providers ? { providers } : {}) };
+    const { config, error } = validateHarnessConfig(raw);
+    if (error) throw new HarnessError(error);
+    await writeFile(path.join(root, HARNESS_CONFIG_FILE), JSON.stringify(raw, null, 2) + '\n');
+    return { framework: 'vite', router: false, managed: true, config, files: [{ file: HARNESS_CONFIG_FILE, result: 'created' }], manual: MANAGED_NOTE };
+  }
+  return null;
 }
 
 // ── Automatic setup ─────────────────────────────────────────────────────────

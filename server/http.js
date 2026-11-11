@@ -21,8 +21,9 @@ function sendJevError(res, err) {
 import { HttpError } from './errors.js';
 import { addRepoFolder, finishSetup, installGlobalSkills, resetSetup, setupState } from './setup.js';
 import { classifyProject, lintNode, triageProject } from './insights.js';
-import { HarnessError, collectRegistryKeys, loadEffectiveHarnessConfig, loadHarnessConfig, readAllProjects, readRegistryKeys } from './harness.js';
+import { HarnessError, acceptPendingSketches, collectRegistryKeys, ensureHarness, loadEffectiveHarnessConfig, pendingSketches, readAllProjects, readRegistryKeys } from './harness.js';
 import { ViteHarnessError, ensureViteHarness, stopViteHarnesses } from './harnessVite.js';
+import { HARNESS_SETTINGS, SKETCH_SETTINGS, harnessSetting, sketchSetting, writeSettings } from './settings.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -219,29 +220,69 @@ export function createKloseServer({ cwd = process.cwd(), publicDir, version = nu
     }
 
     // The harness the canvas may frame built cards through: the repo's config
-    // and which components its registry holds. `null` when there is none.
-    if (only('harness') && req.method === 'GET') {
+    // and which components its registry holds. `null` when there is none, or
+    // when the repo's `harness` setting is off (server/settings.js).
+    //
+    // `sketches` is the repo's other setting: `real` also draws sketches through
+    // the dev server, from files Klose writes into the repo. `pendingSketches`
+    // are the ones it won't write until a person accepts them, because their
+    // code came from somewhere else (server/sketchTrust.js).
+    const harnessInfo = async () => {
+      const { value: setting, source } = await harnessSetting(root);
+      const sketches = await sketchSetting(root);
+      const info = { config: null, registry: [], setting, settingSource: source, sketches: sketches.value, sketchesSource: sketches.source, pendingSketches: [] };
+      if (setting === 'off') return info;
       try {
         const found = await loadEffectiveHarnessConfig(root);
-        if (!found) {
-          sendJson(res, 200, { config: null, registry: [] });
-        } else if (!found.auto) {
-          sendJson(res, 200, { config: found.config, registry: await readRegistryKeys(root) });
-        } else {
-          // Vite auto-mode: the list is the built cards, and Klose's own Vite
-          // server is started the first time there is one to show.
-          const registry = collectRegistryKeys(await readAllProjects(store, root), found.config);
-          if (!registry.length) {
-            sendJson(res, 200, { config: found.config, registry });
-          } else {
-            const devServer = await ensureViteHarness(root, { harnessPath: found.config.harnessPath, providers: found.config.providers });
-            sendJson(res, 200, { config: { ...found.config, devServer }, registry });
-          }
+        if (!found) return info;
+        const { config } = found;
+        if (!found.managed) {
+          return { ...info, config, registry: await readRegistryKeys(root), pendingSketches: await pendingSketches(root, await readAllProjects(store, root), config) };
         }
+        // `server: "klose"`: the list is the built cards, and Klose's own Vite
+        // server (server/harnessVite.js) is started the first time there is one to show.
+        const registry = collectRegistryKeys(await readAllProjects(store, root), config);
+        if (!registry.length) return { ...info, config, registry };
+        const devServer = await ensureViteHarness(root, { harnessPath: config.harnessPath, providers: config.providers });
+        return { ...info, config: { ...config, devServer }, registry };
       } catch (err) {
         if (!(err instanceof HarnessError) && !(err instanceof ViteHarnessError)) throw err;
-        sendJson(res, 200, { config: null, registry: [], error: err.message });
+        return { ...info, error: err.message };
       }
+    };
+    if (only('harness') && req.method === 'GET') {
+      sendJson(res, 200, await harnessInfo());
+      return true;
+    }
+    // Turn the harness on or off for this repo. Turning it on sets it up at once.
+    // `{ sketches }` chooses how sketches are drawn; turning it to `sandbox`
+    // removes the files Klose wrote for them.
+    if (only('harness') && req.method === 'PATCH') {
+      const { setting, sketches } = await readBody(req);
+      if (setting === undefined && sketches === undefined) throw new HttpError('Send { setting } and/or { sketches }', 400, 'INVALID_SETTING');
+      if (setting !== undefined && !HARNESS_SETTINGS.includes(setting)) throw new HttpError(`setting must be one of: ${HARNESS_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
+      if (sketches !== undefined && !SKETCH_SETTINGS.includes(sketches)) throw new HttpError(`sketches must be one of: ${SKETCH_SETTINGS.join(', ')}`, 400, 'INVALID_SETTING');
+      await writeSettings(root, { ...(setting !== undefined ? { harness: setting } : {}), ...(sketches !== undefined ? { sketches } : {}) });
+      if ((await harnessSetting(root)).value === 'off') await stopViteHarnesses();
+      // Sets the harness up if it now should be, and brings the sketch files in step either way.
+      await ensureHarness(root, store);
+      sendJson(res, 200, await harnessInfo());
+      return true;
+    }
+    // A person on the local canvas accepts a sketch that came from somewhere
+    // else: it may now be written into the repo and run in the app.
+    if (parts[0] === 'harness' && parts[1] === 'accept' && parts.length === 2 && req.method === 'POST') {
+      const { nodeId } = await readBody(req);
+      const projects = await readAllProjects(store, root);
+      const nodes = projects.flatMap((p) => p.nodes || []).filter((n) => n.id === nodeId);
+      if (typeof nodeId !== 'string' || !nodes.length) throw new HttpError(`No sketch ${JSON.stringify(nodeId)} in this repo`, 404, 'NODE_NOT_FOUND');
+      try {
+        await acceptPendingSketches(root, nodes, projects);
+      } catch (err) {
+        if (!(err instanceof HarnessError)) throw err;
+        throw new HttpError(err.message, 400, 'NO_HARNESS');
+      }
+      sendJson(res, 200, await harnessInfo());
       return true;
     }
 

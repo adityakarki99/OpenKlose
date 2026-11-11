@@ -244,7 +244,12 @@ test('with a key: triage labels comments, classify badges the frame, and the tok
     await select(page, a.id);
     await page.getByRole('button', { name: 'More actions' }).click();
     await page.getByRole('menuitem', { name: 'Classify with Jev' }).click();
-    await page.getByText('primitive · action').first().waitFor();
+    await page.getByText('primitive · action').first().waitFor().catch(async (err) => {
+      // Say what the page showed instead: a toast, an error, or nothing at all.
+      const text = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 1500);
+      const onDisk = JSON.stringify((await store.getProject(jevCwd, project.id)).nodes[0].classification || null);
+      throw new Error(`${err.message}\npage errors: ${JSON.stringify(errors)}\non disk: ${onDisk}\npage text: ${text}`);
+    });
     await eventually(async () => (await store.getProject(jevCwd, project.id)).nodes[0].classification?.role === 'primitive', 'classification on disk');
 
     // Check tokens: the stock blue gets a brand replacement.
@@ -259,7 +264,46 @@ test('with a key: triage labels comments, classify badges the frame, and the tok
     assert.deepEqual(errors, []);
     await page.close();
   } finally {
+    // A step that failed leaves its page open, holding the update stream; without this the close never returns.
+    jevServer.closeAllConnections?.();
     await new Promise((resolve) => jevServer.close(resolve));
     await rm(jevCwd, { recursive: true, force: true });
   }
+});
+
+test('a flow frame is approved from its header, and the agent changing it takes the approval back', { skip }, async () => {
+  const project = await store.createProject(cwd, `Flow ${Date.now()}`);
+  const frame = await store.addNode(cwd, project.id, { name: 'Enter email', step: 1, state: 'error', code: CARD, x: 100, y: 100, width: 520, height: 300 });
+  const plain = await store.addNode(cwd, project.id, { name: 'Loose card', code: CARD, x: 700, y: 100, width: 420, height: 300 });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${origin}/canvas/${project.id}`);
+  const card = page.locator(`[data-node-id="${frame.id}"]`);
+  await card.waitFor();
+  const approvalOnDisk = async () => (await store.getProject(cwd, project.id)).nodes.find((n) => n.id === frame.id).approval;
+
+  // The step/state chip and the control are on flow frames only.
+  await card.getByText('1 · error').waitFor();
+  assert.equal(await page.locator(`[data-node-id="${plain.id}"]`).getByRole('button', { name: 'Approve' }).count(), 0);
+
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await card.getByRole('button', { name: 'Approved' }).waitFor();
+  await eventually(async () => (await approvalOnDisk())?.status === 'approved', 'the approval on disk');
+
+  // Asking for changes replaces it; pressing it again clears it.
+  await card.getByRole('button', { name: 'Changes' }).click();
+  await eventually(async () => (await approvalOnDisk())?.status === 'changes', 'changes requested on disk');
+  await card.getByRole('button', { name: 'Changes' }).click();
+  await eventually(async () => !(await approvalOnDisk()), 'the verdict cleared on disk');
+
+  // Approve again, then the agent rewrites the frame: the approval goes, on disk and on screen.
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await eventually(async () => (await approvalOnDisk())?.status === 'approved', 'the second approval on disk');
+  await store.updateNode(cwd, project.id, frame.id, { code: CARD.replace('Card</h1>', 'Card v2</h1>') });
+  assert.equal(await approvalOnDisk(), undefined);
+  await card.getByRole('button', { name: 'Approve', exact: true }).waitFor();
+  assert.equal(await card.getByRole('button', { name: 'Approved' }).count(), 0);
+  assert.deepEqual(errors, []);
+  await page.close();
 });

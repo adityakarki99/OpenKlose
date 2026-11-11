@@ -31,6 +31,7 @@ import { boundsOf, fitView, isEditableTarget, stepZoom, zoomAround } from '../li
 import { changeBadge, diffSketches, summarizeChanges } from '../lib/changes.js';
 import { markSent, triageSummaryLine } from '../lib/feedback.js';
 import { mergeSketches } from '../lib/merge.js';
+import { settleApproval } from '../server/storeCore.js';
 import { useHistory } from '../hooks/useHistory';
 import { usePersistence, PersistenceData } from '../hooks/usePersistence';
 
@@ -326,7 +327,8 @@ const CanvasPage: React.FC = () => {
   };
 
   const handleUpdateNode = (id: string, updates: Partial<ComponentNode>) => {
-    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n)));
+    // settleApproval: editing a flow frame's code takes back its approval (the server does the same).
+    setNodes((prev) => prev.map((n) => (n.id === id ? settleApproval(n, { ...n, ...updates, updatedAt: Date.now() }) : n)));
   };
 
   /**

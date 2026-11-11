@@ -108,6 +108,8 @@ export function renderReadme(project, files) {
     md += `---\n\n## ${n.name}\n\n`;
     const meta = [`**Status:** ${n.status || 'sketch'}`, `**Preview:** [\`${files[i]}\`](./${files[i]})`];
     if (n.builtFilePath) meta.push(`**Built as:** \`${n.builtFilePath}\``);
+    if (n.route) meta.push(`**Route:** \`${n.route}\``);
+    if (n.state) meta.push(`**State:** ${n.state}`);
     md += meta.join(' · ') + '\n\n';
     if (n.description) md += `${n.description.trim()}\n\n`;
     md += section('Notes', n.notes);

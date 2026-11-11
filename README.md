@@ -210,12 +210,16 @@ Worth being straight about, because the pitch is stronger without overclaiming:
   cursors. "Async handoff" there means the comments they leave reach the agent.
 - **A model is included.** An artifact iterates from a blank prompt on its own. Klose is deliberately
   inert without an agent driving it.
-- **Preview fidelity ceiling.** A *sketch* is a self-contained snippet in a sandbox, so it is a faithful
-  *restatement* in your tokens, not your component tree running: code that imports repo-local modules is
-  flagged rather than executed. A *built* component is different. Through the [harness](#set-up-the-harness)
-  its card renders the real component, in your app's providers, fonts and icons, served by your own dev
-  server (Expo/Metro, or Vite). That works on your machine only: shared canvases, online workspaces and the
-  hosted canvas show the card's saved snapshot instead.
+- **Preview fidelity depends on your stack.** In an Expo (expo-router) or Vite + React repo, a
+  sketch is written into the repo and drawn by your own dev server, so it imports and composes your
+  real components, inside your providers, and a **built** card renders the real file. That is set up
+  for you by default (`klose harness auto off` and `klose harness sketches sandbox` turn it off).
+  Anywhere else (another framework, a shared or hosted canvas, the dev server stopped) a sketch is a
+  self-contained sandboxed snippet: a faithful *restatement* in your tokens, not your component tree
+  running, and a sketch that imports repo modules shows its last snapshot and says what it needs.
+  With `"server": "klose"` in `klose.config.json` (`klose harness init --server=klose`), a Vite repo
+  gets its components drawn by a Vite server Klose runs itself, and nothing but that config is
+  written to the repo; sketches then stay in the sandbox.
 
 **The one-line version:** a chat artifact shows you a beautiful component. Klose shows you *your*
 component — next to the other five you're considering, in your tokens, reusing what you already
@@ -252,10 +256,10 @@ into any of them. Inside Claude Code:
 ```
 
 (Claude Code 2.1.275 or later. Older versions take it in two steps: `/plugin marketplace add
-adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the three
+adityakarki99/OpenKlose`, then `/plugin install klose@openklose`.) The plugin carries only the
 skills; the canvas and its CLI are still the `klose` npm package, so install that once with
 `npm install -g klose` (or from GitHub until it is on npm, see below) and the skill does the rest.
-The skills run as `/klose:klose`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
+The skills run as `/klose:klose`, `/klose:klose-flow`, `/klose:klose-map`, `/klose:klose-update` and `/klose:klose-cleanup`, and Claude
 Code keeps them current through `/plugin marketplace update openklose`. If you also `klose init` a
 repo, pass `--no-skills` so it doesn't get a second copy.
 
@@ -301,14 +305,14 @@ npx klose init
 > npx klose init
 > ```
 
-`klose init` installs the `/klose`, `/klose-update`, and `/klose-cleanup` skills into
+`klose init` installs the `/klose`, `/klose-flow`, `/klose-map`, `/klose-update`, and `/klose-cleanup` skills into
 `.claude/skills/`, creates local storage at `.klose/` (seeded with a demo sketch so the canvas isn't
 empty), and then tells you what it found in your repo:
 
 ```
 Klose 0.2.0 is set up in /code/acme-web
 
-  ✓ Skills       /klose, /klose-cleanup, /klose-update → .claude/skills/
+  ✓ Skills       /klose, /klose-cleanup, /klose-flow, /klose-map, /klose-update → .claude/skills/
   ✓ Storage      .klose/ (with a demo project, so the canvas isn't empty)
 
 What Klose found in this repo
@@ -371,7 +375,7 @@ npm install -D klose
 npx klose init
 ```
 
-You'll get the `/klose`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
+You'll get the `/klose`, `/klose-flow`, `/klose-map`, `/klose-update` and `/klose-cleanup` skills in `.claude/skills/`, a
 `.klose/projects/` folder holding a demo project, and a short report of the design tokens and
 components Klose found. If `/klose` doesn't show up in Claude Code's command list, restart Claude
 Code.
@@ -583,15 +587,20 @@ npx expo start --web                                   # your own dev server
 `app/__klose.tsx`. Mark a card `built` (with `builtFilePath` and `exportName`) and the registry updates by
 itself; `npx klose harness sync` regenerates it by hand. Files you edit are left alone without `--force`.
 
-**Vite.** Nothing to set up and nothing written to your repo. The first time a built card needs it, Klose starts a
-Vite dev server of its own, with your `vite.config` and the copy of `vite` in your `node_modules`, on a free
-port, and stops it when Klose stops. To wrap components in your providers, add a `klose.config.json`:
+**Vite + React.** Set up for you, like Expo: `klose init` or the first built card writes `klose.config.json`,
+`klose.harness.tsx`, `klose.registry.ts` and `__klose.html`, which your own dev server (`npm run dev`) serves.
 
-```json
-{ "framework": "vite", "providers": "src/Providers.tsx" }
+**Vite, with nothing written to your repo.** If you'd rather not have those files (or your app has no
+`index.html` at the repo root for the generated page to sit next to), opt into a Vite server Klose runs itself:
+
+```bash
+npx klose harness init --server=klose --providers=src/Providers.tsx   # providers is optional
 ```
 
-If `vite` isn't installed in the repo (or needs a newer Node than the one running Klose), the cards show their
+That writes only `klose.config.json` (`{ "framework": "vite", "server": "klose" }`). The first time a built card
+needs it, Klose starts a Vite dev server of its own, with your `vite.config` and the copy of `vite` in your
+`node_modules`, on a free port, and stops it when Klose stops. Sketches stay in the sandbox in this mode. If
+`vite` isn't installed in the repo (or needs a newer Node than the one running Klose), the cards show their
 snapshot or sketch until it is.
 
 **Showing a state.** Give a card a JSON `props` object to render the component in that state:
@@ -709,10 +718,14 @@ klose components "<need>" --rank [--top=N] [--json]   Rank components by fit usi
 klose components "<need>" --rank --all-repos      The same, across every repo the hub knows
 klose components --classify [--json]              Have Jev label each component's role and kind (cached per machine)
 klose theme [--json | --css]                      Show the design tokens previews are rendered with
-klose harness init [--dev-server=URL] [--harness-path=/p] [--providers=FILE] [--force]
-                                                  Set up Expo so built cards render the real component (Vite needs no setup)
-klose harness sync [--force]                      Regenerate klose.registry.ts from the built cards (Expo)
 klose lint <file|folder>... [--jev] [--json]      Audit real source files: literal colours, radii and shadows where the repo has a token, with lines
+klose harness auto [on|off]                       Real components on built cards through your dev server: on by default, set up automatically
+klose harness sketches [real|sandbox]             Draw sketches with your own bundler and real imports (the default), or only in the sandbox
+klose harness accept <project> [<id>|--all]       Let a sketch whose code came from elsewhere (a shared canvas, a pulled file) run in your app
+klose harness init | sync                         Set the harness up by hand, or regenerate its component registry and sketch files
+klose harness init --server=klose                 Vite: let Klose run the dev server and write nothing but klose.config.json
+klose routes [--json]                             List the app's routes (expo-router, Next.js, React Router)
+klose map [--dev-server=URL] [--param id=42]      Put every page on the canvas as a live card; /klose-map adds each route's states
 klose project list                                List projects
 klose project create <name>                       Create a project
 klose project get <id>                            Read a project (nodes, comments, notes)
@@ -726,6 +739,9 @@ klose feedback --triage [--project=<id>]          The same, after Jev says what 
 klose project lint <id> <nodeId> [--no-jev]       Literal colours/radii/shadows in a sketch's preview where the repo has a token
 klose project classify <id> [--force]             Ask Jev what each sketch is, and which repo primitives it looks like a copy of
 klose resolve <id> <nodeId> [commentId...] [--note=…]   Mark comments addressed (all open ones if no ids)
+klose flow create "<name>" @plan.json             Lay a user flow out: one sketch per step and state, steps left to right
+klose flow status <project> [--json]              Each frame's approval, open comments and built file; what is ready to build, what is blocked
+klose flow approve|unapprove <project> <nodeId|step:state>... | --all   Record (or take back) the user's approval from the terminal
 klose share <id> [--host=<url>]                   Put the project at a link the user opens anywhere (for an agent
                                                   the user's browser can't reach); the project then syncs on its own
 klose share list | pull | push | join <link> | leave <id>   The shares of this checkout, one sync round, attach a link made elsewhere

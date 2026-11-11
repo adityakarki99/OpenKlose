@@ -7,7 +7,7 @@
     {
       "name": "klose",
       "source": "./plugin",
-      "description": "The /klose, /klose-update and /klose-cleanup skills. Needs the klose CLI (npm) for the canvas itself.",
+      "description": "The /klose, /klose-flow, /klose-map, /klose-update and /klose-cleanup skills. Needs the klose CLI (npm) for the canvas itself.",
       "category": "design",
       "tags": ["design", "design-system", "ui", "tailwind", "canvas", "react"]
     }

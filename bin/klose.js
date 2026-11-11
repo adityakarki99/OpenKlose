@@ -12,10 +12,14 @@ import { rankComponents, JEV_DEFAULT_BASE_URL, MAX_CANDIDATES } from '../server/
 import { loadTheme } from '../server/theme.js';
 import { resolveRoot } from '../server/root.js';
 import { installSkills } from '../server/skills.js';
-import { KLOSE_GITIGNORE } from '../server/storeCore.js';
+import { KLOSE_GITIGNORE, isValidId } from '../server/storeCore.js';
+import { flowStatus, isFlowNode, planNodes, planProblems } from '../server/flow.js';
+import { randomUUID } from 'node:crypto';
 import { exportProject } from '../server/export.js';
-import { HarnessError, initHarness, readAllProjects, syncRegistry } from '../server/harness.js';
+import { HarnessError, acceptPendingSketches, ensureHarness, initHarness, isManaged, loadHarnessConfig, pendingSketches, readAllProjects, syncRegistry, takeAutoSetupNotices } from '../server/harness.js';
+import { harnessSetting, sketchSetting, writeSettings } from '../server/settings.js';
 import * as share from '../server/share.js';
+import { DEFAULT_MAP_PROJECT, defaultDevServer, detectRouters, discoverRoutes, harnessPathOf, planMap } from '../server/routes.js';
 import { openOnline } from '../server/open.js';
 import {
   defaultHubOptions,
@@ -76,14 +80,20 @@ Canvas data
   project       List, create, read and edit projects and their sketches
   feedback      Read pending comments as JSON
   resolve       Mark comments as addressed, so the canvas shows them done
+  flow          Lay a whole user flow out, every step and state, and build
+                only the frames the user approved
   share         Put a project at a link the user can open anywhere, for when
                 you (the agent) run somewhere their browser can't reach
   components    Search this repo's real components
   theme         Show the design tokens previews are rendered with
   harness       Render real built components on the canvas through your dev
-                server (init, sync)
+                server, and sketches with their real imports (on by default;
+                auto on|off, sketches real|sandbox, accept, init, sync)
   lint          Audit real source files: literal colours, radii and shadows
                 where the repo has a token for them
+  routes        List the app's routes (expo-router, Next.js, React Router)
+  map           Put every page of the app on the canvas as a live card, one
+                project that grows as the app does
 
 Maintenance
   update        Upgrade klose and refresh the installed skills
@@ -93,31 +103,88 @@ Run "klose help <command>" for its options. Commands run from a subfolder act
 on the nearest parent with a .klose/ or .git.`;
 
 const COMMAND_HELP = {
-  harness: `Usage: klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--force] [--json]
+  routes: `Usage: klose routes [--json]
+
+Lists the app's routes, read off its files (nothing is run): expo-router
+(app/ or src/app/), Next.js (app/ and pages/, with or without src/), and React
+Router, best effort, from "path" literals in files that import it.
+
+Every route is printed in one syntax whatever the router: /users/[id] for a
+param, /docs/[...rest] for a catch-all. Layouts and API routes are listed with
+their kind; only pages are mapped by "klose map". --json prints
+[{ path, file, params, framework, kind }].`,
+  map: `Usage: klose map [--dev-server=URL] [--project=ID] [--param name=value ...] [--json]
+
+Puts every page of the app on the canvas: one live card per page route, in a
+project named "${DEFAULT_MAP_PROJECT}" (or --project), grouped by first path segment.
+
+  --dev-server=URL     Where the app is running. Defaults to devServer in
+                       klose.config.json, else the router's usual port
+                       (Expo 8081, Next.js 3000, Vite 5173). Localhost only.
+  --param name=value   A value for a dynamic segment, e.g. --param id=42 for
+                       /users/[id]. Repeatable. A route whose params have no
+                       value gets a card without a frame, and a note saying
+                       what it needs.
+
+Safe to run again: new routes get new cards below the ones already there, and
+cards you have are never moved or rewritten (they are matched on their "route"
+field). A route the app no longer has is reported; its cards are left for you
+to delete. Run /klose-map to have your agent add each route's states.`,
+  harness: `Usage: klose harness auto [on|off] [--json]
+       klose harness sketches [real|sandbox] [--json]
+       klose harness accept <project> [<sketch id> | --all] [--json]
+       klose harness init [--dev-server=URL] [--harness-path=/path] [--providers=FILE] [--server=klose] [--force] [--json]
        klose harness sync [--force] [--json]
 
-Lets the canvas render the real component behind a built card, inside your
-app's own providers: through your Expo/Metro dev server, or, for a Vite
-project, through a Vite server Klose starts itself (nothing to set up).
+Lets the canvas render the real component behind a built card, and a sketch
+with its real imports, inside your app's own providers, through your dev
+server (Expo with expo-router, and Vite + React apps).
 
-  init   Expo: writes klose.config.json (if missing), klose.harness.tsx, the
-         generated klose.registry.ts and, with expo-router, the route
-         app/__klose.tsx. Safe to run again: files you have edited are left
-         alone unless you pass --force. Vite: nothing to write (see below).
-  sync   (Expo) Regenerates klose.registry.ts from the project's built cards
-         (builtFilePath + exportName) and the "components" list in
-         klose.config.json. It also runs by itself whenever a card becomes
-         built or its file or export changes.
+It is on by default: "klose init", and the first card marked built, set it up
+without being asked, and say which files they wrote.
 
-Vite: Klose starts its own Vite server the first time a built card needs it,
-using the repo's vite and vite config, and writes no files. Add
-{ "framework": "vite", "providers": "src/Providers.tsx" } to klose.config.json
-to wrap components in your providers.
+  auto   Shows whether that is on, or turns it on or off for this repo
+         (.klose/settings.json, meant to be committed). Off also stops the
+         canvas using a harness that is already set up: built cards show
+         their sketch. KLOSE_HARNESS=off does the same for one machine.
+  sketches
+         Shows or sets how sketches are drawn. "real" (the default): a
+         sketch is also written into the repo (klose.sketches/<id>.tsx, or
+         "sketchDir" in klose.config.json) and drawn by your own bundler, so
+         it can import your real components. "sandbox": sketches are only
+         drawn in the sandbox, and the files written for them are removed.
+         KLOSE_SKETCHES does the same for one machine.
+  accept Only code written on this machine (by your agent, or on the local
+         canvas) is written into the repo. A sketch that came from a shared
+         canvas, an online workspace or a pulled project file stays in the
+         sandbox until you accept it here: read its code first, because once
+         accepted it runs in your app, with everything your app can reach.
+         Without a sketch id, lists the sketches waiting.
+  init   Writes klose.config.json (if missing), klose.harness.tsx, the
+         generated klose.registry.ts and the page your dev server serves:
+         with expo-router the route app/__klose.tsx, with Vite __klose.html.
+         Safe to run again: files you have edited are left alone unless you
+         pass --force. An Expo project without expo-router needs this run by
+         hand, because the route has to be added to your navigator.
+         --server=klose (Vite): write only klose.config.json, with
+         "server": "klose", and let Klose run the dev server (see below).
+  sync   Regenerates klose.registry.ts from the project's built cards
+         (builtFilePath + exportName), the "components" list in
+         klose.config.json and the sketch files, which it also brings up to
+         date. It also runs by itself whenever a card or a sketch changes.
 
-klose.config.json: { "framework": "expo", "devServer": "http://localhost:8081",
-"harnessPath": "/__klose", "providers": "src/Providers.tsx" }. devServer must be
-on localhost. Add "props" to a card (klose project update-node) to show a
-component in a given state.`,
+Vite without files in your repo: with "server": "klose" in klose.config.json,
+Klose starts a Vite server of its own the first time a built card needs it,
+using your repo's vite and vite config, and writes nothing else to the repo:
+no klose.harness.tsx, registry, __klose.html or sketch files. Sketches stay in
+the sandbox. It also suits Vite apps the generated page can't serve (no
+index.html at the repo root). Opt in with: klose harness init --server=klose.
+
+klose.config.json: { "framework": "expo" | "vite", "devServer":
+"http://localhost:8081", "harnessPath": "/__klose", "providers":
+"src/Providers.tsx", "server": "repo" | "klose" }. devServer must be on
+localhost; with "server": "klose" it is not needed. Add "props" to a card
+(klose project update-node) to show a component in a given state.`,
   open: `Usage: klose open --online [--repo owner/name] [--branch main] [--project id] [--host URL] [--json]
 
 Opens or resumes one online workspace. From a repo, omit --repo. With --repo,
@@ -145,7 +212,7 @@ Sets Klose up once for the whole machine, so no repo needs its own init:
 Safe to run again: anything already done is left as it is.`,
   init: `Usage: klose init [options]
 
-Installs the /klose, /klose-update and /klose-cleanup skills into
+Installs the /klose, /klose-flow, /klose-map, /klose-update and /klose-cleanup skills into
 .claude/skills/, creates .klose/ storage, and reports what Klose found in the
 repo (design tokens, components).
 
@@ -277,6 +344,32 @@ Marks comments on a sketch as addressed. With no comment ids, resolves every
 open comment on that sketch. The canvas shows them as resolved (the user can
 reopen one), and they drop out of "klose feedback" and out of what the canvas
 copies for the agent. --note is shown to the user next to each comment.`,
+  flow: `Usage: klose flow create "<name>" <json|@plan.json> [--json]
+       klose flow status <project> [--json]
+       klose flow approve <project> <nodeId|step:state>... | --all [--json]
+       klose flow unapprove <project> <nodeId|step:state>... | --all [--json]
+
+A flow is one project holding a frame for every step of a user flow and every
+state of each step. <project> is a project id or its exact name.
+
+  create     Reads a plan and puts one sketch per step and state on the
+             canvas: steps left to right, a step's states stacked under it.
+             The plan:
+               { "description": "…",
+                 "steps": [ { "name": "Enter email", "description": "…",
+                              "states": [ { "state": "default", "code": "…" },
+                                          { "state": "error", "notes": "…", "code": "…" } ] } ] }
+             A state may also carry name, description, width and height. Every
+             problem with the plan is reported at once, and nothing is created
+             until it is valid.
+  status     Each frame's approval, open comments and built file, plus
+             "ready" (approved, not built, no open comments: build these) and
+             "blocked" (with the reason: not approved yet, changes requested,
+             or open comments).
+  approve    Records the user's approval from the terminal. They normally
+  unapprove  approve on the canvas; use this only when they told you to.
+
+Changing a frame's code clears its approval: an approval is of what was seen.`,
   share: `Usage: klose share <projectId> [--host=<url>] [--json]
        klose share list [--json]
        klose share pull|push [projectId] [--json]
@@ -564,6 +657,15 @@ async function cmdInit(args) {
   if (skipSkills) console.log('  ✓ Skills       left to the Klose plugin (--no-skills)');
   else printSkillReport(report);
   console.log(`  ✓ Storage      ${relToRoot('.klose')}/${seeded ? ' (with a demo project, so the canvas isn\'t empty)' : ''}`);
+
+  // On by default (klose harness auto off): built cards render the real component.
+  const harness = await ensureHarness(root, store);
+  takeAutoSetupNotices();
+  if (harness) {
+    console.log(`  ✓ Harness      ${wroteFiles(harness).join(', ')}`);
+    console.log(`                 Built cards render your real components through ${harness.config.devServer}.`);
+    console.log('                 To turn this off: npx klose harness auto off');
+  }
 
   if (hasFlag(args, '--wire-claude-md')) {
     const wired = await wireClaudeMd(root);
@@ -1327,6 +1429,19 @@ function printLint(result) {
   else if (!jev.asked && findings.some((f) => f.candidates > 0)) console.error('Set TYPESAFE_API_KEY to have Jev suggest which token each should become.');
 }
 
+const wroteFiles = (setup) => setup.files.filter((f) => f.result === 'created' || f.result === 'updated').map((f) => f.file);
+
+// Automatic harness setup during any other command (marking a card built) is
+// reported on stderr, so a --json answer on stdout stays valid JSON.
+function reportAutoSetup() {
+  for (const setup of takeAutoSetupNotices()) {
+    process.stderr.write(
+      `klose: set up the component harness (${wroteFiles(setup).join(', ')}), so built cards render your real components ` +
+        `through ${setup.config.devServer}. To turn this off: klose harness auto off\n`
+    );
+  }
+}
+
 async function cmdHarness(args) {
   const [sub, ...rest] = args;
   const flag = (name) => {
@@ -1336,36 +1451,184 @@ async function cmdHarness(args) {
   const json = hasFlag(rest, '--json');
   const force = hasFlag(rest, '--force');
   try {
+    if (sub === 'auto') {
+      const want = rest.find((a) => !a.startsWith('--'));
+      if (want !== undefined && want !== 'on' && want !== 'off') fail('usage: klose harness auto [on|off]');
+      let setup = null;
+      if (want) {
+        await writeSettings(root, { harness: want === 'on' ? 'auto' : 'off' });
+        if ((await harnessSetting(root)).value === 'auto') setup = await ensureHarness(root, store);
+        takeAutoSetupNotices();
+      }
+      const { value, source } = await harnessSetting(root);
+      if (json) return printJson({ harness: value, source, ...(setup ? { files: setup.files, config: setup.config } : {}) });
+      console.log(`Component harness: ${value === 'auto' ? 'on' : 'off'}${source === 'env' ? ' (KLOSE_HARNESS overrides .klose/settings.json)' : source === 'default' ? ' (the default)' : ''}`);
+      if (setup) {
+        console.log(`Set up: ${wroteFiles(setup).join(', ')}`);
+        console.log(`Start your dev server (${setup.config.devServer}); built cards then render your real components.`);
+      }
+      return;
+    }
+    if (sub === 'sketches') {
+      const want = rest.find((a) => !a.startsWith('--'));
+      if (want !== undefined && want !== 'real' && want !== 'sandbox') fail('usage: klose harness sketches [real|sandbox]');
+      if (want) {
+        await writeSettings(root, { sketches: want });
+        await ensureHarness(root, store);
+        takeAutoSetupNotices();
+      }
+      const { value, source } = await sketchSetting(root);
+      const config = (await harnessSetting(root)).value === 'off' ? null : await loadHarnessConfig(root);
+      const real = value === 'real' && !!config && !isManaged(config);
+      const pending = real ? await pendingSketches(root, await readAllProjects(store, root), config) : [];
+      if (json) return printJson({ sketches: value, source, real, sketchDir: real ? config.sketchDir || 'klose.sketches' : null, pending });
+      const where = source === 'env' ? ' (KLOSE_SKETCHES overrides .klose/settings.json)' : source === 'default' ? ' (the default)' : '';
+      if (real) console.log(`Sketches: drawn by your bundler, with real imports${where}. Their files are in ${config.sketchDir || 'klose.sketches'}/.`);
+      else if (value === 'real' && isManaged(config)) console.log(`Sketches: drawn in the sandbox, because with "server": "klose" Klose writes no files to the repo${where}.`);
+      else if (value === 'real') console.log(`Sketches: drawn in the sandbox, because this repo has no component harness in use (klose harness init)${where}.`);
+      else console.log(`Sketches: drawn in the sandbox only${where}.`);
+      if (pending.length) console.log(`${plural(pending.length, 'sketch', 'sketches')} came from somewhere else and ${pending.length === 1 ? 'stays' : 'stay'} in the sandbox until accepted: klose harness accept <project>`);
+      return;
+    }
+    if (sub === 'accept') {
+      const [ref, nodeRef] = rest.filter((a) => !a.startsWith('--'));
+      if (!ref) fail('usage: klose harness accept <project> [<sketch id> | --all]');
+      const config = await loadHarnessConfig(root);
+      if (!config) fail('No klose.config.json here. Run "klose harness init" first.');
+      const project = await findProject(ref);
+      const projects = await readAllProjects(store, root);
+      const waiting = new Set(await pendingSketches(root, projects, config));
+      const pending = (project.nodes || []).filter((n) => waiting.has(n.id));
+      const all = hasFlag(rest, '--all');
+      if (!nodeRef && !all) {
+        if (json) return printJson({ pending: pending.map((n) => ({ id: n.id, name: n.name })) });
+        if (!pending.length) return console.log(`No sketch in "${project.name}" is waiting to be accepted.`);
+        console.log(`Waiting in "${project.name}" (their code did not come from this machine):`);
+        for (const n of pending) console.log(`  ${n.id}  ${n.name || 'Untitled sketch'}`);
+        console.log('\nRead the code ("klose project get"), then: klose harness accept <project> <sketch id>, or --all');
+        return;
+      }
+      const chosen = all ? pending : pending.filter((n) => n.id === nodeRef);
+      if (!all && !chosen.length) fail(`no sketch ${JSON.stringify(nodeRef)} is waiting in "${project.name}" (run "klose harness accept ${ref}" to list them)`);
+      const accepted = await acceptPendingSketches(root, chosen, projects);
+      if (json) return printJson({ accepted });
+      console.log(`Accepted ${plural(accepted.length, 'sketch', 'sketches')}. ${accepted.length === 1 ? 'It is' : 'They are'} now written into the repo and drawn by your bundler.`);
+      return;
+    }
     if (sub === 'init') {
+      if ((await harnessSetting(root)).value === 'off') process.stderr.write('klose: the harness is turned off for this repo, so the canvas will not use it until you run "klose harness auto on".\n');
       const projects = await readAllProjects(store, root);
       const result = await initHarness(root, {
         force,
         devServer: flag('--dev-server'),
         harnessPath: flag('--harness-path'),
         providers: flag('--providers'),
+        server: flag('--server'),
         projects,
       });
       if (json) return printJson(result);
       for (const { file, result: what } of result.files) console.log(`${what.padEnd(9)} ${file}`);
       if (result.files.some((f) => f.result === 'skipped')) console.log('Some generated files were edited by hand and left alone. Use --force to regenerate them.');
       if (result.manual) console.log(`\n${result.manual}`);
-      if (result.auto) return;
+      if (result.managed) return;
       console.log(`\nStart your dev server (${result.config.devServer}), then mark a card built: it appears in klose.registry.ts and renders on the canvas.`);
       return;
     }
     if (sub === 'sync') {
-      const { result, keys } = await syncRegistry(root, await readAllProjects(store, root), { force });
-      if (json) return printJson({ result, components: keys });
-      if (result === 'auto') return console.log(`Vite auto-mode: nothing to sync (${keys.length} built component${keys.length === 1 ? '' : 's'}; no files are written to your repo).`);
-      console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'})`);
+      const { result, keys, sketches } = await syncRegistry(root, await readAllProjects(store, root), { force });
+      if (json) return printJson({ result, components: keys, sketches });
+      if (result === 'managed') return console.log(`Klose runs this repo's Vite server: nothing to sync (${keys.length} built component${keys.length === 1 ? '' : 's'}; no files are written to your repo).`);
+      console.log(`${result}: klose.registry.ts (${keys.length} component${keys.length === 1 ? '' : 's'}${sketches.keys.length ? `, ${sketches.keys.length} of them sketches` : ''})`);
       if (result === 'skipped') console.log('klose.registry.ts was edited by hand and left alone. Use --force to regenerate it.');
+      for (const f of sketches.files) if (f.result !== 'unchanged') console.log(`${f.result.padEnd(9)} ${f.file}`);
+      if (sketches.pending.length) console.log(`${plural(sketches.pending.length, 'sketch', 'sketches')} waiting to be accepted (klose harness accept <project>).`);
       return;
     }
   } catch (err) {
     if (err instanceof HarnessError) fail(err.message);
     throw err;
   }
-  fail('usage: klose harness <init|sync> (see "klose help harness")');
+  fail('usage: klose harness <auto|sketches|accept|init|sync> (see "klose help harness")');
+}
+
+async function cmdRoutes(args) {
+  const routes = await discoverRoutes(root, { harnessPath: await harnessPathOf(root) });
+  if (hasFlag(args, '--json')) return printJson(routes);
+  if (!routes.length) {
+    const routers = await detectRouters(root);
+    return console.log(routers.length ? `No routes found for ${routers.join(', ')}.` : 'No router found: klose routes reads expo-router, Next.js and React Router projects.');
+  }
+  const width = Math.max(...routes.map((r) => r.path.length));
+  for (const r of routes) console.log(`${r.path.padEnd(width)}  ${r.kind.padEnd(6)}  ${r.file}`);
+  const pages = routes.filter((r) => r.kind === 'page').length;
+  console.log(`\n${plural(pages, 'page')} of ${plural(routes.length, 'route')}. "klose map" puts the pages on the canvas.`);
+}
+
+async function cmdMap(args) {
+  const json = hasFlag(args, '--json');
+  const options = { params: {} };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--json') continue;
+    const [flag, inline] = args[i].split(/=(.*)/s);
+    if (!['--dev-server', '--project', '--param'].includes(flag)) fail(`unknown map option: ${args[i]}\n\n${COMMAND_HELP.map}`);
+    const value = inline ?? args[++i];
+    if (!value || value.startsWith('--')) fail(`${flag} needs a value`);
+    if (flag === '--param') {
+      const eq = value.indexOf('=');
+      if (eq < 1) fail(`--param takes name=value, got ${JSON.stringify(value)}`);
+      options.params[value.slice(0, eq)] = value.slice(eq + 1);
+    } else {
+      options[flag === '--project' ? 'project' : 'devServer'] = value;
+    }
+  }
+
+  const routers = await detectRouters(root);
+  const routes = await discoverRoutes(root, { harnessPath: await harnessPathOf(root), routers });
+  if (!routes.some((r) => r.kind === 'page')) {
+    fail(routers.length ? `no page routes found for ${routers.join(', ')}` : 'no router found: klose map reads expo-router, Next.js and React Router projects');
+  }
+  const devServer = options.devServer || (await defaultDevServer(root, routers));
+
+  let project;
+  if (options.project) {
+    project = await store.getProject(root, options.project);
+  } else {
+    const existing = (await store.listProjects(root)).find((p) => p.name === DEFAULT_MAP_PROJECT);
+    project = existing ? await store.getProject(root, existing.id) : null;
+  }
+  let plan;
+  try {
+    plan = planMap({ routes, nodes: project?.nodes || [], devServer, params: options.params });
+  } catch (err) {
+    fail(err.message);
+  }
+  const created = !project;
+  if (!project) project = await store.createProject(root, DEFAULT_MAP_PROJECT);
+
+  const result = await withShare(project.id, async () => {
+    const added = [];
+    for (const node of plan.add) added.push(await store.addNode(root, project.id, node));
+    for (const { id, updates } of plan.fill) await store.updateNode(root, project.id, id, updates);
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      created,
+      devServer: devServer.replace(/\/+$/, ''),
+      added: added.map((n) => ({ id: n.id, route: n.route, url: n.url || null })),
+      filled: plan.fill.map((f) => ({ id: f.id, route: f.route, url: f.updates.url })),
+      kept: plan.kept,
+      needParams: plan.needParams,
+      missing: plan.missing,
+    };
+  }, { pullFirst: false });
+  if (json) return printJson(result);
+
+  console.log(`${created ? 'Created' : 'Updated'} "${result.projectName}" (${result.projectId}) against ${result.devServer}`);
+  console.log(`  ${plural(result.added.length, 'route')} added, ${result.kept.length} already on the canvas${result.filled.length ? `, ${result.filled.length} given a frame` : ''}`);
+  for (const n of result.added) console.log(`  + ${n.route}${n.url ? '' : '  (no frame yet)'}`);
+  for (const n of result.needParams) console.log(`  ? ${n.route} needs ${n.params.map((p) => `--param ${p}=<value>`).join(' ')}`);
+  for (const m of result.missing) console.log(`  - ${m.route} is no longer a route (${plural(m.nodeIds.length, 'card')} left on the canvas)`);
+  console.log('\nRun /klose-map to have your agent add the states of each route.');
 }
 
 async function cmdLint(args) {
@@ -1625,6 +1888,107 @@ async function cmdResolve(args) {
   return printJson(result);
 }
 
+// ------------------------------------------------------------------ flow
+
+// A project by id, or by its exact name (flows are usually spoken of by name).
+async function findProject(ref) {
+  if (isValidId(ref)) return store.getProject(root, ref);
+  const named = (await store.listProjects(root)).filter((p) => p.name.toLowerCase() === ref.toLowerCase());
+  if (!named.length) fail(`no project with the id or name ${JSON.stringify(ref)} (see "klose project list")`);
+  if (named.length > 1) fail(`${named.length} projects are named ${JSON.stringify(ref)}; use the id: ${named.map((p) => p.id).join(', ')}`);
+  return store.getProject(root, named[0].id);
+}
+
+function printFlowStatus(status) {
+  const { totals } = status;
+  if (!status.isFlow) return console.log(`"${status.projectName}" has no flow frames (none of its sketches has a step). Create one with "klose flow create".`);
+  console.log(`${status.projectName}: ${totals.steps} step${totals.steps === 1 ? '' : 's'}, ${totals.frames} frame${totals.frames === 1 ? '' : 's'} — ${totals.approved} approved, ${totals.built} built, ${totals.ready} ready to build, ${totals.blocked} blocked`);
+  for (const step of status.steps) {
+    console.log(`\n  Step ${step.step}`);
+    for (const f of step.states) {
+      const mark = f.status === 'built' ? '■' : f.approval === 'approved' ? '✓' : f.approval === 'changes' ? '!' : '·';
+      const what =
+        f.status === 'built'
+          ? `built → ${f.builtFilePath || '(no file path recorded)'}`
+          : status.blocked.find((b) => b.nodeId === f.nodeId)?.reason || 'ready to build';
+      console.log(`    ${mark} ${f.state.padEnd(14)} ${what.padEnd(28)} ${f.nodeId}`);
+    }
+  }
+  if (status.complete) console.log('\nEvery frame is built.');
+  else if (totals.ready) console.log(`\nBuild the ${totals.ready} ready frame${totals.ready === 1 ? '' : 's'}; leave the rest until the user approves them.`);
+  else console.log('\nNothing is ready to build: waiting on the user to approve frames on the canvas, or on open comments.');
+}
+
+async function cmdFlow(args) {
+  const [sub, ...rest] = args;
+  const json = hasFlag(rest, '--json');
+  const positional = rest.filter((a) => !a.startsWith('--'));
+  switch (sub) {
+    case 'create': {
+      const [name, planArg] = positional;
+      if (!name || !planArg) fail('usage: klose flow create "<name>" <json|@plan.json> [--json]');
+      const plan = await parseJsonArg(planArg);
+      const problems = planProblems(plan);
+      if (problems.length) fail(`the flow plan has ${problems.length} problem${problems.length === 1 ? '' : 's'}:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+      const project = await store.createProject(root, name);
+      const nodes = planNodes(plan, { newId: randomUUID });
+      await store.updateProject(root, project.id, { description: typeof plan.description === 'string' ? plan.description.trim() : '', nodes });
+      const result = {
+        projectId: project.id,
+        name: project.name,
+        steps: plan.steps.length,
+        frames: nodes.length,
+        nodes: nodes.map((n) => ({ nodeId: n.id, name: n.name, step: n.step, state: n.state })),
+      };
+      if (json) return printJson(result);
+      console.log(`Created the flow "${project.name}" (${project.id}): ${result.steps} step${result.steps === 1 ? '' : 's'}, ${result.frames} frame${result.frames === 1 ? '' : 's'}.`);
+      console.log('Steps run left to right on the canvas; each step’s states are stacked under it.');
+      console.log(`Ask the user to approve frames or comment on them there, then run: klose flow status ${project.id}`);
+      return;
+    }
+    case 'status': {
+      if (!positional[0]) fail('usage: klose flow status <project> [--json]');
+      const first = await findProject(positional[0]);
+      await syncShared(first.id);
+      const status = flowStatus(await store.getProject(root, first.id));
+      return json ? printJson(status) : printFlowStatus(status);
+    }
+    case 'approve':
+    case 'unapprove': {
+      const [ref, ...nodeRefs] = positional;
+      const all = hasFlag(rest, '--all');
+      if (!ref || (!all && !nodeRefs.length)) fail(`usage: klose flow ${sub} <project> <nodeId|step:state>... | --all [--json]`);
+      const project = await findProject(ref);
+      const frames = (project.nodes || []).filter(isFlowNode);
+      const wanted = all
+        ? frames
+        : nodeRefs.map((nodeRef) => {
+            const byStep = /^(\d+):(.+)$/.exec(nodeRef);
+            const frame = frames.find((n) => n.id === nodeRef || (byStep && n.step === Number(byStep[1]) && (n.state || 'default').toLowerCase() === byStep[2].toLowerCase()));
+            if (!frame) fail(`no flow frame ${JSON.stringify(nodeRef)} in "${project.name}" (see "klose flow status ${project.id}")`);
+            return frame;
+          });
+      const approve = sub === 'approve';
+      const changed = wanted.filter((n) => (approve ? n.approval?.status !== 'approved' : !!n.approval));
+      const at = Date.now();
+      await withShare(project.id, async () => {
+        for (const n of changed) await store.updateNode(root, project.id, n.id, { approval: approve ? { status: 'approved', at } : null });
+      });
+      const result = {
+        projectId: project.id,
+        [approve ? 'approved' : 'unapproved']: changed.map((n) => ({ nodeId: n.id, name: n.name, step: n.step, state: n.state || 'default' })),
+        unchanged: wanted.length - changed.length,
+      };
+      if (json) return printJson(result);
+      console.log(`${approve ? 'Approved' : 'Cleared the approval of'} ${changed.length} frame${changed.length === 1 ? '' : 's'} in "${project.name}"${result.unchanged ? ` (${result.unchanged} already ${approve ? 'approved' : 'without one'})` : ''}.`);
+      for (const n of changed) console.log(`  step ${n.step} · ${n.state || 'default'}  ${n.name}`);
+      return;
+    }
+    default:
+      fail(`${sub ? `unknown flow subcommand "${sub}"` : 'missing flow subcommand'}\n\n${COMMAND_HELP.flow}`);
+  }
+}
+
 // ------------------------------------------------------------------ main
 
 async function cmdOpen(args) {
@@ -1659,8 +2023,11 @@ const COMMANDS = {
   theme: cmdTheme,
   harness: cmdHarness,
   lint: cmdLint,
+  routes: cmdRoutes,
+  map: cmdMap,
   feedback: cmdFeedback,
   resolve: cmdResolve,
+  flow: cmdFlow,
   share: cmdShare,
 };
 
@@ -1682,7 +2049,9 @@ async function main() {
   // The hub and a global init aren't about this repo, so which root was picked is noise.
   const machineWide = command === 'hub' || command === 'tray' || command === 'setup' || (command === 'init' && hasFlag(args, '--global'));
   if (root !== invokedFrom && !machineWide) process.stderr.write(`klose: using repo root ${root}\n`);
-  return run(args);
+  const result = await run(args);
+  reportAutoSetup();
+  return result;
 }
 
 main().catch((err) => fail(err.message || String(err)));

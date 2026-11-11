@@ -1,0 +1,8 @@
+{
+  "name": "vite-fixture",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "devDependencies": { "vite": "^6.2.0" },
+  "dependencies": { "react": "^19.2.4", "react-dom": "^19.2.4" }
+}

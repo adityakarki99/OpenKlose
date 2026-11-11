@@ -231,7 +231,24 @@ async function start(root, { harnessPath, providers }) {
     await server?.close().catch(() => {});
     throw new ViteHarnessError(`Could not start the repo's Vite dev server: ${err.message}`);
   }
-  return { url: `http://localhost:${port}`, close: () => server.close() };
+  return { url: `http://localhost:${port}`, close: () => closeWithin(server, CLOSE_TIMEOUT_MS) };
+}
+
+const CLOSE_TIMEOUT_MS = 3000;
+
+/**
+ * `server.close()`, given up on after `ms`. Vite waits for every plugin hook in
+ * flight, and one can wait forever: closing while a module it pre-transformed
+ * for the harness page still waits on the dependency optimizer (which closing
+ * stops) leaves that hook pending. By then the port, watcher and websocket are
+ * already closed, so Klose stops waiting rather than hang its own shutdown.
+ */
+export function closeWithin(server, ms) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([server.close(), late]).finally(() => clearTimeout(timer));
 }
 
 /**

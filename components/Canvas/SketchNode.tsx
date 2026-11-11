@@ -8,10 +8,13 @@ import LivePreview from '../Runtime/LivePreview';
 import CodeView from './CodeView';
 import { SketchSizePanel, SketchToolbar } from './SketchToolbar';
 import { CommentPins, DRAFT_PIN_ID, SketchWidePins } from './CommentPins';
+import { FlowApproval, FlowChip } from './FlowApproval';
 import { openComments } from '../../lib/feedback.js';
 import { MAX_SNAPSHOT_CHARS } from '../../server/storeCore.js';
 import { harnessAddress } from '../../server/harnessCore.js';
-import { getHarness, HarnessInfo } from '../../services/harnessService';
+import { acceptSketch, getHarness, HARNESS_AVAILABLE, HarnessInfo } from '../../services/harnessService';
+import { repoImports } from '../../lib/sketchImports.js';
+import RealOnlyNotice from './RealOnlyNotice';
 
 /** A bridged live card refreshes its fallback snapshot at most this often (per card, per page session). */
 const SNAPSHOT_MIN_INTERVAL_MS = 3 * 60 * 1000;
@@ -118,12 +121,15 @@ const SketchNode: React.FC<SketchNodeProps> = ({
   // A live card can pick elements, pin comments and take screenshots once its
   // page has loaded klose-bridge.js; until then it is a plain frame.
   // A built card whose component is in the repo's harness registry can be drawn
-  // as the real thing, through the dev server. Fallback order: that frame, its
-  // snapshot, the sandboxed restatement in `code`, the placeholder.
+  // as the real thing, through the dev server. So can a sketch, once Klose has
+  // written its code into the repo for the bundler (server/harness.js): it then
+  // renders with its real imports. Fallback order: that frame, its snapshot,
+  // the sandboxed `code`, the placeholder.
   const [harness, setHarness] = useState<HarnessInfo | null>(null);
   const [showSketch, setShowSketch] = useState(false);
+  const hasCode = !!node.code;
   useEffect(() => {
-    if (node.status !== 'built' || node.url) return;
+    if (node.url || (node.status !== 'built' && !hasCode)) return;
     let live = true;
     let timer: number | undefined;
     // The registry is rewritten by the server just after a card turns built, and
@@ -133,7 +139,12 @@ const SketchNode: React.FC<SketchNodeProps> = ({
       getHarness(attempt > 0).then((info) => {
         if (!live) return;
         setHarness(info);
-        const listed = !info.config || harnessAddress(info.config, node, info.registry);
+        // A sketch that is waiting to be accepted, or a repo that keeps sketches
+        // in the sandbox (by setting, or because Klose runs the server and
+        // writes no files), will not turn up however often we ask.
+        const expected =
+          node.status === 'built' || (info.sketches !== 'sandbox' && info.config?.server !== 'klose' && !info.pendingSketches?.includes(node.id));
+        const listed = !info.config || !expected || harnessAddress(info.config, node, info.registry);
         if (!listed && attempt < RETRY_DELAYS_MS.length) timer = window.setTimeout(() => load(attempt + 1), RETRY_DELAYS_MS[attempt]);
       });
     load(0);
@@ -141,10 +152,32 @@ const SketchNode: React.FC<SketchNodeProps> = ({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [node.status, node.url, node.builtFilePath, node.exportName]);
+  }, [node.id, node.status, node.url, node.builtFilePath, node.exportName, hasCode]);
   const harnessUrl = !node.url && harness ? harnessAddress(harness.config, node, harness.registry) : null;
   const frameUrl = node.url || (harnessUrl && !showSketch ? harnessUrl : null);
-  const hasPreview = !!node.code || (!!frameUrl && bridged);
+  // Code that imports the repo's own modules can't run in the sandbox at all:
+  // say so there, instead of showing the sandbox's "unsupported import" error.
+  const needs = useMemo(() => repoImports(node.code), [node.code]);
+  const pending = !isBuilt && !!harness?.pendingSketches?.includes(node.id);
+  const [accepting, setAccepting] = useState(false);
+  const handleAccept = () => {
+    setAccepting(true);
+    acceptSketch(node.id)
+      .then(setHarness, () => {})
+      .finally(() => setAccepting(false));
+  };
+  const realOnly = needs.length ? (
+    <RealOnlyNotice
+      imports={needs}
+      snapshot={node.snapshot}
+      pending={pending}
+      accepting={accepting}
+      onAccept={handleAccept}
+      devServer={HARNESS_AVAILABLE() ? harness?.config?.devServer : undefined}
+      nextToRepo={HARNESS_AVAILABLE()}
+    />
+  ) : null;
+  const hasPreview = (!!node.code && (!realOnly || !!frameUrl)) || (!!frameUrl && bridged);
 
   const previewRef = useRef<PreviewHandle>(null);
   const fallbackRef = useRef<PreviewHandle>(null);
@@ -253,7 +286,9 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ? 'border-blue-500 ring-2 ring-blue-500/30'
             : agentBadge
               ? 'border-violet-400 ring-4 ring-violet-400/30'
-              : 'border-app-border hover:border-app-border-strong'
+              : node.step && node.approval?.status === 'approved'
+                ? 'border-emerald-400/70 ring-2 ring-emerald-400/25'
+                : 'border-app-border hover:border-app-border-strong'
       }`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onPointerDown={(e) => {
@@ -309,6 +344,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
         >
           {isBuilt ? 'Built' : 'Sketch'}
         </span>
+        <FlowChip node={node} />
         <span className="flex-shrink-0 truncate text-sm font-semibold text-app-primary" style={{ maxWidth: '60%' }}>
           {node.name || 'Untitled sketch'}
         </span>
@@ -330,6 +366,16 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             ≈ {overlaps[0].name}{overlaps.length > 1 ? ` +${overlaps.length - 1}` : ''}
           </span>
         )}
+        {/* A flow frame (one with `step`) shows its state in its own step chip. */}
+        {(node.route || (node.state && !node.step)) && (
+          <span
+            className="flex-shrink-0 truncate rounded-md bg-sky-400/15 px-1.5 py-px font-mono text-[10.5px] font-medium text-sky-300"
+            style={{ maxWidth: 200 }}
+            title={[node.route && `Route ${node.route}`, node.state && `State: ${node.state}`].filter(Boolean).join(' · ')}
+          >
+            {[node.route, !node.step && node.state].filter(Boolean).join(' · ')}
+          </span>
+        )}
         {/* The built path lives in the header, so it never covers the preview. */}
         <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-xs text-emerald-300" title={node.builtFilePath}>
           {isBuilt && node.builtFilePath && (
@@ -340,7 +386,7 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           )}
         </span>
         {harnessUrl && node.code && (
-          <div role="group" aria-label="Show the real component or the sketch" className="flex flex-shrink-0 overflow-hidden rounded-md border border-app-border text-[10.5px] font-medium">
+          <div role="group" aria-label={isBuilt ? 'Show the real component or the sketch' : 'Draw this sketch with your bundler or in the sandbox'} className="flex flex-shrink-0 overflow-hidden rounded-md border border-app-border text-[10.5px] font-medium">
             {[false, true].map((sketch) => (
               <button
                 key={String(sketch)}
@@ -349,11 +395,23 @@ const SketchNode: React.FC<SketchNodeProps> = ({
                 onClick={() => setShowSketch(sketch)}
                 className={`px-1.5 py-px ${showSketch === sketch ? 'bg-app-surface-muted/20 text-app-primary' : 'text-app-secondary hover:text-app-primary'}`}
               >
-                {sketch ? 'Sketch' : 'Real'}
+                {sketch ? (isBuilt ? 'Sketch' : 'Sandbox') : 'Real'}
               </button>
             ))}
           </div>
         )}
+        {pending && !realOnly && (
+          <button
+            type="button"
+            disabled={accepting}
+            onClick={handleAccept}
+            className="flex-shrink-0 rounded-md border border-app-border px-1.5 py-px text-[10.5px] font-medium text-app-secondary hover:text-app-primary disabled:opacity-60"
+            title="This sketch's code did not come from this machine, so it is only drawn in the sandbox. Accepting writes it into your repo and runs it in your app, through your dev server: read the code first."
+          >
+            Run in my app
+          </button>
+        )}
+        <FlowApproval node={node} onUpdate={onUpdate} />
         {commentCount > 0 && (
           <span
             className="flex flex-shrink-0 items-center gap-1 rounded-full bg-app-surface-muted/10 px-1.5 py-0.5 text-[11px] font-medium text-app-secondary"
@@ -374,7 +432,9 @@ const SketchNode: React.FC<SketchNodeProps> = ({
             snapshot={node.snapshot}
             fallbackHandle={fallbackRef}
             fallback={
-              harnessUrl && node.code ? (
+              harnessUrl && node.code && realOnly ? (
+                realOnly
+              ) : harnessUrl && node.code ? (
                 // The sandboxed restatement, wired like the ordinary sketch preview below.
                 <Preview
                   ref={fallbackRef}
@@ -421,19 +481,21 @@ const SketchNode: React.FC<SketchNodeProps> = ({
           // keeps that from flashing as a dark band.
           style={{ background: 'rgb(var(--app-surface))' }}
         >
-          <Preview
-            ref={previewRef}
-            code={node.code}
-            exportName={node.exportName}
-            // An interactive iframe eats the pointer events a gesture depends on,
-            // so the preview only takes them when the canvas is idle.
-            interactive={(isSelected || isTargeting) && !isGesturing}
-            isInspecting={isTargeting}
-            onElementSelect={onInspectElement}
-            onContentSize={handleContentSize}
-            pinTargets={pinTargets}
-            onPins={setPinPositions}
-          />
+          {realOnly || (
+            <Preview
+              ref={previewRef}
+              code={node.code}
+              exportName={node.exportName}
+              // An interactive iframe eats the pointer events a gesture depends on,
+              // so the preview only takes them when the canvas is idle.
+              interactive={(isSelected || isTargeting) && !isGesturing}
+              isInspecting={isTargeting}
+              onElementSelect={onInspectElement}
+              onContentSize={handleContentSize}
+              pinTargets={pinTargets}
+              onPins={setPinPositions}
+            />
+          )}
           {showCode && (
             <CodeView
               code={node.code}

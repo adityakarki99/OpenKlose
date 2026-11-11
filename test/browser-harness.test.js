@@ -1,13 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createKloseServer } from '../server/http.js';
 import * as store from '../server/store.js';
+import { writeSettings } from '../server/settings.js';
 
 // Built cards drawn through the component harness: a fake harness page on
 // another port echoes the `c`, export and `props` it was given. Needs
@@ -19,6 +20,10 @@ try {
 } catch {
   // Optional in local development.
 }
+
+// What was written on "this machine" is recorded under ~/.klose (server/sketchTrust.js); keep the tests' own.
+process.env.KLOSE_HOME = await mkdtemp(path.join(os.tmpdir(), 'klose-home-'));
+process.on('exit', () => rmSync(process.env.KLOSE_HOME, { recursive: true, force: true }));
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = path.join(root, 'web', 'dist');
@@ -135,10 +140,23 @@ test('fallback order: harness frame, snapshot, sandboxed restatement, placeholde
   await bare.page.close();
 });
 
-test('a node outside the registry stays a sandboxed restatement', { skip }, async () => {
+test('a sketch is framed at its harness address too, and stays a sandboxed restatement when sketches are set to sandbox', { skip }, async () => {
   await writeConfig(appPort);
-  const sketch = await open({ name: 'Idea', code: SKETCH_CODE });
-  await sketch.card.locator('iframe[title="Sketch preview"]').waitFor();
-  assert.equal(await sketch.card.locator('iframe[data-live-state]').count(), 0);
-  await sketch.page.close();
+  // Written on this machine, with a harness: the sketch is drawn by the app's bundler.
+  const real = await open({ name: 'Idea', code: SKETCH_CODE });
+  const iframe = real.card.locator('iframe[data-live-state]');
+  await iframe.waitFor();
+  assert.ok((await iframe.getAttribute('src')).startsWith(`http://127.0.0.1:${appPort}/__klose?c=`));
+  await real.page.close();
+
+  // With `sketches: sandbox` it is outside the registry, so only the sandbox draws it.
+  await writeSettings(cwd, { sketches: 'sandbox' });
+  try {
+    const sketch = await open({ name: 'Idea', code: SKETCH_CODE });
+    await sketch.card.locator('iframe[title="Sketch preview"]').waitFor();
+    assert.equal(await sketch.card.locator('iframe[data-live-state]').count(), 0);
+    await sketch.page.close();
+  } finally {
+    await writeSettings(cwd, { sketches: 'real' });
+  }
 });

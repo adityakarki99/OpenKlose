@@ -34,6 +34,7 @@ in ways a diff won't show you.
 | `browser-preview.test.js` | The built sandbox in headless Chromium (skipped without Playwright and `web/dist`) |
 | `browser-canvas.test.js` | The built canvas in headless Chromium: opening saves nothing, the agent's writes merge with unsaved edits and can't be undone, copy → sent → resolved, delete + Undo, zoom (keys, and a wheel over a preview), light-theme contrast. Same skip rule |
 | `merge.test.js` | `lib/merge.js` — merging the agent's version with edits not saved yet |
+| `flow.test.js` | `server/flow.js` and `klose flow` — plan validation (every problem at once), the step/state layout, `step`/`state`/`approval` through both stores, an approval cleared when the code changes (and in a shared-canvas merge), ready/blocked in `flow status`, approve/unapprove over the CLI. The header control itself is in `browser-canvas.test.js` |
 | `lint.test.js` | `server/lint.js` and `lib/lintText.js` — class extraction, which classes are literal design values, the Jev request/answer for token replacements, the copied text, and `lintFiles` (what `klose lint <folder>` runs over real source: which files are walked, and the lines each finding is on) |
 | `triage.test.js` | `server/triage.js` and `klose feedback --triage` — the per-sketch request, caching by key, stopping on a rejected key, and the stored `triage` reaching `klose feedback` over the CLI and HTTP |
 

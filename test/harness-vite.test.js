@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,9 +11,11 @@ import { validateHarnessConfig } from '../server/harnessCore.js';
 import { createKloseServer } from '../server/http.js';
 import * as store from '../server/store.js';
 
-// Vite auto-mode: Klose starts the repo's own Vite and serves a harness page
-// that imports a real component (which imports a sibling file, exactly what
-// the sandbox can't do). Needs the fixture's vite (resolved from the root
+// Klose's own Vite server (`server: "klose"`): Klose starts the repo's own Vite
+// and serves a harness page that imports a real component (which imports a
+// sibling file, exactly what the sandbox can't do), writing nothing to the repo.
+// It is opt-in: the fixture's klose.config.json says so. A Vite SPA without it
+// (fixtures/vite-app) gets the generated-files harness. Needs the fixture's vite (resolved from the root
 // node_modules) and a Node new enough for it; Playwright for the page check.
 
 let playwright;
@@ -24,7 +26,8 @@ try {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.join(here, 'fixtures', 'vite-app');
+const FIXTURE = path.join(here, 'fixtures', 'vite-managed');
+const SPA_FIXTURE = path.join(here, 'fixtures', 'vite-app');
 const vite = findRepoVite(FIXTURE);
 const nodeOk = !!vite && nodeSatisfies(vite.engines);
 const skipVite = nodeOk ? false : `vite unavailable or needs a newer Node than ${process.versions.node}`;
@@ -49,14 +52,19 @@ test('nodeSatisfies reads Vite-style engine ranges', () => {
   assert.equal(nodeSatisfies(undefined, '12.0.0'), true);
 });
 
-test('vite configs: devServer is optional, and a vite repo is detected without any config', async () => {
-  assert.deepEqual(validateHarnessConfig({ framework: 'vite' }).config.framework, 'vite');
-  assert.ok(validateHarnessConfig({ framework: 'expo' }).error, 'expo still needs a devServer');
+test('server "klose": devServer is optional, Vite only, and only used when klose.config.json asks for it', async () => {
+  const { config } = validateHarnessConfig({ framework: 'vite', server: 'klose' });
+  assert.equal(config.server, 'klose');
+  assert.ok(validateHarnessConfig({ framework: 'vite' }).error, 'the generated-files mode still needs a devServer');
+  assert.ok(validateHarnessConfig({ framework: 'expo', server: 'klose' }).error, 'Expo has no Klose-run server');
+  assert.ok(validateHarnessConfig({ framework: 'vite', server: 'nope' }).error);
+  assert.equal(validateHarnessConfig({ framework: 'vite', devServer: 'http://localhost:5173', server: 'repo' }).config.server, undefined);
   assert.equal(usesVite(FIXTURE), true);
   assert.equal(usesVite(path.join(here, 'fixtures', 'expo-app')), false);
   const found = await loadEffectiveHarnessConfig(FIXTURE);
-  assert.equal(found.auto, true);
+  assert.equal(found.managed, true);
   assert.equal(found.config.framework, 'vite');
+  assert.equal(await loadEffectiveHarnessConfig(SPA_FIXTURE), null, 'a Vite repo without config waits for the generated-files setup');
   assert.equal(await loadEffectiveHarnessConfig(await mkdtemp(path.join(os.tmpdir(), 'klose-novite-'))), null);
 });
 
@@ -79,13 +87,34 @@ test('a repo without vite installed gets a clear error, not a crash', async () =
   }
 });
 
-test('init and sync write nothing for a vite repo', async () => {
+test('init and sync write nothing for a repo that uses Klose\'s own Vite server', async () => {
   const before = await listing(FIXTURE);
   const result = await initHarness(FIXTURE);
-  assert.equal(result.auto, true);
-  assert.deepEqual(result.files, []);
-  assert.equal((await syncRegistry(FIXTURE, [])).result, 'auto');
+  assert.equal(result.managed, true);
+  assert.deepEqual(result.files, [{ file: 'klose.config.json', result: 'unchanged' }]);
+  assert.equal((await syncRegistry(FIXTURE, [])).result, 'managed');
   assert.deepEqual(await listing(FIXTURE), before);
+});
+
+test('a Vite SPA opts in with init --server=klose: only klose.config.json is written, and sketches stay in the sandbox', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'klose-spa-'));
+  try {
+    await cp(SPA_FIXTURE, dir, { recursive: true });
+    const before = await listing(dir);
+    const result = await initHarness(dir, { server: 'klose', providers: 'src/Providers.tsx' });
+    assert.equal(result.managed, true);
+    assert.deepEqual(result.files, [{ file: 'klose.config.json', result: 'created' }]);
+    assert.deepEqual(JSON.parse(await readFile(path.join(dir, 'klose.config.json'), 'utf-8')), { framework: 'vite', server: 'klose', providers: 'src/Providers.tsx' });
+    const sketch = { id: 'sk1', name: 'Sketch', code: 'export default () => null' };
+    const built = { id: 'b1', status: 'built', builtFilePath: 'src/Card.tsx', exportName: 'Card' };
+    const synced = await syncRegistry(dir, [{ nodes: [sketch, built] }]);
+    assert.equal(synced.result, 'managed');
+    assert.deepEqual(synced.keys, ['src/Card.tsx#Card'], 'built cards only: no sketch file is written');
+    assert.equal((await initHarness(dir)).managed, true, 'running init again keeps the mode');
+    assert.deepEqual(await listing(dir), [...before, path.join(dir, 'klose.config.json')].sort());
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('the harness page renders a real component that imports a sibling file, and writes no files', { skip: skipBrowser }, async () => {
